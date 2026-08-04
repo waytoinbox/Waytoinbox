@@ -1,0 +1,113 @@
+{% extends 'admin/base.html' %}
+{% block title %}Blocklist Monitor{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Blocklist Monitor</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Blocklist Monitor</h1>
+    <p class="admin-page-subtitle">{{ ip_total }} IP{{ ip_total|pluralize }} · {{ domain_total }} domain{{ domain_total|pluralize }} monitored</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search IP, domain, or user…"/>
+      </div>
+      <select name="tab" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="ip" {% if tab == 'ip' %}selected{% endif %}>IP Addresses</option>
+        <option value="domain" {% if tab == 'domain' %}selected{% endif %}>Domains</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q %}<a href="{% url 'admin_blocklist' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+{% if tab != 'domain' %}
+<!-- IP Table -->
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-server" style="color:var(--teal);margin-right:6px;"></i>IP Addresses</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ ip_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>IP Address</th><th>Owner</th><th>Listed</th><th>Last Checked</th><th>Added</th></tr></thead>
+      <tbody>
+        {% for ip in ip_page %}
+        <tr>
+          <td class="td-strong td-mono">{{ ip.ips }}</td>
+          <td style="font-size:12.5px;"><a href="{% url 'admin_user_detail' ip.user.pk %}" style="color:var(--teal);">{{ ip.user.user_email }}</a></td>
+          <td>
+            {% if ip.listed_count and ip.listed_count != '0' %}
+              <span class="badge badge-danger"><span class="badge-dot"></span>Listed ({{ ip.listed_count }})</span>
+            {% else %}
+              <span class="badge badge-success"><span class="badge-dot"></span>Clean</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ ip.last_monitor_date|date:"M j, Y H:i"|default:"Never" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ ip.created_date|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="admin-empty"><i class="fas fa-server"></i><div class="admin-empty-title">No IPs monitored</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if ip_page.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ ip_page.start_index }}–{{ ip_page.end_index }} of {{ ip_total }}</span>
+    <div class="admin-pagination-pages">
+      {% if ip_page.has_previous %}<a href="?tab=ip&{% if q %}q={{ q }}&{% endif %}page={{ ip_page.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in ip_page.paginator.page_range %}
+        {% if num == ip_page.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= ip_page.number|add:"-2" and num <= ip_page.number|add:"2" %}<a href="?tab=ip&{% if q %}q={{ q }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if ip_page.has_next %}<a href="?tab=ip&{% if q %}q={{ q }}&{% endif %}page={{ ip_page.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% else %}
+<!-- Domain Table -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-globe" style="color:var(--teal);margin-right:6px;"></i>Domains</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ domain_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Domain</th><th>Owner</th><th>Listed</th><th>Last Checked</th><th>Added</th></tr></thead>
+      <tbody>
+        {% for dom in domain_page %}
+        <tr>
+          <td class="td-strong">{{ dom.domain }}</td>
+          <td style="font-size:12.5px;"><a href="{% url 'admin_user_detail' dom.user.pk %}" style="color:var(--teal);">{{ dom.user.user_email }}</a></td>
+          <td>
+            {% if dom.listed_count and dom.listed_count != '0' %}
+              <span class="badge badge-danger"><span class="badge-dot"></span>Listed ({{ dom.listed_count }})</span>
+            {% else %}
+              <span class="badge badge-success"><span class="badge-dot"></span>Clean</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ dom.last_monitor_date|date:"M j, Y H:i"|default:"Never" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ dom.created_date|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="admin-empty"><i class="fas fa-globe"></i><div class="admin-empty-title">No domains monitored</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

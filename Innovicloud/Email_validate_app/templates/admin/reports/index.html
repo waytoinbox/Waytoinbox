@@ -1,0 +1,68 @@
+{% extends 'admin/base.html' %}
+{% block title %}Reports{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Reports</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Data Reports</h1>
+    <p class="admin-page-subtitle">Export platform data as CSV</p>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;">
+
+  {% for key, label in report_types.items %}
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">
+        {% if key == 'users' %}<i class="fas fa-users" style="color:var(--teal);margin-right:6px;"></i>
+        {% elif key == 'campaigns' %}<i class="fas fa-bullhorn" style="color:var(--teal);margin-right:6px;"></i>
+        {% elif key == 'validations' %}<i class="fas fa-check-circle" style="color:var(--teal);margin-right:6px;"></i>
+        {% elif key == 'payments' %}<i class="fas fa-credit-card" style="color:var(--teal);margin-right:6px;"></i>
+        {% elif key == 'subscriptions' %}<i class="fas fa-star" style="color:var(--teal);margin-right:6px;"></i>
+        {% endif %}
+        {{ label }} Report
+      </span>
+    </div>
+    <div style="padding:20px;">
+      <form method="get" action="{% url 'admin_reports_export' %}">
+        <input type="hidden" name="type" value="{{ key }}">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div>
+            <label style="font-size:12px;color:var(--ink-3);display:block;margin-bottom:4px;">From Date</label>
+            <input type="date" name="date_from" class="admin-input" style="font-size:13px;padding:7px 10px;">
+          </div>
+          <div>
+            <label style="font-size:12px;color:var(--ink-3);display:block;margin-bottom:4px;">To Date</label>
+            <input type="date" name="date_to" class="admin-input" style="font-size:13px;padding:7px 10px;">
+          </div>
+        </div>
+        <button type="submit" class="btn-admin btn-admin-primary" style="width:100%;">
+          <i class="fas fa-download"></i> Export {{ label }} CSV
+        </button>
+      </form>
+    </div>
+  </div>
+  {% endfor %}
+
+</div>
+
+<div class="admin-card" style="margin-top:24px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-info-circle" style="color:var(--teal);margin-right:6px;"></i>Export Notes</span>
+  </div>
+  <div style="padding:16px 20px;font-size:13px;color:var(--ink-3);line-height:1.7;">
+    <ul style="margin:0;padding-left:18px;">
+      <li>Leave dates blank to export all records.</li>
+      <li>Files download instantly — no background job needed.</li>
+      <li>Large exports (100k+ rows) may take a moment.</li>
+      <li>All times are stored and exported in UTC.</li>
+    </ul>
+  </div>
+</div>
+{% endblock %}

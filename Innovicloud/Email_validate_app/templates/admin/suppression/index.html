@@ -1,0 +1,103 @@
+{% extends 'admin/base.html' %}
+{% block title %}Suppression{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Suppression</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Suppression List</h1>
+    <p class="admin-page-subtitle">Unsubscribes, bounces, and complaints across all campaigns</p>
+  </div>
+</div>
+
+<!-- Type counts -->
+<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);max-width:500px;margin-bottom:20px;">
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Unsubscribes</span><div class="stat-card-icon grey"><i class="fas fa-user-minus"></i></div></div>
+    <div class="stat-card-value">{{ type_counts.unsubscribe|default:0 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Bounces</span><div class="stat-card-icon red"><i class="fas fa-undo"></i></div></div>
+    <div class="stat-card-value">{{ type_counts.bounce|default:0 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Complaints</span><div class="stat-card-icon warn"><i class="fas fa-exclamation"></i></div></div>
+    <div class="stat-card-value">{{ type_counts.complaint|default:0 }}</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search email or campaign…"/>
+      </div>
+      <select name="type" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not event_type %}selected{% endif %}>All Types</option>
+        <option value="unsubscribe" {% if event_type == 'unsubscribe' %}selected{% endif %}>Unsubscribes</option>
+        <option value="bounce" {% if event_type == 'bounce' %}selected{% endif %}>Bounces</option>
+        <option value="complaint" {% if event_type == 'complaint' %}selected{% endif %}>Complaints</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q or event_type %}<a href="{% url 'admin_suppression' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Type</th>
+          <th>Campaign</th>
+          <th>Owner</th>
+          <th>Event Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for event in page_obj %}
+        <tr>
+          <td class="td-strong">{{ event.email }}</td>
+          <td>
+            {% if event.event_type == 'unsubscribe' %}<span class="badge badge-grey">Unsubscribe</span>
+            {% elif event.event_type == 'bounce' %}<span class="badge badge-danger"><span class="badge-dot"></span>Bounce</span>
+            {% elif event.event_type == 'complaint' %}<span class="badge badge-warning">Complaint</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12.5px;">
+            <a href="{% url 'admin_campaign_detail' event.campaign.pk %}" style="color:var(--teal);">
+              {{ event.campaign.campaign_name|truncatechars:35 }}
+            </a>
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ event.user.user_email|default:"—" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ event.event_time|date:"M j, Y H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="admin-empty"><i class="fas fa-check-circle"></i><div class="admin-empty-title">No suppression events</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if event_type %}type={{ event_type }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if event_type %}type={{ event_type }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if event_type %}type={{ event_type }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

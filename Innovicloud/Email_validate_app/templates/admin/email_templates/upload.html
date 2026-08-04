@@ -1,0 +1,219 @@
+{% extends 'admin/base.html' %}
+{% block title %}{% if tmpl %}Edit Template{% else %}Upload Template{% endif %}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_email_templates' %}">Email Templates</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{% if tmpl %}Edit — {{ tmpl.name }}{% else %}Upload Template{% endif %}</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">{% if tmpl %}Edit Library Template{% else %}Upload Library Template{% endif %}</h1>
+    <p class="admin-page-subtitle">{% if tmpl %}Update an existing library template.{% else %}Add a new template to the library for all users.{% endif %}</p>
+  </div>
+</div>
+
+<div class="admin-card" style="max-width:860px;">
+  <div id="formMsg" style="display:none;padding:10px 14px;border-radius:8px;font-size:13px;margin-bottom:16px;"></div>
+
+  <!-- Name + Category row -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div>
+      <label class="admin-label">Template Name <span style="color:var(--danger);">*</span></label>
+      <input id="ftName" class="admin-input" type="text" maxlength="255"
+             placeholder="e.g. Monthly Newsletter"
+             value="{{ tmpl.name|default:'' }}">
+    </div>
+    <div>
+      <label class="admin-label">Category</label>
+      <select id="ftCategory" class="admin-input">
+        {% for val, label in categories %}
+          <option value="{{ val }}" {% if tmpl.category == val %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+  </div>
+
+  <!-- Subject + Status row -->
+  <div style="display:grid;grid-template-columns:1fr auto;gap:16px;margin-bottom:16px;align-items:end;">
+    <div>
+      <label class="admin-label">Email Subject</label>
+      <input id="ftSubject" class="admin-input" type="text" maxlength="500"
+             placeholder="e.g. Your June update is here"
+             value="{{ tmpl.subject|default:'' }}">
+    </div>
+    <div>
+      <label class="admin-label">Status</label>
+      <select id="ftActive" class="admin-input" style="min-width:130px;">
+        <option value="1" {% if not tmpl or tmpl.is_active %}selected{% endif %}>Active</option>
+        <option value="0" {% if tmpl and not tmpl.is_active %}selected{% endif %}>Inactive</option>
+      </select>
+    </div>
+  </div>
+
+  <hr style="border:none;border-top:1.5px solid var(--border);margin:20px 0;">
+
+  <!-- HTML Content -->
+  <div style="margin-bottom:16px;">
+    <label class="admin-label">
+      HTML Content <span style="color:var(--danger);">*</span>
+      <span style="font-weight:400;color:var(--ink-3);font-size:11px;margin-left:6px;">Paste raw HTML or upload a .html file</span>
+    </label>
+
+    <!-- File upload drop zone -->
+    <div id="htmlDropZone" style="border:2px dashed var(--border);border-radius:8px;padding:14px 18px;margin-bottom:10px;display:flex;align-items:center;gap:12px;cursor:pointer;transition:border-color .15s;">
+      <i class="fas fa-file-code" style="font-size:20px;color:var(--teal);"></i>
+      <div>
+        <div style="font-size:13px;font-weight:600;color:var(--ink);">Drop an HTML file here, or <span style="color:var(--teal);text-decoration:underline;">click to browse</span></div>
+        <div style="font-size:11.5px;color:var(--ink-3);margin-top:2px;">Accepts .html · Max 2 MB</div>
+      </div>
+      <input type="file" id="ftHtmlFile" accept=".html,.htm" style="display:none;">
+      <span id="htmlFileName" style="margin-left:auto;font-size:12px;color:var(--teal);display:none;"></span>
+    </div>
+
+    <textarea id="ftHtml" class="admin-input" rows="12"
+              placeholder="<!DOCTYPE html><html>…</html>"
+              style="font-family:monospace;font-size:12px;resize:vertical;">{{ tmpl.html_content|default:'' }}</textarea>
+  </div>
+
+  <hr style="border:none;border-top:1.5px solid var(--border);margin:20px 0;">
+
+  <!-- Design JSON -->
+  <div style="margin-bottom:24px;">
+    <label class="admin-label">
+      Design JSON
+      <span style="font-weight:400;color:var(--ink-3);font-size:11px;margin-left:6px;">Optional — paste from the visual builder so users can edit elements</span>
+    </label>
+    <div style="background:rgba(0,153,204,.05);border:1.5px solid rgba(0,153,204,.15);border-radius:8px;padding:10px 14px;font-size:12px;color:var(--ink-2);margin-bottom:10px;display:flex;gap:8px;align-items:flex-start;">
+      <i class="fas fa-info-circle" style="color:var(--teal);margin-top:1px;flex-shrink:0;"></i>
+      <span>Optional — build a template in the <strong>Template Builder</strong>, save it, open the browser console and run <code style="background:rgba(0,0,0,.06);padding:1px 5px;border-radius:4px;">JSON.stringify(builder.getDesign())</code>, then paste the result below.</span>
+    </div>
+    <textarea id="ftDesignJson" class="admin-input" rows="8"
+              placeholder='{"global":{…},"rows":[…]}'
+              style="font-family:monospace;font-size:12px;resize:vertical;">{{ design_json_str }}</textarea>
+    <div id="jsonValidMsg" style="font-size:11.5px;margin-top:4px;display:none;"></div>
+  </div>
+
+  <!-- Actions -->
+  <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+    <a href="{% url 'admin_email_templates' %}" class="btn-admin btn-admin-outline">Cancel</a>
+    <button id="ftSaveBtn" class="btn-admin btn-admin-primary">
+      <i class="fas fa-save"></i> {% if tmpl %}Update Template{% else %}Save Template{% endif %}
+    </button>
+  </div>
+</div>
+
+<script>
+var CSRF     = '{{ csrf_token }}';
+var SAVE_URL = {% if tmpl %}'{% url "admin_library_template_edit" tmpl.id %}'{% else %}'{% url "admin_library_template_upload" %}'{% endif %};
+
+var dropZone   = document.getElementById('htmlDropZone');
+var fileInput  = document.getElementById('ftHtmlFile');
+var htmlTa     = document.getElementById('ftHtml');
+var jsonTa     = document.getElementById('ftDesignJson');
+var fileNameEl = document.getElementById('htmlFileName');
+var jsonMsg    = document.getElementById('jsonValidMsg');
+
+/* ── HTML file picker / drop ───────────────────── */
+dropZone.addEventListener('click', function() { fileInput.click(); });
+dropZone.addEventListener('dragover',  function(e) { e.preventDefault(); dropZone.style.borderColor = 'var(--teal)'; });
+dropZone.addEventListener('dragleave', function()  { dropZone.style.borderColor = 'var(--border)'; });
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropZone.style.borderColor = 'var(--border)';
+  var file = e.dataTransfer.files[0];
+  if (file) readHtmlFile(file);
+});
+fileInput.addEventListener('change', function() {
+  if (this.files[0]) readHtmlFile(this.files[0]);
+});
+
+function readHtmlFile(file) {
+  if (file.size > 2 * 1024 * 1024) { WTI.toast('File too large (max 2 MB).', 'error'); return; }
+  var reader = new FileReader();
+  reader.onload = function(e) {
+    htmlTa.value = e.target.result;
+    fileNameEl.textContent = file.name;
+    fileNameEl.style.display = 'inline';
+    dropZone.style.borderColor = 'var(--teal)';
+  };
+  reader.readAsText(file);
+}
+
+/* ── Live JSON validation ──────────────────────── */
+jsonTa.addEventListener('input', function() {
+  var v = this.value.trim();
+  if (!v) { jsonMsg.style.display = 'none'; return; }
+  try {
+    JSON.parse(v);
+    jsonMsg.textContent = '✓ Valid JSON';
+    jsonMsg.style.color = 'var(--success, #059669)';
+  } catch(e) {
+    jsonMsg.textContent = '✗ Invalid JSON — ' + e.message;
+    jsonMsg.style.color = 'var(--danger)';
+  }
+  jsonMsg.style.display = 'block';
+});
+
+/* ── Save ──────────────────────────────────────── */
+document.getElementById('ftSaveBtn').addEventListener('click', function() {
+  var btn   = this;
+  var name  = document.getElementById('ftName').value.trim();
+  var html  = htmlTa.value.trim();
+  var json_ = jsonTa.value.trim();
+
+  document.getElementById('formMsg').style.display = 'none';
+
+  if (!name) { showMsg('Template name is required.', 'error'); return; }
+  if (!html) { showMsg('HTML content is required.', 'error'); return; }
+  if (json_) {
+    try { JSON.parse(json_); } catch(e) {
+      showMsg('Design JSON is not valid JSON: ' + e.message, 'error'); return;
+    }
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Saving…';
+
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('name',         name);
+  fd.append('category',     document.getElementById('ftCategory').value);
+  fd.append('subject',      document.getElementById('ftSubject').value.trim());
+  fd.append('is_active',    document.getElementById('ftActive').value);
+  fd.append('html_content', html);
+  fd.append('design_json',  json_);
+
+  fetch(SAVE_URL, { method: 'POST', body: fd })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status === 'ok') {
+      WTI.toast('Template saved!', 'success');
+      setTimeout(function() { window.location.href = '{% url "admin_email_templates" %}'; }, 800);
+    } else {
+      showMsg(d.message || 'Save failed.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> {% if tmpl %}Update Template{% else %}Save Template{% endif %}';
+    }
+  })
+  .catch(function() {
+    showMsg('Network error. Please try again.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> {% if tmpl %}Update Template{% else %}Save Template{% endif %}';
+  });
+});
+
+function showMsg(msg, type) {
+  var el = document.getElementById('formMsg');
+  el.textContent = msg;
+  el.style.background = type === 'error' ? 'rgba(220,38,38,.08)' : 'rgba(5,150,105,.08)';
+  el.style.color      = type === 'error' ? 'var(--danger)' : 'var(--success, #059669)';
+  el.style.border     = '1.5px solid ' + (type === 'error' ? 'rgba(220,38,38,.2)' : 'rgba(5,150,105,.2)');
+  el.style.display    = 'block';
+  el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+</script>
+{% endblock %}

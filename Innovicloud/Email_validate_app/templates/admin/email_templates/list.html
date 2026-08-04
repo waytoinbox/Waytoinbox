@@ -1,0 +1,192 @@
+{% extends 'admin/base.html' %}
+{% block title %}Email Templates{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Email Templates</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Email Templates</h1>
+    <p class="admin-page-subtitle">{{ library_total }} library · {{ user_total }} user templates</p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <a href="{% url 'admin_library_template_upload' %}" class="btn-admin btn-admin-outline">
+      <i class="fas fa-upload"></i> Upload Template
+    </a>
+    <a href="{% url 'admin_library_template_create' %}" class="btn-admin btn-admin-primary">
+      <i class="fas fa-plus"></i> Create in Builder
+    </a>
+  </div>
+</div>
+
+<form method="get" class="admin-filter-bar" style="margin-bottom:16px;">
+  <div class="admin-search">
+    <i class="fas fa-search"></i>
+    <input type="text" name="q" value="{{ q }}" placeholder="Search name or category…"/>
+  </div>
+  <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+  {% if q %}<a href="{% url 'admin_email_templates' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+</form>
+
+<!-- Library Templates -->
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-book" style="color:var(--teal);margin-right:6px;"></i>Library Templates</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ library_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Category</th>
+          <th>Subject</th>
+          <th>Design JSON</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tmpl in library_page %}
+        <tr id="lib-row-{{ tmpl.id }}">
+          <td class="td-strong">{{ tmpl.name }}</td>
+          <td><span class="badge badge-info">{{ tmpl.category|capfirst }}</span></td>
+          <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3);">{{ tmpl.subject|default:"—" }}</td>
+          <td>
+            {% if tmpl.design_json %}
+              <span class="badge badge-success"><i class="fas fa-check" style="margin-right:3px;"></i>Yes</span>
+            {% else %}
+              <span class="badge badge-grey">No</span>
+            {% endif %}
+          </td>
+          <td id="lib-badge-{{ tmpl.id }}">
+            {% if tmpl.is_active %}
+              <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+            {% else %}
+              <span class="badge badge-grey">Inactive</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ tmpl.created_at|date:"M j, Y" }}</td>
+          <td>
+            <div style="display:flex;gap:6px;flex-wrap:wrap;">
+              <a href="{% url 'admin_library_template_edit' tmpl.id %}"
+                 class="btn-admin btn-admin-sm btn-admin-outline" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              <button class="btn-admin btn-admin-sm btn-admin-outline lib-toggle-btn"
+                      data-id="{{ tmpl.id }}" data-active="{{ tmpl.is_active|yesno:'1,0' }}"
+                      title="Toggle active">
+                <i class="fas fa-toggle-{% if tmpl.is_active %}on{% else %}off{% endif %}"></i>
+              </button>
+              <button class="btn-admin btn-admin-sm btn-admin-danger lib-delete-btn"
+                      data-id="{{ tmpl.id }}" data-name="{{ tmpl.name|escapejs }}"
+                      title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="admin-empty">
+              <i class="fas fa-file-alt"></i>
+              <div class="admin-empty-title">No library templates</div>
+              <div style="margin-top:8px;">
+                <a href="{% url 'admin_library_template_upload' %}" class="btn-admin btn-admin-primary btn-admin-sm">
+                  <i class="fas fa-upload"></i> Upload your first template
+                </a>
+              </div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- User Templates -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-user" style="color:var(--teal);margin-right:6px;"></i>User Templates</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ user_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Owner</th>
+          <th>Subject</th>
+          <th>Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for tmpl in user_page %}
+        <tr>
+          <td class="td-strong">{{ tmpl.name }}</td>
+          <td style="font-size:12.5px;">{{ tmpl.user.user_email }}</td>
+          <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-3);">{{ tmpl.subject|default:"—" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ tmpl.created_at|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4"><div class="admin-empty"><i class="fas fa-file-alt"></i><div class="admin-empty-title">No user templates</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+var CSRF = '{{ csrf_token }}';
+
+/* ── Toggle active ──────────────────────────────── */
+document.querySelectorAll('.lib-toggle-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var id  = this.dataset.id;
+    var self = this;
+    self.disabled = true;
+    WTI.apiFetch('{% url "admin_library_template_toggle" 0 %}'.replace('/0/', '/' + id + '/'), {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(function(d) {
+      document.getElementById('lib-badge-' + id).innerHTML = d.badge_html;
+      var isOn = d.is_active;
+      self.querySelector('i').className = 'fas fa-toggle-' + (isOn ? 'on' : 'off');
+      self.dataset.active = isOn ? '1' : '0';
+      WTI.toast(isOn ? 'Template activated.' : 'Template deactivated.', 'success');
+    })
+    .catch(function() { WTI.toast('Failed to toggle template.', 'error'); })
+    .finally(function() { self.disabled = false; });
+  });
+});
+
+/* ── Delete ─────────────────────────────────────── */
+document.querySelectorAll('.lib-delete-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var id   = this.dataset.id;
+    var name = this.dataset.name;
+    Admin.Modal.confirm(
+      'Delete "' + name + '"?',
+      'This permanently removes the template from the library. Users who already duplicated it keep their copy.',
+      function() {
+        WTI.apiFetch('{% url "admin_library_template_delete" 0 %}'.replace('/0/', '/' + id + '/'), {
+          method: 'POST', headers: { 'X-CSRFToken': CSRF }
+        })
+        .then(function() {
+          var row = document.getElementById('lib-row-' + id);
+          if (row) row.remove();
+          WTI.toast('Template deleted.', 'success');
+        })
+        .catch(function() { WTI.toast('Failed to delete template.', 'error'); });
+      }
+    );
+  });
+});
+</script>
+{% endblock %}

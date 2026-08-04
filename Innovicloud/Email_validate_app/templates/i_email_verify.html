@@ -1,0 +1,299 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+<style>
+.cp-pag{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;}
+.cp-pag-info{color:var(--ink-3);}
+.cp-pag-btns{display:flex;align-items:center;gap:10px;}
+.cc-pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;}
+.cc-page-info{color:var(--ink-3);}
+.cc-page-btns{display:flex;align-items:center;gap:10px;}
+.cc-page-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink-2);font-size:13px;cursor:pointer;text-decoration:none;transition:background .15s;}
+.cc-page-btn:hover:not(.disabled){background:var(--bg-2);color:var(--ink);}
+.cc-page-btn.disabled{opacity:.45;cursor:default;pointer-events:none;}
+.cc-page-current{font-size:13px;color:var(--ink-3);min-width:48px;text-align:center;}
+</style>
+{% endblock %}
+{% block content %}
+
+
+
+<div class="sv-page">
+
+  <!-- ── VERIFY FORM CARD ──────────────────────────────── -->
+  <div class="sv-card">
+    <div class="sv-card-head">
+      <div class="sv-card-icon">✉️</div>
+      <div>
+        <h2>Single Email Verify</h2>
+        <p>Check any email address instantly — MX records, SMTP, and deliverability.</p>
+      </div>
+    </div>
+
+    <form id="mainForm1" novalidate>
+      {% csrf_token %}
+      <div class="sv-form">
+        <input
+          class="sv-input"
+          type="email" name="_email_" id="email"
+          placeholder="someone@company.com"
+          autocomplete="off" required
+        />
+        <button type="submit" class="sv-btn" id="svSubmitBtn">
+          <i class="fas fa-search"></i> Verify
+        </button>
+      </div>
+    </form>
+
+  </div>
+
+  <!-- ── HISTORY TABLE CARD ─────────────────────────────── -->
+  <div class="sv-table-card">
+    <div class="sv-table-head">
+      <h3>Verification History</h3>
+      {% if page_obj %}
+      <span class="sv-table-count">{{ page_obj.paginator.count }} record{{ page_obj.paginator.count|pluralize }}</span>
+      {% endif %}
+    </div>
+
+    {% include "includes/filter_bar.html" with pf_show_status=pf_show_status pf_statuses=pf_statuses pf_search_placeholder=pf_search_placeholder %}
+
+    <table class="sv-table">
+      <thead>
+        <tr>
+          <th style="width:40px;">#</th>
+          <th>Email Address</th>
+          <th>Status</th>
+          <th>MX Record</th>
+          <th>Date</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="evTbody">
+        {% if page_obj %}
+          {% for j in page_obj %}
+          <tr data-record-id="{{ j.id }}">
+            <td style="color:var(--ink-3);font-size:13px;text-align:center;">{{ forloop.counter0|add:page_obj.start_index }}</td>
+            <td data-label="Email">{{ j.email }}</td>
+            <td data-label="Status">
+              {% with status=j.mx_found.0|lower %}
+                <span class="status-pill
+                  {% if status == 'valid' %}pill-valid
+                  {% elif status == 'invalid' %}pill-invalid
+                  {% elif status == 'risky' %}pill-risky
+                  {% else %}pill-unknown{% endif %}">
+                  {% if status == 'valid' %}✓
+                  {% elif status == 'invalid' %}✗
+                  {% elif status == 'risky' %}⚠
+                  {% else %}?{% endif %}
+                  {{ j.mx_found.0 }}
+                </span>
+              {% endwith %}
+            </td>
+            <td data-label="MX Record">{{ j.mx_record }}</td>
+            <td data-label="Date"><span class="local-dt bl-date" data-utc="{{ j.insert_date|date:'c' }}">{{ j.insert_date }}</span></td>
+            <td>
+              <button class="sv-del-btn" onclick="hideHistory({{ j.id }}, this)" title="Remove from history">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% empty %}
+          <tr>
+            <td colspan="6" style="padding:0;border:none"></td>
+          </tr>
+          {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+
+    {% include "includes/empty_state.html" with pf_empty_icon="fa-search" pf_empty_title="No matching records" pf_empty_message="Try adjusting or clearing your filters." %}
+
+    {% if not page_obj or not page_obj.object_list %}
+    {% if not search and not status and not date_from and not date_to %}
+    <div class="sv-empty" id="svFirstEmptyState" {% if page_obj and page_obj.paginator.count == 0 %}{% else %}style="display:none"{% endif %}>
+      <div class="sv-empty-icon">📭</div>
+      No verification history yet. Verify your first email above.
+    </div>
+    {% endif %}
+    {% endif %}
+
+    {% include "includes/pagination.html" %}
+
+  </div>
+
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+/* ── PF filter system ─────────────────────────────── */
+PF.init({ debounce: 300, urlSync: true });
+PF.restoreFromURL();
+PF.wire(function () {
+  var f = PF.getFilters();
+  var p = new URLSearchParams();
+  if (f.search)   p.set('search',    f.search);
+  if (f.status)   p.set('status',    f.status);
+  if (f.dateFrom) p.set('date_from', f.dateFrom);
+  if (f.dateTo)   p.set('date_to',   f.dateTo);
+  window.location.href = '?' + p.toString();
+});
+
+/* ── Serial number renumbering ────────────────────── */
+var svPageStart = {{ page_obj.start_index|default:1 }};
+function svRenumber() {
+  document.querySelectorAll('#evTbody tr').forEach(function(r, i) {
+    var td = r.querySelector('td:first-child');
+    if (td) td.textContent = svPageStart + i;
+  });
+}
+
+/* ── Verify form ──────────────────────────────────── */
+var svForm = document.getElementById('mainForm1');
+
+function svClearResult() {
+  var old = svForm.parentNode.querySelector('.sv-result, .ev-flash');
+  if (old) old.remove();
+}
+
+function svShowResult(html) {
+  svClearResult();
+  svForm.insertAdjacentHTML('afterend', html);
+}
+
+svForm.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn   = document.getElementById('svSubmitBtn');
+  var email = document.getElementById('email').value.trim();
+  if (!email) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Verifying...';
+  svClearResult();
+
+  try {
+    var res  = await fetch("/api/validate/email/", { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+
+    if (data.status === 'ok') {
+      var r      = data.result.toLowerCase();
+      var icon   = r === 'valid' ? '&#10003;' : r === 'invalid' ? '&#10007;' : '&#9888;';
+      var reason = data.reason
+        ? '<div class="sv-result-row"><span class="sv-result-label">Reason</span><span class="sv-result-sep">:</span><span class="sv-result-val">' + data.reason + '</span></div>'
+        : '';
+
+      svShowResult(
+        '<div class="sv-result sv-result--' + r + '" style="margin-top:16px">' +
+          '<div class="sv-result-top">' +
+            '<span class="sv-result-email">' + data.email + '</span>' +
+            '<span class="sv-result-badge badge--' + r + '">' + icon + ' ' + data.result + '</span>' +
+          '</div>' +
+          '<div class="sv-result-rows">' +
+            '<div class="sv-result-row"><span class="sv-result-label">Email Status</span><span class="sv-result-sep">:</span><span class="sv-result-val">' + data.result + '</span></div>' +
+            '<div class="sv-result-row"><span class="sv-result-label">MX Record</span><span class="sv-result-sep">:</span><span class="sv-result-val mono">' + data.mx_record + '</span></div>' +
+            reason +
+          '</div>' +
+        '</div>'
+      );
+
+      /* ── Prepend new row to history table ── */
+      (function() {
+        var tbody = document.getElementById('evTbody');
+        if (!tbody) return;
+
+        // Hide the "no history yet" empty state
+        var emptyState = document.getElementById('svFirstEmptyState');
+        if (emptyState) emptyState.style.display = 'none';
+
+        // Update the count badge
+        var countEl = document.querySelector('.sv-table-count');
+        if (countEl) {
+          var m = countEl.textContent.match(/\d+/);
+          var n = m ? parseInt(m[0], 10) + 1 : 1;
+          countEl.textContent = n + ' record' + (n === 1 ? '' : 's');
+        }
+
+        var pillClass = r === 'valid' ? 'pill-valid' : r === 'invalid' ? 'pill-invalid' : r === 'risky' ? 'pill-risky' : 'pill-unknown';
+        var pillIcon  = r === 'valid' ? '✓' : r === 'invalid' ? '✗' : r === 'risky' ? '⚠' : '?';
+        var nowIso    = new Date().toISOString();
+        var nowDisp   = new Date().toLocaleString();
+        var safeEmail = data.email.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        var safeMX    = (data.mx_record || '—').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        var recId     = data.record_id || '';
+        var delBtn    = recId
+          ? '<button class="sv-del-btn" onclick="hideHistory(' + recId + ', this)" title="Remove from history"><i class="fas fa-trash"></i></button>'
+          : '';
+
+        var tr = document.createElement('tr');
+        tr.setAttribute('data-record-id', recId);
+        tr.innerHTML =
+          '<td style="color:var(--ink-3);font-size:13px;text-align:center;">' + svPageStart + '</td>' +
+          '<td data-label="Email">' + safeEmail + '</td>' +
+          '<td data-label="Status"><span class="status-pill ' + pillClass + '">' + pillIcon + ' ' + data.result + '</span></td>' +
+          '<td data-label="MX Record">' + safeMX + '</td>' +
+          '<td data-label="Date"><span class="local-dt bl-date" data-utc="' + nowIso + '">' + nowDisp + '</span></td>' +
+          '<td>' + delBtn + '</td>';
+        tbody.insertBefore(tr, tbody.firstChild);
+        svRenumber();
+      })();
+    } else {
+      svShowResult('<div class="ev-flash ev-flash--error" style="margin-top:12px">' + data.message + '</div>');
+    }
+
+  } catch (err) {
+    svShowResult('<div class="ev-flash ev-flash--error" style="margin-top:12px">Something went wrong. Please try again.</div>');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-search"></i> Verify';
+  }
+});
+
+/* ── Hide history row ─────────────────────────────── */
+function hideHistory(recordId, btn) {
+  if (!recordId) return;
+  var cell = btn.closest('td');
+  btn.style.display = 'none';
+  cell.insertAdjacentHTML('beforeend',
+    '<span class="sv-confirm">' +
+      'Remove? ' +
+      '<button class="sv-confirm-yes" onclick="doHideHistory(' + recordId + ', this)">&#10003;</button>' +
+      '<button class="sv-confirm-no" onclick="cancelHideHistory(this)">&#10007;</button>' +
+    '</span>'
+  );
+}
+
+function cancelHideHistory(btn) {
+  var cell = btn.closest('td');
+  cell.querySelector('.sv-confirm').remove();
+  cell.querySelector('.sv-del-btn').style.display = '';
+}
+
+function doHideHistory(recordId, btn) {
+  var row  = btn.closest('tr');
+  var cell = btn.closest('td');
+  cell.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+  var csrf = document.querySelector('[name=csrfmiddlewaretoken]').value;
+  var fd   = new FormData();
+  fd.append('record_id', recordId);
+  fd.append('csrfmiddlewaretoken', csrf);
+  fetch("{% url 'hide_email_history' %}", { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        row.style.transition = 'opacity 0.3s';
+        row.style.opacity    = '0';
+        setTimeout(function() { row.remove(); svRenumber(); }, 300);
+      } else {
+        cell.querySelector('.sv-confirm').remove();
+        cell.querySelector('.sv-del-btn').style.display = '';
+      }
+    })
+    .catch(function() {
+      cell.querySelector('.sv-confirm').remove();
+      cell.querySelector('.sv-del-btn').style.display = '';
+    });
+}
+</script>
+
+{% endblock %}

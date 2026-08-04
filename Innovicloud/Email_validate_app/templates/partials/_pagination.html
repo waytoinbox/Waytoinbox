@@ -1,0 +1,9 @@
+{# bl-pag pagination bar. Pass: bar_id, info_id, prev_id, cur_id, next_id #}
+<div class="bl-pag" id="{{ bar_id }}">
+  <span class="bl-pag-info" id="{{ info_id }}"></span>
+  <div class="bl-pag-btns">
+    <button class="bl-pag-btn disabled" id="{{ prev_id }}"><i class="fas fa-chevron-left"></i> Prev</button>
+    <span class="bl-pag-cur" id="{{ cur_id }}"></span>
+    <button class="bl-pag-btn" id="{{ next_id }}">Next <i class="fas fa-chevron-right"></i></button>
+  </div>
+</div>

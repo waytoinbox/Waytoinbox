@@ -1,0 +1,752 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaigns.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="ec-page">
+
+  <div class="ec-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">🛡️</div>
+      <div>
+        <h2>Sender Verify</h2>
+        <p>Verify your sender domains and email addresses before use in campaigns.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab toggle -->
+  <div style="display:flex;justify-content:flex-start;">
+    <div class="pricing-toggle-inner">
+      <button class="ptab active" id="tabDomain" onclick="svSwitchTab('domain', this)">
+        <i class="fas fa-globe" style="margin-right:6px;"></i>Domain Verify
+      </button>
+      <button class="ptab" id="tabEmail" onclick="svSwitchTab('email', this)">
+        <i class="fas fa-envelope" style="margin-right:6px;"></i>Email Verify
+      </button>
+    </div>
+  </div>
+
+  {% if error %}
+  <div class="ec-card" style="padding:20px 24px;color:#C94A1D;">
+    <i class="fas fa-exclamation-triangle"></i> {{ error }}
+  </div>
+  {% else %}
+
+  <!-- Add Domain — top card -->
+  <div class="ec-card" id="panelDomainAdd">
+    <div class="sv-add-row">
+      <input type="text" id="newDomain" placeholder="example.com" />
+      <button class="sv-action-btn" id="addDomainBtn" style="border-color:var(--teal);color:var(--teal);"
+        onclick="addDomain()">
+        <i class="fas fa-plus"></i> Add &amp; Verify Domain
+      </button>
+    </div>
+  </div>
+
+  <!-- Domains list — bottom card -->
+  <div class="ec-card" id="panelDomain">
+    <div class="sv-section-title">
+      <span><i class="fas fa-globe"></i> &nbsp;Domains ({{ domains|length }})</span>
+    </div>
+    {% if domains %}
+    <div class="pf-bar" id="domainPfBar">
+      <div class="pf-search-wrap">
+        <i class="fas fa-search pf-search-icon"></i>
+        <input id="domainSearch" type="text" class="pf-input" placeholder="Search domains…" autocomplete="off">
+        <button id="domainSearchClear" class="pf-input-clear" style="display:none" type="button">×</button>
+      </div>
+      <select id="domainStatusFilter" class="pf-select">
+        <option value="">All Status</option>
+        <option value="verified">Verified</option>
+        <option value="pending">Pending</option>
+      </select>
+      <label class="pf-label" for="domainDateFrom">From</label>
+      <input id="domainDateFrom" type="date" class="pf-date">
+      <label class="pf-label" for="domainDateTo">To</label>
+      <input id="domainDateTo" type="date" class="pf-date">
+      <button id="domainClearFilter" class="pf-clear" type="button" style="display:none">
+        <i class="fas fa-times"></i> Clear
+      </button>
+      <span class="pf-count" id="domainPfCount"></span>
+    </div>
+    {% endif %}
+
+    {% if domains %}
+    <div class="ec-table-wrap">
+      <table class="ec-table">
+        <thead>
+          <tr>
+            <th style="width:40px;">#</th>
+            <th>Domain</th>
+            <th>Status</th>
+            <th>Added</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in domains %}
+          <tr data-search="{{ d.identity }}"
+              data-status="{% if d.verified %}verified{% else %}pending{% endif %}"
+              data-date="{{ d.added_at|date:'Y-m-d' }}">
+            <td style="color:var(--ink-3);font-size:13px;text-align:center;">{{ forloop.counter }}</td>
+            <td style="font-family:monospace;font-size:13.5px;color:var(--ink);">{{ d.identity }}</td>
+            <td class="sv-status-cell">
+              {% if d.verified %}
+                <span class="sv-badge verified"><i class="fas fa-check-circle"></i> Verified</span>
+              {% else %}
+                <span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="font-size:13px;color:var(--ink-2);">
+                <span class="ltime ltime-date" data-utc="{{ d.added_at|date:'c' }}">{{ d.added_at|date:"M d, Y" }}</span>
+              </div>
+              <div class="ec-sub">
+                <span class="ltime ltime-time" data-utc="{{ d.added_at|date:'c' }}">{{ d.added_at|date:"H:i" }}</span>
+              </div>
+            </td>
+            <td style="white-space:nowrap;text-align:right;">
+              <button class="sv-action-btn"
+                onclick="refreshDomain('{{ d.identity }}', this)">
+                <i class="fas fa-sync-alt"></i> Refresh
+              </button>
+              <a class="sv-action-btn" style="margin-left:4px;text-decoration:none;"
+                href="{% url 'sender_verify_dns' %}?domain={{ d.identity }}">
+                <i class="fas fa-list"></i> DNS Records
+              </a>
+              <button class="sv-del-btn" style="margin-left:4px;" title="Remove"
+                onclick="openSvDelModal('{{ d.identity }}', this.closest('tr'))">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if domains|length > 3 %}
+    <div class="cc-pagination" id="domainPagBar">
+      <span class="cc-page-info" id="domainPageInfo"></span>
+      <div class="cc-page-btns">
+        <button class="cc-page-btn disabled" id="domainPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cc-page-current" id="domainPageNum"></span>
+        <button class="cc-page-btn" id="domainNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="padding:24px 20px;color:var(--ink-3);font-size:13.5px;">No domains added yet.</div>
+    {% endif %}
+
+  </div>
+
+  <!-- Add Email — top card -->
+  <div class="ec-card" id="panelEmailAdd" style="display:none;">
+    <div class="sv-add-row">
+      <div style="display:flex;flex-direction:column;gap:4px;flex:1;">
+        <input type="text" id="newEmail" placeholder="sender@yourdomain.com" autocomplete="off"
+          oninput="validateEmailInput(this)" style="flex:1;" />
+        <span id="emailSyntaxMsg" style="font-size:11.5px;color:#C94A1D;display:none;padding-left:2px;"></span>
+      </div>
+      <button class="sv-action-btn" id="checkEmailBtn" style="border-color:var(--teal);color:var(--teal);"
+        onclick="checkEmailDomain()">
+        <i class="fas fa-plus"></i> Add Email
+      </button>
+    </div>
+  </div>
+
+  <!-- Email list — bottom card -->
+  <div class="ec-card" id="panelEmail" style="display:none;">
+    <div class="sv-section-title">
+      <span><i class="fas fa-envelope"></i> &nbsp;Email Addresses ({{ emails|length }})</span>
+    </div>
+    {% if emails %}
+    <div class="pf-bar" id="emailPfBar">
+      <div class="pf-search-wrap">
+        <i class="fas fa-search pf-search-icon"></i>
+        <input id="emailSearch" type="text" class="pf-input" placeholder="Search emails…" autocomplete="off">
+        <button id="emailSearchClear" class="pf-input-clear" style="display:none" type="button">×</button>
+      </div>
+      <select id="emailStatusFilter" class="pf-select">
+        <option value="">All Status</option>
+        <option value="verified">Verified</option>
+        <option value="pending">Pending</option>
+        <option value="not_found">Not Found</option>
+      </select>
+      <label class="pf-label" for="emailDateFrom">From</label>
+      <input id="emailDateFrom" type="date" class="pf-date">
+      <label class="pf-label" for="emailDateTo">To</label>
+      <input id="emailDateTo" type="date" class="pf-date">
+      <button id="emailClearFilter" class="pf-clear" type="button" style="display:none">
+        <i class="fas fa-times"></i> Clear
+      </button>
+      <span class="pf-count" id="emailPfCount"></span>
+    </div>
+    {% endif %}
+
+    {% if emails %}
+    <div class="ec-table-wrap">
+      <table class="ec-table">
+        <thead>
+          <tr>
+            <th style="width:40px;">#</th>
+            <th>Email Address</th>
+            <th>Domain</th>
+            <th>Domain Status</th>
+            <th>Added</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in emails %}
+          <tr data-search="{{ e.email }}" data-status="{{ e.domain_status }}" data-date="{{ e.created_at|date:'Y-m-d' }}">
+            <td style="color:var(--ink-3);font-size:13px;text-align:center;">{{ forloop.counter }}</td>
+            <td style="font-size:13.5px;color:var(--ink);">{{ e.email }}</td>
+            <td style="font-size:13px;color:var(--ink-3);font-family:monospace;">{{ e.domain }}</td>
+            <td>
+              {% if e.domain_status == 'verified' %}
+                <span class="sv-badge verified"><i class="fas fa-check-circle"></i> Verified</span>
+              {% elif e.domain_status == 'pending' %}
+                <span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>
+              {% else %}
+                <span class="sv-badge notstarted"><i class="fas fa-times-circle"></i> Not Found</span>
+              {% endif %}
+            </td>
+            <td>
+              <div style="font-size:13px;color:var(--ink-2);">
+                <span class="ltime ltime-date" data-utc="{{ e.created_at|date:'c' }}">{{ e.created_at|date:"M d, Y" }}</span>
+              </div>
+              <div class="ec-sub">
+                <span class="ltime ltime-time" data-utc="{{ e.created_at|date:'c' }}">{{ e.created_at|date:"H:i" }}</span>
+              </div>
+            </td>
+            <td style="white-space:nowrap;text-align:right;">
+              <button class="sv-del-btn" title="Remove"
+                onclick="openSvDelModal('{{ e.email }}', this.closest('tr'))">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if emails|length > 3 %}
+    <div class="cc-pagination" id="emailPagBar">
+      <span class="cc-page-info" id="emailPageInfo"></span>
+      <div class="cc-page-btns">
+        <button class="cc-page-btn disabled" id="emailPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cc-page-current" id="emailPageNum"></span>
+        <button class="cc-page-btn" id="emailNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% endif %}
+    {% else %}
+    <div style="padding:24px 20px;color:var(--ink-3);font-size:13.5px;">No email addresses added yet.</div>
+    {% endif %}
+
+  </div>
+
+  {% endif %}
+</div>
+
+<!-- Delete Confirm Modal -->
+<div class="bl-del-modal" id="svDelModal">
+  <div class="bl-del-modal-box">
+    <h4>Remove Domain</h4>
+    <p class="bl-del-modal-sub">Type <strong id="svDelTarget"></strong> below to confirm removal.</p>
+    <input class="bl-del-modal-input" type="text" id="svDelInput" placeholder="Type here to confirm" autocomplete="off"/>
+    <div class="bl-del-modal-actions">
+      <button class="bl-del-modal-cancel" onclick="closeSvDelModal()">Cancel</button>
+      <button class="bl-del-modal-confirm" id="svDelConfirmBtn" disabled onclick="doSvDelete()">Remove</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Toast -->
+<div id="svToast" style="
+  position:fixed;bottom:28px;right:28px;z-index:2000;
+  background:var(--ink);color:#fff;
+  padding:12px 20px;border-radius:var(--radius-sm);
+  font-size:13.5px;font-family:var(--font-head);font-weight:600;
+  box-shadow:var(--shadow-md);
+  opacity:0;transform:translateY(8px);transition:all .25s;
+  pointer-events:none;max-width:340px;
+"></div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+var ACTION_URL = '{% url "sender_verify_action" %}';
+var DNS_PAGE_URL = '{% url "sender_verify_dns" %}';
+
+function svSwitchTab(tab, btn) {
+  document.getElementById('panelDomainAdd').style.display = tab === 'domain' ? '' : 'none';
+  document.getElementById('panelDomain').style.display    = tab === 'domain' ? '' : 'none';
+  document.getElementById('panelEmailAdd').style.display  = tab === 'email'  ? '' : 'none';
+  document.getElementById('panelEmail').style.display     = tab === 'email'  ? '' : 'none';
+  document.querySelectorAll('.ptab').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+}
+var CSRF = '{{ csrf_token }}';
+
+function post(data) {
+  return fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(data),
+  }).then(function(r) {
+    return r.json().catch(function() {
+      return { status: 'error', message: 'Server error (' + r.status + ')' };
+    });
+  });
+}
+
+function _emailError(msg) {
+  var el = document.getElementById('emailSyntaxMsg');
+  if (el) { el.textContent = msg; el.style.display = msg ? '' : 'none'; }
+}
+
+function validateEmailInput(input) {
+  var val = input.value.trim();
+  if (!val) { _emailError(''); return; }
+  var err = _checkEmailSyntax(val);
+  _emailError(err || '');
+}
+
+function _checkEmailSyntax(email) {
+  if (!email) return 'Email address is required.';
+  if (email.indexOf(' ') !== -1) return 'Email address must not contain spaces.';
+  var parts = email.split('@');
+  if (parts.length < 2) return 'Missing "@" — enter a valid email like user@domain.com.';
+  if (parts.length > 2) return 'Email address must contain only one "@".';
+  var local = parts[0], domain = parts[1];
+  if (!local) return 'Missing local part before "@".';
+  if (local.length > 64) return 'Local part (before @) must be 64 characters or less.';
+  if (!domain) return 'Missing domain after "@".';
+  if (domain.indexOf('.') === -1) return 'Domain must contain at least one dot (e.g. gmail.com).';
+  if (/^\./.test(domain) || /\.$/.test(domain)) return 'Domain must not start or end with a dot.';
+  if (domain.split('.').pop().length < 2) return 'Invalid top-level domain (e.g. .com, .net).';
+  if (!/^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+$/.test(local)) return 'Local part contains invalid characters.';
+  if (!/^[a-zA-Z0-9.-]+$/.test(domain)) return 'Domain contains invalid characters.';
+  return null;
+}
+
+function checkEmailDomain() {
+  var email = document.getElementById('newEmail').value.trim();
+  if (!email) { _emailError('Email address is required.'); return; }
+  var syntaxErr = _checkEmailSyntax(email);
+  if (syntaxErr) { _emailError(syntaxErr); return; }
+  _emailError('');
+  var btn = document.getElementById('checkEmailBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Adding…';
+  post({ action: 'check_email', identity: email }).then(function(d) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus"></i> Add Email';
+    if (d.status !== 'ok') { WTI.toast(d.message, 'error'); return; }
+    if (d.already_added) { WTI.toast(email + ' is already in the list.', 'warning'); return; }
+    document.getElementById('newEmail').value = '';
+    injectEmailRow(email, d.domain, d.domain_status);
+    if (_emailPag) { _emailPag.goFirst(); }
+    var msg = d.domain_status === 'verified'
+      ? 'Domain ' + d.domain + ' is verified.'
+      : d.domain_status === 'pending'
+        ? 'Domain ' + d.domain + ' is pending verification.'
+        : 'Domain ' + d.domain + ' not found in Domain Verify.';
+    WTI.toast(msg, d.domain_status === 'verified' ? 'success' : 'warning');
+  }).catch(function() {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus"></i> Add Email';
+    WTI.toast('Request failed. Please try again.', 'error');
+  });
+}
+
+function _domainStatusBadge(ds) {
+  if (ds === 'verified') return '<span class="sv-badge verified"><i class="fas fa-check-circle"></i> Verified</span>';
+  if (ds === 'pending')  return '<span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>';
+  return '<span class="sv-badge notstarted"><i class="fas fa-times-circle"></i> Not Found</span>';
+}
+
+function svEmailRenumber() {
+  document.querySelectorAll('#panelEmail tbody tr').forEach(function(r, i) {
+    var td = r.querySelector('td:first-child');
+    if (td) td.textContent = i + 1;
+  });
+}
+
+function svDomainRenumber() {
+  document.querySelectorAll('#panelDomain tbody tr').forEach(function(r, i) {
+    var td = r.querySelector('td:first-child');
+    if (td) td.textContent = i + 1;
+  });
+}
+
+function injectEmailRow(email, domain, domainStatus) {
+  var panel = document.getElementById('panelEmail');
+  var empty = panel.querySelector('div[style*="No email"]');
+  if (empty) {
+    empty.remove();
+    var wrap = document.createElement('div');
+    wrap.className = 'ec-table-wrap';
+    wrap.innerHTML = '<table class="ec-table"><thead><tr>'
+      + '<th style="width:40px;">#</th>'
+      + '<th>Email Address</th><th>Domain</th><th>Domain Status</th><th>Added</th><th></th>'
+      + '</tr></thead><tbody></tbody></table>';
+    panel.appendChild(wrap);
+  }
+
+  var tbody = panel.querySelector('tbody');
+  var now = new Date();
+  var dateStr = now.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  var timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  var nowIso = now.toISOString().slice(0, 10);
+
+  var tr = document.createElement('tr');
+  tr.dataset.search = email;
+  tr.dataset.status = domainStatus;
+  tr.dataset.date   = nowIso;
+  tr.innerHTML = ''
+    + '<td style="color:var(--ink-3);font-size:13px;text-align:center;">1</td>'
+    + '<td style="font-size:13.5px;color:var(--ink);">' + email + '</td>'
+    + '<td style="font-size:13px;color:var(--ink-3);font-family:monospace;">' + domain + '</td>'
+    + '<td>' + _domainStatusBadge(domainStatus) + '</td>'
+    + '<td><div style="font-size:13px;color:var(--ink-2);">' + dateStr + '</div>'
+    + '<div class="ec-sub">' + timeStr + '</div></td>'
+    + '<td style="white-space:nowrap;text-align:right;">'
+    + '<button class="sv-del-btn" title="Remove"'
+    + ' onclick="openSvDelModal(\'' + email + '\',this.closest(\'tr\'))">'
+    + '<i class="fas fa-trash"></i></button></td>';
+
+  tbody.insertBefore(tr, tbody.firstChild);
+  svEmailRenumber();
+}
+
+function addDomain() {
+  var domain = document.getElementById('newDomain').value.trim().toLowerCase();
+  if (!domain) { WTI.toast('Enter a domain name.', 'error'); return; }
+  if (domain.indexOf('@') !== -1) { WTI.toast('Enter a domain only (e.g. example.com), not an email address.', 'error'); return; }
+  if (!/^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/.test(domain)) { WTI.toast('Invalid domain format. Enter a valid domain like example.com.', 'error'); return; }
+  var btn = document.getElementById('addDomainBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Verifying…';
+  post({ action: 'verify_domain', identity: domain }).then(function(d) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus"></i> Add &amp; Verify Domain';
+    if (d.status !== 'ok') { WTI.toast(d.message, 'error'); return; }
+    WTI.toast(d.message, 'success');
+    if (d.warning) { WTI.toast(d.warning, 'warning'); }
+    document.getElementById('newDomain').value = '';
+    injectDomainRow(domain);
+  }).catch(function() {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus"></i> Add &amp; Verify Domain';
+    WTI.toast('Request failed. Please try again.', 'error');
+  });
+}
+
+function injectDomainRow(domain) {
+  var panel = document.getElementById('panelDomain');
+  var empty = panel.querySelector('div[style*="No domains"]');
+  if (empty) {
+    empty.remove();
+    var wrap = document.createElement('div');
+    wrap.className = 'ec-table-wrap';
+    wrap.innerHTML = '<table class="ec-table"><thead><tr>'
+      + '<th style="width:40px;">#</th>'
+      + '<th>Domain</th><th>Status</th><th>Added</th><th></th>'
+      + '</tr></thead><tbody></tbody></table>';
+    panel.appendChild(wrap);
+  }
+
+  var tbody = panel.querySelector('tbody');
+
+  var now = new Date();
+  var dateStr = now.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+  var timeStr = now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+  var nowIso  = new Date().toISOString().slice(0, 10);
+  var pending = '<span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>';
+
+  var tr = document.createElement('tr');
+  tr.dataset.search = domain;
+  tr.dataset.status = 'pending';
+  tr.dataset.date   = nowIso;
+  tr.innerHTML = ''
+    + '<td style="color:var(--ink-3);font-size:13px;text-align:center;">1</td>'
+    + '<td style="font-family:monospace;font-size:13.5px;color:var(--ink);">' + domain + '</td>'
+    + '<td class="sv-status-cell">' + pending + '</td>'
+    + '<td><div style="font-size:13px;color:var(--ink-2);">' + dateStr + '</div>'
+    + '<div class="ec-sub">' + timeStr + '</div></td>'
+    + '<td style="white-space:nowrap;text-align:right;">'
+    + '<button class="sv-action-btn" onclick="refreshDomain(\'' + domain + '\',this)">'
+    + '<i class="fas fa-sync-alt"></i> Refresh</button>'
+    + ' <button class="sv-action-btn" style="margin-left:4px;" onclick="showDnsRecords(\'' + domain + '\')">'
+    + '<i class="fas fa-list"></i> DNS Records</button>'
+    + ' <button class="sv-del-btn" style="margin-left:4px;" title="Remove"'
+    + ' onclick="openSvDelModal(\'' + domain + '\',this.closest(\'tr\'))">'
+    + '<i class="fas fa-trash"></i></button></td>';
+
+  tbody.insertBefore(tr, tbody.firstChild);
+  svDomainRenumber();
+
+  var title = panel.querySelector('.sv-section-title');
+  if (title) {
+    var count = panel.querySelectorAll('tbody tr').length;
+    title.innerHTML = '<i class="fas fa-globe"></i> &nbsp;Domains (' + count + ')';
+  }
+}
+
+
+function svBadge(status) {
+  return status === 'verified'
+    ? '<span class="sv-badge verified"><i class="fas fa-check-circle"></i> Verified</span>'
+    : '<span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>';
+}
+
+function refreshDomain(domain, btn) {
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+  post({ action: 'refresh_domain', identity: domain }).then(function(d) {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+    if (d.status !== 'ok') { WTI.toast(d.message, 'error'); return; }
+
+    var row = btn.closest('tr');
+    var verified = d.domain_status === 'verified';
+    row.dataset.status = verified ? 'verified' : 'pending';
+
+    var statusTd = row.querySelector('.sv-status-cell');
+    if (statusTd) statusTd.innerHTML = svBadge(verified ? 'verified' : 'pending');
+
+    WTI.toast(
+      verified ? domain + ' verified successfully!'
+               : domain + ' — still pending.',
+      verified ? 'success' : 'warning'
+    );
+  }).catch(function() {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sync-alt"></i> Refresh';
+    WTI.toast('Request failed. Please try again.', 'error');
+  });
+}
+
+
+var _svDelIdentity = null;
+var _svDelRow      = null;
+
+function openSvDelModal(identity, row) {
+  _svDelIdentity = identity;
+  _svDelRow      = row;
+  document.getElementById('svDelTarget').textContent = identity;
+  document.getElementById('svDelInput').value = '';
+  document.getElementById('svDelConfirmBtn').disabled = true;
+  document.getElementById('svDelModal').classList.add('show');
+  document.getElementById('svDelInput').focus();
+}
+
+function closeSvDelModal() {
+  document.getElementById('svDelModal').classList.remove('show');
+  _svDelIdentity = null;
+  _svDelRow      = null;
+}
+
+document.getElementById('svDelInput').addEventListener('input', function() {
+  document.getElementById('svDelConfirmBtn').disabled = (this.value !== _svDelIdentity);
+});
+
+document.getElementById('svDelModal').addEventListener('click', function(e) {
+  if (e.target === this) closeSvDelModal();
+});
+
+function doSvDelete() {
+  if (!_svDelIdentity) return;
+  var identity = _svDelIdentity;
+  var row      = _svDelRow;
+  closeSvDelModal();
+  post({ action: 'delete', identity: identity }).then(function(d) {
+    WTI.toast(d.message, d.status === 'ok' ? 'success' : 'error');
+    if (d.status === 'ok' && row) {
+      var isEmailRow = !!row.closest('#panelEmail');
+      row.style.transition = 'opacity .4s';
+      row.style.opacity = '0';
+      setTimeout(function() {
+        row.remove();
+        if (isEmailRow) svEmailRenumber(); else svDomainRenumber();
+      }, 400);
+    }
+  });
+}
+
+
+/* ── Client-side pagination ─────────────────────────────── */
+function svPaginate(tbodyId, prevId, nextId, infoId, numId, barId) {
+  var tbody   = document.querySelector('#' + tbodyId + ' tbody');
+  if (!tbody) return;
+  var bar     = document.getElementById(barId);
+  var prevBtn = document.getElementById(prevId);
+  var nextBtn = document.getElementById(nextId);
+  var infoEl  = document.getElementById(infoId);
+  var numEl   = document.getElementById(numId);
+  var PAGE    = 3;
+  var cur     = 1;
+
+  function rows() { return tbody.querySelectorAll('tr'); }
+
+  function render() {
+    var all   = rows();
+    var total = all.length;
+    var pages = Math.ceil(total / PAGE) || 1;
+    if (cur > pages) cur = pages;
+    var start = (cur - 1) * PAGE;
+    var end   = Math.min(start + PAGE, total);
+    all.forEach(function(tr, i) {
+      tr.style.display = (i >= start && i < end) ? '' : 'none';
+    });
+    if (infoEl) infoEl.textContent = 'Showing ' + (start + 1) + '–' + end + ' of ' + total;
+    if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+    if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+    if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+    if (bar) bar.style.display = total <= PAGE ? 'none' : '';
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', function() { if (cur > 1) { cur--; render(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function() {
+    if (cur < Math.ceil(rows().length / PAGE)) { cur++; render(); }
+  });
+
+  render();
+  return { refresh: render, goFirst: function() { cur = 1; render(); } };
+}
+
+var _domainPag = svPaginate('panelDomain',  'domainPrevBtn', 'domainNextBtn', 'domainPageInfo', 'domainPageNum', 'domainPagBar');
+var _emailPag  = svPaginate('panelEmail',   'emailPrevBtn',  'emailNextBtn',  'emailPageInfo',  'emailPageNum',  'emailPagBar');
+
+// ── Domain filter ────────────────────────────────────────────────────────────
+function applyDomainFilter() {
+  var q      = document.getElementById('domainSearch') ? document.getElementById('domainSearch').value.trim() : '';
+  var status = document.getElementById('domainStatusFilter') ? document.getElementById('domainStatusFilter').value.trim().toLowerCase() : '';
+  var from   = document.getElementById('domainDateFrom') ? document.getElementById('domainDateFrom').value : '';
+  var to     = document.getElementById('domainDateTo')   ? document.getElementById('domainDateTo').value   : '';
+  var panel  = document.getElementById('panelDomain');
+  if (!panel) return;
+  var tbody  = panel.querySelector('tbody');
+  if (!tbody) return;
+  var hasFilters = q || status || from || to;
+  var clearBtn = document.getElementById('domainClearFilter');
+  if (clearBtn) clearBtn.style.display = hasFilters ? '' : 'none';
+  var sc = document.getElementById('domainSearchClear');
+  if (sc) sc.style.display = q ? '' : 'none';
+  var bar = document.getElementById('domainPagBar');
+  var visible = 0;
+  Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+    var rowStatus = tr.dataset.status || '';
+    var statusMatch = !status || status === rowStatus;
+    var match = PF.matchesSearch(tr.dataset.search || tr.textContent, q)
+              && statusMatch
+              && PF.matchesDate(tr.dataset.date || '', from, to);
+    tr.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  if (hasFilters) {
+    if (bar) bar.style.display = 'none';
+  } else if (_domainPag) {
+    _domainPag.refresh();
+  }
+  var countEl = document.getElementById('domainPfCount');
+  if (countEl) {
+    var total = tbody.querySelectorAll('tr').length;
+    countEl.innerHTML = (hasFilters && visible !== total)
+      ? 'Showing <strong>' + visible + '</strong> of <strong>' + total + '</strong>'
+      : '';
+  }
+}
+
+(function() {
+  var dSearch = document.getElementById('domainSearch');
+  var dSC     = document.getElementById('domainSearchClear');
+  var dStatus = document.getElementById('domainStatusFilter');
+  var dFrom   = document.getElementById('domainDateFrom');
+  var dTo     = document.getElementById('domainDateTo');
+  var dClear  = document.getElementById('domainClearFilter');
+  var _dt = null;
+  function dRun() { clearTimeout(_dt); _dt = setTimeout(applyDomainFilter, 250); }
+  if (dSearch) dSearch.addEventListener('input', dRun);
+  if (dSC)     dSC.addEventListener('click', function() { dSearch.value = ''; applyDomainFilter(); dSearch.focus(); });
+  if (dStatus) dStatus.addEventListener('change', applyDomainFilter);
+  if (dFrom)   dFrom.addEventListener('change', applyDomainFilter);
+  if (dTo)     dTo.addEventListener('change', applyDomainFilter);
+  if (dClear)  dClear.addEventListener('click', function() {
+    if (dSearch) dSearch.value = '';
+    if (dStatus) dStatus.value = '';
+    if (dFrom)   dFrom.value   = '';
+    if (dTo)     dTo.value     = '';
+    applyDomainFilter();
+  });
+})();
+
+// ── Email filter ──────────────────────────────────────────────────────────────
+function applyEmailFilter() {
+  var q      = document.getElementById('emailSearch')       ? document.getElementById('emailSearch').value.trim()              : '';
+  var status = document.getElementById('emailStatusFilter') ? document.getElementById('emailStatusFilter').value.trim().toLowerCase() : '';
+  var from   = document.getElementById('emailDateFrom')     ? document.getElementById('emailDateFrom').value                  : '';
+  var to     = document.getElementById('emailDateTo')       ? document.getElementById('emailDateTo').value                    : '';
+  var panel  = document.getElementById('panelEmail');
+  if (!panel) return;
+  var tbody  = panel.querySelector('tbody');
+  if (!tbody) return;
+  var hasFilters = q || status || from || to;
+  var clearBtn = document.getElementById('emailClearFilter');
+  if (clearBtn) clearBtn.style.display = hasFilters ? '' : 'none';
+  var sc = document.getElementById('emailSearchClear');
+  if (sc) sc.style.display = q ? '' : 'none';
+  var bar = document.getElementById('emailPagBar');
+  var visible = 0;
+  Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+    var match = PF.matchesSearch(tr.dataset.search || tr.textContent, q)
+              && PF.matchesStatus(tr.dataset.status || '', status)
+              && PF.matchesDate(tr.dataset.date || '', from, to);
+    tr.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+  if (hasFilters) {
+    if (bar) bar.style.display = 'none';
+  } else if (_emailPag) {
+    _emailPag.refresh();
+  }
+  var countEl = document.getElementById('emailPfCount');
+  if (countEl) {
+    var total = tbody.querySelectorAll('tr').length;
+    countEl.innerHTML = (hasFilters && visible !== total)
+      ? 'Showing <strong>' + visible + '</strong> of <strong>' + total + '</strong>'
+      : '';
+  }
+}
+
+(function() {
+  var eSearch = document.getElementById('emailSearch');
+  var eSC     = document.getElementById('emailSearchClear');
+  var eStatus = document.getElementById('emailStatusFilter');
+  var eFrom   = document.getElementById('emailDateFrom');
+  var eTo     = document.getElementById('emailDateTo');
+  var eClear  = document.getElementById('emailClearFilter');
+  var _et = null;
+  function eRun() { clearTimeout(_et); _et = setTimeout(applyEmailFilter, 250); }
+  if (eSearch) eSearch.addEventListener('input', eRun);
+  if (eSC)     eSC.addEventListener('click', function() { eSearch.value = ''; applyEmailFilter(); eSearch.focus(); });
+  if (eStatus) eStatus.addEventListener('change', applyEmailFilter);
+  if (eFrom)   eFrom.addEventListener('change', applyEmailFilter);
+  if (eTo)     eTo.addEventListener('change', applyEmailFilter);
+  if (eClear)  eClear.addEventListener('click', function() {
+    if (eSearch) eSearch.value = '';
+    if (eStatus) eStatus.value = '';
+    if (eFrom)   eFrom.value   = '';
+    if (eTo)     eTo.value     = '';
+    applyEmailFilter();
+  });
+})();
+</script>
+{% endblock %}

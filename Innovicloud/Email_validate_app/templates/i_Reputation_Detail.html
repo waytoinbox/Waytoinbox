@@ -1,0 +1,382 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/reputation_detail.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="rd-page">
+
+  <!-- ── HEADER ────────────────────────────────────────── -->
+  <div class="rd-header-card">
+    <div class="rd-header-left">
+      <div class="rd-header-icon">📊</div>
+      <div>
+        <div class="rd-domain">{{ rep.domain }}</div>
+        <div class="rd-meta">
+          Added {{ rep.created_at|date:"M d, Y" }} &nbsp;·&nbsp;
+          <span class="rd-status {% if rep.status == 'verified' %}rd-status-verified{% else %}rd-status-unverified{% endif %}">
+            {% if rep.status == 'verified' %}<i class="fas fa-check"></i> Verified{% else %}<i class="fas fa-arrow-down"></i> Unverified{% endif %}
+          </span>
+        </div>
+      </div>
+    </div>
+    <a href="{% url 'Reputation_Analysis' %}" class="rd-back-btn">
+      <i class="fas fa-arrow-left"></i> Back to Reputation Analysis
+    </a>
+  </div>
+
+  {% if rep.status != 'verified' %}
+  <div class="rd-placeholder">
+    <div class="rd-placeholder-icon">🔒</div>
+    <h3>No Results Yet</h3>
+    <p>This domain is <strong>not verified</strong>. Verify ownership to view reputation data and related insights.</p>
+  </div>
+  {% elif results %}
+
+  <!-- ── SUMMARY STATS ──────────────────────────────────── -->
+  <div class="rd-stats-row">
+    <div class="rd-stat-card">
+      <div class="rd-stat-label">Total Records</div>
+      <div class="rd-stat-value">{{ results|length }}</div>
+      <div class="rd-stat-sub">data points available</div>
+    </div>
+    <div class="rd-stat-card">
+      <div class="rd-stat-label">Latest Date</div>
+      <div class="rd-stat-value" style="font-size:16px;">{{ results.0.date|date:"M d, Y" }}</div>
+      <div class="rd-stat-sub">most recent entry</div>
+    </div>
+    <div class="rd-stat-card">
+      <div class="rd-stat-label">Domain Reputation</div>
+      <div class="rd-stat-value" style="font-size:16px;">{{ results.0.domain_reputation|default:"—" }}</div>
+      <div class="rd-stat-sub">latest reading</div>
+    </div>
+    <div class="rd-stat-card">
+      <div class="rd-stat-label">Spam Rate</div>
+      <div class="rd-stat-value" style="font-size:16px;">
+        {% if results.0.spam_rate is not None %}{{ results.0.spam_rate|floatformat:4 }}%{% else %}—{% endif %}
+      </div>
+      <div class="rd-stat-sub">latest reading</div>
+    </div>
+  </div>
+
+  <!-- ── DOMAIN REPUTATION CHART ───────────────────────── -->
+  <div class="rd-chart-card">
+    <div class="rd-chart-head" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h3>Domain Reputation</h3>
+        <div class="rd-legend" style="margin-top:6px;">
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#00be00;"></span>High</span>
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#ffa200;"></span>Medium</span>
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#ff6600;"></span>Low</span>
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#c60404;"></span>Bad</span>
+        </div>
+      </div>
+      <select class="rd-range-select" onchange="updateRepChart(+this.value)">
+        <option value="7">Last 7 Days</option>
+        <option value="15">Last 15 Days</option>
+        <option value="30">Last 30 Days</option>
+        <option value="60">Last 60 Days</option>
+        <option value="90">Last 90 Days</option>
+        <option value="120" selected>Last 120 Days</option>
+        <option value="180">Last 180 Days</option>
+        <option value="365">Last 365 Days</option>
+      </select>
+    </div>
+    <div class="rd-chart-wrap">
+      <canvas id="domainRepChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── SPAM RATE CHART ────────────────────────────────── -->
+  <div class="rd-chart-card">
+    <div class="rd-chart-head" style="justify-content:space-between;flex-wrap:wrap;gap:10px;">
+      <div>
+        <h3>Spam Rate</h3>
+        <div class="rd-legend" style="margin-top:6px;">
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#00be00;"></span>Good (&lt; 0.1%)</span>
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#ffa200;"></span>Warning (0.1–1%)</span>
+          <span class="rd-legend-item"><span class="rd-legend-dot" style="background:#c60404;"></span>Bad (≥ 1%)</span>
+        </div>
+      </div>
+      <select class="rd-range-select" onchange="updateSpamChart(+this.value)">
+        <option value="7">Last 7 Days</option>
+        <option value="15">Last 15 Days</option>
+        <option value="30">Last 30 Days</option>
+        <option value="60">Last 60 Days</option>
+        <option value="90">Last 90 Days</option>
+        <option value="120" selected>Last 120 Days</option>
+        <option value="180">Last 180 Days</option>
+        <option value="365">Last 365 Days</option>
+      </select>
+    </div>
+    <div class="rd-chart-wrap">
+      <canvas id="spamRateChart"></canvas>
+    </div>
+  </div>
+
+  <!-- ── IP REPUTATION CHART ───────────────────────────── -->
+  <div class="rd-chart-card">
+    <div class="rd-chart-head" style="justify-content:space-between;">
+      <h3>IP Reputation</h3>
+      <select class="rd-range-select" onchange="updateIpChart(+this.value)">
+        <option value="7">Last 7 Days</option>
+        <option value="15">Last 15 Days</option>
+        <option value="30">Last 30 Days</option>
+        <option value="60">Last 60 Days</option>
+        <option value="90">Last 90 Days</option>
+        <option value="120" selected>Last 120 Days</option>
+        <option value="180">Last 180 Days</option>
+        <option value="365">Last 365 Days</option>
+      </select>
+    </div>
+    <div class="rd-chart-wrap" style="height:320px;">
+      <canvas id="ipRepChart"></canvas>
+    </div>
+  </div>
+
+  {% endif %}
+
+
+</div>
+
+<script>
+(function () {
+  // ── All raw data from Django (oldest → newest) ─────────
+  var ALL_DATA = [
+    {% for r in results reversed %}
+    {
+      date:       "{{ r.date|date:'Y-m-d' }}",
+      label:      "{{ r.date|date:'M d, Y' }}",
+      rep:        "{{ r.domain_reputation|default:'' }}",
+      spam:       {% if r.spam_rate is not None %}{{ r.spam_rate }}{% else %}null{% endif %},
+      ip:         {{ r.ip_reputation|default:"[]"|safe }}
+    }{% if not forloop.last %},{% endif %}
+    {% endfor %}
+  ];
+
+  // ── Chart instances ─────────────────────────────────────
+  var repChart, spamChart, ipChart;
+  var _ipData = [];
+
+  // ── Constants ───────────────────────────────────────────
+  var REP_LEVELS = { 'HIGH': 4, 'MEDIUM': 3, 'LOW': 2, 'BAD': 1 };
+  var REP_LABELS = { 4: 'High', 3: 'Medium', 2: 'Low', 1: 'Bad' };
+  var REP_COLORS = { 4: '#00be00', 3: '#ffa200', 2: '#ff0000', 1: '#c60404' };
+  var IP_CATS    = [
+    { key: 'BAD',    label: 'Bad',    color: '#cc1212' },
+    { key: 'LOW',    label: 'Low',    color: '#ff0000' },
+    { key: 'MEDIUM', label: 'Medium', color: '#ffa200' },
+    { key: 'HIGH',   label: 'High',   color: '#00be00' },
+  ];
+
+  // ── Filter data by last N days ──────────────────────────
+  function filterData(days) {
+    var cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+    return ALL_DATA.filter(function(d) {
+      return new Date(d.date) >= cutoff;
+    });
+  }
+
+  // ── Build domain reputation chart ──────────────────────
+  function buildRepChart(data) {
+    var labels = data.map(function(d) { return d.label; });
+    var values = data.map(function(d) { return REP_LEVELS[d.rep] || null; });
+    var colors = values.map(function(v) { return v ? REP_COLORS[v] : '#cccccc'; });
+
+    if (repChart) {
+      repChart.data.labels = labels;
+      repChart.data.datasets[0].data = values;
+      repChart.data.datasets[0].pointBackgroundColor = colors;
+      repChart.update();
+      return;
+    }
+    var canvas = document.getElementById('domainRepChart');
+    if (!canvas) return;
+    repChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Domain Reputation',
+          data: values,
+          borderColor: '#4A90D9',
+          backgroundColor: 'rgba(74,144,217,0.08)',
+          borderWidth: 2.5,
+          pointBackgroundColor: colors,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 16, font: { size: 12 } } },
+          tooltip: { callbacks: { label: function(ctx) { return ' ' + (REP_LABELS[ctx.raw] || 'No data'); } } }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 11 }, maxTicksLimit: 12 } },
+          y: {
+            min: 0.5, max: 4.5,
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            afterBuildTicks: function(axis) {
+              axis.ticks = [{ value: 1 }, { value: 2 }, { value: 3 }, { value: 4 }];
+            },
+            ticks: {
+              callback: function(v) {
+                return { 1: 'Bad', 2: 'Low', 3: 'Medium', 4: 'High' }[v] || '';
+              },
+              font: { size: 11 }
+            },
+          }
+        }
+      }
+    });
+  }
+
+  // ── Build spam rate chart ───────────────────────────────
+  function buildSpamChart(data) {
+    var labels = data.map(function(d) { return d.label; });
+    var values = data.map(function(d) { return d.spam !== null ? +(d.spam * 100).toFixed(4) : null; });
+    var colors = values.map(function(v) {
+      if (v === null) return '#cccccc';
+      if (v < 0.1)   return '#00be00';
+      if (v < 1)     return '#ffa200';
+      return '#c60404';
+    });
+
+    if (spamChart) {
+      spamChart.data.labels = labels;
+      spamChart.data.datasets[0].data = values;
+      spamChart.data.datasets[0].pointBackgroundColor = colors;
+      spamChart.update();
+      return;
+    }
+    var canvas = document.getElementById('spamRateChart');
+    if (!canvas) return;
+    spamChart = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Spam Rate',
+          data: values,
+          borderColor: '#4A90D9',
+          backgroundColor: 'rgba(74,144,217,0.08)',
+          borderWidth: 2.5,
+          pointBackgroundColor: colors,
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
+          pointRadius: 5,
+          pointHoverRadius: 7,
+          tension: 0.3,
+          fill: true,
+          spanGaps: true,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 16, font: { size: 12 } } },
+          tooltip: { callbacks: { label: function(ctx) { return ctx.raw !== null ? ' ' + ctx.raw + '%' : ' No data'; } } }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 11 }, maxTicksLimit: 12 } },
+          y: {
+            min: 0,
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { callback: function(v) { return v + '%'; }, font: { size: 11 } },
+            title: { display: true, text: 'Spam rate (%)', font: { size: 11 }, color: '#888' }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Build IP reputation chart ───────────────────────────
+  function buildIpChart(data) {
+    _ipData = data;
+    var labels = data.map(function(d) { return d.label; });
+
+    var datasets = IP_CATS.map(function(cat) {
+      var vals = data.map(function(d) {
+        if (!d.ip || !d.ip.length) return null;
+        var total = d.ip.reduce(function(s, i) { return s + (parseInt(i.ipCount) || 0); }, 0);
+        if (!total) return null;
+        var found = d.ip.find(function(i) { return (i.reputation || '').toUpperCase() === cat.key; });
+        var count = found ? (parseInt(found.ipCount) || 0) : 0;
+        return +((count / total) * 100).toFixed(2);
+      });
+      return { label: cat.label, data: vals, backgroundColor: cat.color, borderRadius: 3, borderSkipped: false, barThickness: 10 };
+    });
+
+    if (ipChart) {
+      ipChart.data.labels = labels;
+      ipChart.data.datasets.forEach(function(ds, i) { ds.data = datasets[i].data; });
+      ipChart.update();
+      return;
+    }
+    var canvas = document.getElementById('ipRepChart');
+    if (!canvas) return;
+    ipChart = new Chart(canvas, {
+      type: 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, position: 'top', align: 'end', labels: { boxWidth: 10, boxHeight: 10, borderRadius: 2, font: { size: 12 } } },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                if (ctx.raw === null) return ' ' + ctx.dataset.label + ': No data';
+                var lines = [' ' + ctx.dataset.label + ': ' + ctx.raw + '%'];
+                var d = _ipData[ctx.dataIndex];
+                if (d && d.ip) {
+                  var catKey = IP_CATS[ctx.datasetIndex].key;
+                  var found = d.ip.find(function(i) { return (i.reputation || '').toUpperCase() === catKey; });
+                  if (found) {
+                    lines.push(' IP count: ' + (found.ipCount || 0));
+                    if (found.sampleIps && found.sampleIps.length) {
+                      found.sampleIps.forEach(function(ip) { lines.push('  • ' + ip); });
+                    }
+                  }
+                }
+                return lines;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { grid: { color: 'rgba(0,0,0,0.06)' }, ticks: { font: { size: 11 }, maxTicksLimit: 12 } },
+          y: {
+            min: 0, max: 100,
+            grid: { color: 'rgba(0,0,0,0.06)' },
+            ticks: { stepSize: 25, callback: function(v) { return v + '%'; }, font: { size: 11 } },
+            title: { display: true, text: 'Volume of IPs in each reputation group', font: { size: 11 }, color: '#888' }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Per-chart update functions ──────────────────────────
+  window.updateRepChart  = function(days) { buildRepChart(filterData(days)); };
+  window.updateSpamChart = function(days) { buildSpamChart(filterData(days)); };
+  window.updateIpChart   = function(days) { buildIpChart(filterData(days)); };
+
+  // ── Initial render (120 days each) ──────────────────────
+  var init = filterData(120);
+  buildRepChart(init);
+  buildSpamChart(init);
+  buildIpChart(init);
+
+})();
+</script>
+
+{% endblock %}

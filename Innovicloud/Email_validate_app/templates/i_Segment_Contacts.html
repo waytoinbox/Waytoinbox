@@ -1,0 +1,173 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/segments.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="sg-page">
+
+  <!-- Back + header -->
+  <a href="{% url 'segments' %}" class="sgb-back"><i class="fas fa-arrow-left"></i> Back to Segments</a>
+
+  <div class="sg-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">👥</div>
+      <div>
+        <h2>{{ segment.name }}</h2>
+        <p>Contacts matching this segment{% if segment.description %} — {{ segment.description|truncatechars:80 }}{% endif %}</p>
+      </div>
+    </div>
+    <a href="{% url 'segment_download' segment.id %}" class="btn btn-primary btn-sm">
+      <i class="fas fa-download"></i> Download CSV
+    </a>
+  </div>
+
+  <!-- Contacts card -->
+  <div class="sg-card">
+    <div class="sg-bar">
+      <span class="sg-bar-title" id="scBarTitle"><i class="fas fa-users"></i>&nbsp; Loading…</span>
+      <div class="sg-search-wrap">
+        <input type="text" id="scSearch" class="sg-search-input" placeholder="Search contacts…" autocomplete="off"/>
+        <button class="sg-search-clear" id="scSearchClear" tabindex="-1"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+
+    <div class="sg-table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Email</th>
+            <th>First Name</th>
+            <th>Last Name</th>
+            <th>Status</th>
+            <th>Date Added</th>
+          </tr>
+        </thead>
+        <tbody id="scTableBody">
+          <tr id="scLoading">
+            <td colspan="6" style="text-align:center;padding:40px 20px;color:var(--ink-3);font-size:13.5px;">
+              <i class="fas fa-circle-notch fa-spin" style="margin-right:6px;"></i> Loading contacts…
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="sg-pag" id="scPagBar" style="display:none;">
+      <span class="sg-pag-info" id="scPagInfo"></span>
+      <div class="sg-pag-btns">
+        <button class="sg-pag-btn disabled" id="scPrev"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="sg-pag-cur" id="scPagNum"></span>
+        <button class="sg-pag-btn disabled" id="scNext">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SEG_ID  = {{ segment.id }};
+const PAGE_URL = `/Email_Campaigns/segments/${SEG_ID}/contacts/page/`;
+let _scPage   = 1;
+let _scTotal  = 0;
+let _scPages  = 1;
+let _scQ      = '';
+let _scTimer  = null;
+
+const SUB_LABELS = {
+  subscribed:       { cls:'active',   text:'Subscribed' },
+  unsubscribed:     { cls:'inactive', text:'Unsubscribed' },
+  never_subscribed: { cls:'inactive', text:'Never Subscribed' },
+};
+
+function scRenderRows(contacts){
+  const tbody = document.getElementById('scTableBody');
+  tbody.innerHTML = '';
+  if(!contacts.length){
+    tbody.innerHTML = '<tr><td colspan="6"><div class="sg-empty" style="padding:40px 20px;"><i class="fas fa-users"></i><p>No contacts match your search.</p></div></td></tr>';
+    return;
+  }
+  const offset = (_scPage - 1) * 20;
+  contacts.forEach((c, i) => {
+    const sub = SUB_LABELS[c.subscribed] || { cls:'inactive', text:c.subscribed };
+    const tr  = document.createElement('tr');
+    tr.innerHTML =
+      `<td class="muted">${offset + i + 1}</td>`+
+      `<td style="font-weight:500;color:var(--ink);">${_esc(c.email)}</td>`+
+      `<td>${_esc(c.first_name||'—')}</td>`+
+      `<td>${_esc(c.last_name||'—')}</td>`+
+      `<td><span class="sg-badge ${sub.cls}">${sub.text}</span></td>`+
+      `<td class="muted">${_esc(c.date_added||'')}</td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+function _esc(s){
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function scUpdatePag(){
+  const bar  = document.getElementById('scPagBar');
+  const info = document.getElementById('scPagInfo');
+  const num  = document.getElementById('scPagNum');
+  bar.style.display = _scTotal > 20 ? 'flex' : 'none';
+  const start = _scTotal ? (_scPage-1)*20+1 : 0;
+  const end   = Math.min(_scPage*20, _scTotal);
+  info.textContent = _scTotal ? `Showing ${start}–${end} of ${_scTotal.toLocaleString()}` : 'No results';
+  num.textContent  = `${_scPage} / ${_scPages}`;
+  document.getElementById('scPrev').classList.toggle('disabled', _scPage<=1);
+  document.getElementById('scNext').classList.toggle('disabled', _scPage>=_scPages);
+}
+
+async function scFetch(page, q){
+  const params = new URLSearchParams({ page, q });
+  let data;
+  try {
+    const res = await fetch(`${PAGE_URL}?${params}`);
+    data = await res.json();
+  } catch(e) {
+    document.getElementById('scTableBody').innerHTML =
+      '<tr><td colspan="6" style="text-align:center;padding:32px;color:#be123c;">Failed to load contacts.</td></tr>';
+    return;
+  }
+  if(data.status !== 'ok') return;
+  _scPage  = data.page;
+  _scTotal = data.total;
+  _scPages = data.pages;
+  document.getElementById('scBarTitle').innerHTML =
+    `<i class="fas fa-users"></i>&nbsp; Contacts (${data.total.toLocaleString()})`;
+  scRenderRows(data.contacts);
+  scUpdatePag();
+}
+
+function scLoad(page){
+  _scPage = page;
+  scFetch(page, _scQ);
+}
+
+/* Prev / Next */
+document.getElementById('scPrev').addEventListener('click', ()=>{ if(_scPage>1) scLoad(_scPage-1); });
+document.getElementById('scNext').addEventListener('click', ()=>{ if(_scPage<_scPages) scLoad(_scPage+1); });
+
+/* Search */
+const scSearchInput = document.getElementById('scSearch');
+const scSearchClear = document.getElementById('scSearchClear');
+scSearchInput.addEventListener('input', function(){
+  _scQ = this.value.trim();
+  scSearchClear.style.display = _scQ ? 'block' : 'none';
+  clearTimeout(_scTimer);
+  _scTimer = setTimeout(()=>scLoad(1), 350);
+});
+scSearchClear.addEventListener('click', ()=>{
+  scSearchInput.value='';
+  _scQ='';
+  scSearchClear.style.display='none';
+  scLoad(1);
+});
+
+/* Initial load */
+scLoad(1);
+</script>
+{% endblock %}

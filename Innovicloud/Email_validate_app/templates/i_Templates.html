@@ -1,0 +1,566 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/templates_page.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="tpl-page">
+
+  <!-- Header -->
+  <div class="tpl-header">
+    <div class="tpl-header-left" style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--lg">🎨</div>
+      <div>
+        <h1>Templates</h1>
+        <p>Build, manage and reuse your email templates</p>
+      </div>
+    </div>
+    <a href="{% url 'template_builder' %}?from=templates" class="btn btn-primary">
+      <i class="fas fa-plus"></i> Create New
+    </a>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tpl-tabs" style="align-items:center;">
+    <button class="tpl-tab active" data-tab="my">
+      <i class="fas fa-layer-group"></i> My Templates <span class="tpl-count">{{ user_templates|length }}</span>
+    </button>
+    <button class="tpl-tab" data-tab="used">
+      <i class="fas fa-paper-plane"></i> Used in Campaigns <span class="tpl-count">{{ used_templates|length }}</span>
+    </button>
+    <button class="tpl-tab" data-tab="library">
+      <i class="fas fa-th-large"></i> Template Library <span class="tpl-count">{{ library_templates|length }}</span>
+    </button>
+    <div class="sv-search-wrap" style="margin-left:auto;">
+      <input type="text" id="tplSearch" class="sv-search-input" placeholder="Search templates…" autocomplete="off"/>
+      <button class="sv-search-clear" id="tplSearchClear" tabindex="-1"><i class="fas fa-times"></i></button>
+    </div>
+  </div>
+
+  <!-- My Templates -->
+  <div class="tpl-section" id="tabMy">
+    {% if user_templates %}
+    <div class="tpl-grid" id="myGrid">
+      {% for t in user_templates %}
+      <div class="tpl-card" id="tplCard{{ t.id }}">
+        <div class="tpl-card-preview">
+          <iframe id="uFrame{{ t.id }}" sandbox="" scrolling="no" tabindex="-1" loading="lazy"></iframe>
+          <div class="tpl-preview-overlay">
+            <div class="tpl-overlay-name">{{ t.name }}</div>
+            <div class="tpl-overlay-date"><i class="fas fa-clock"></i> Updated {{ t.updated_at|date:"M j, Y" }}</div>
+            <div class="tpl-overlay-badge">
+              {% if t.in_active_campaign %}
+                <span class="tpl-badge-status tpl-badge-scheduled">In scheduled campaign</span>
+              {% elif t.used_in_campaign %}
+                <span class="tpl-badge-status tpl-badge-used">Used in campaign</span>
+              {% else %}
+                <span class="tpl-badge-status tpl-badge-unused">Not used</span>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        <div class="tpl-card-body">
+          <div class="tpl-card-actions">
+            <a href="{% url 'template_builder' %}?template_id={{ t.id }}&from=templates"
+               class="btn btn-sm btn-outline tpl-my-edit-btn"
+               data-id="{{ t.id }}"
+               {% if t.in_active_campaign %}data-used="true"{% endif %}>
+              <i class="fas fa-edit"></i> Edit
+            </a>
+            <button class="btn btn-sm btn-danger tpl-delete-btn"
+                    data-id="{{ t.id }}" data-name="{{ t.name|escapejs }}">
+              <i class="fas fa-trash"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="cp-pag" id="myPagBar">
+      <span class="cp-pag-info" id="myPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="myPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="myPagNum"></span>
+        <button class="cp-pag-btn" id="myNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% else %}
+    <div class="tpl-empty">
+      <i class="fas fa-file-circle-plus"></i>
+      <p>No templates yet.<br>
+         <a href="{% url 'template_builder' %}?from=templates">Create your first template</a> or use one from the library.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Used in Campaigns -->
+  <div class="tpl-section" id="tabUsed" style="display:none;">
+    {% if used_templates %}
+    <div class="tpl-grid" id="usedGrid">
+      {% for t in used_templates %}
+      <div class="tpl-card">
+        <div class="tpl-card-preview">
+          <iframe id="usdFrame{{ t.id }}" sandbox="" scrolling="no" tabindex="-1" loading="lazy"></iframe>
+          <div class="tpl-preview-overlay">
+            <div class="tpl-overlay-name">{{ t.name }}</div>
+            <div class="tpl-overlay-date"><i class="fas fa-paper-plane"></i> Sent {{ t.sent_at|date:"M j, Y" }}</div>
+            <div class="tpl-overlay-badge">
+              <span class="tpl-badge-status tpl-badge-campaign"><i class="fas fa-bullhorn" style="font-size:10px;margin-right:4px;"></i>{{ t.campaign_name }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="tpl-card-body">
+          <div class="tpl-card-actions">
+            <button class="btn btn-sm btn-outline tpl-used-edit-btn" data-id="{{ t.id }}">
+              <i class="fas fa-copy"></i> Duplicate &amp; Edit
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="cp-pag" id="usedPagBar">
+      <span class="cp-pag-info" id="usedPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="usedPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="usedPagNum"></span>
+        <button class="cp-pag-btn" id="usedNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% else %}
+    <div class="tpl-empty">
+      <i class="fas fa-paper-plane"></i>
+      <p>No templates used in sent campaigns yet.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Template Library -->
+  <div class="tpl-section" id="tabLibrary" style="display:none;">
+    {% if library_templates %}
+    <div class="tpl-grid" id="libGrid">
+      {% for t in library_templates %}
+      <div class="tpl-card">
+        <div class="tpl-card-preview">
+          <iframe id="lFrame{{ t.id }}" sandbox="" scrolling="no" tabindex="-1" loading="lazy"></iframe>
+          <div class="tpl-preview-overlay">
+            <div class="tpl-overlay-name">{{ t.name }}</div>
+            <div class="tpl-overlay-badge">
+              <span class="tpl-badge tpl-badge-{{ t.category }}">{{ t.get_category_display }}</span>
+            </div>
+          </div>
+        </div>
+        <div class="tpl-card-body">
+          <div class="tpl-card-actions">
+            <button class="btn btn-sm btn-outline tpl-use-btn" data-id="{{ t.id }}">
+              <i class="fas fa-copy"></i> Duplicate &amp; Edit
+            </button>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="cp-pag" id="libPagBar">
+      <span class="cp-pag-info" id="libPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="libPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="libPagNum"></span>
+        <button class="cp-pag-btn" id="libNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% else %}
+    <div class="tpl-empty">
+      <i class="fas fa-layer-group"></i>
+      <p>No library templates available yet.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Edit-while-in-campaign warning modal -->
+<div class="tpl-modal-overlay" id="tplEditWarnModal">
+  <div class="tpl-modal tpl-warn-modal">
+
+    <!-- Icon banner -->
+    <div class="twm-banner">
+      <div class="twm-icon"><i class="fas fa-exclamation-triangle"></i></div>
+    </div>
+
+    <!-- Title + description -->
+    <div class="twm-body">
+      <h3 class="twm-title">Template in Use</h3>
+      <p class="twm-desc">This template is linked to a <strong>scheduled campaign</strong>.<br>Editing it directly will change what gets sent.</p>
+
+      <!-- Option cards -->
+      <div class="twm-options">
+        <div class="twm-option twm-option--risk">
+          <div class="twm-opt-icon"><i class="fas fa-edit"></i></div>
+          <div>
+            <div class="twm-opt-label">Edit Anyway</div>
+            <div class="twm-opt-sub">Modifies the original — affects the scheduled campaign</div>
+          </div>
+        </div>
+        <div class="twm-option twm-option--safe">
+          <div class="twm-opt-icon"><i class="fas fa-copy"></i></div>
+          <div>
+            <div class="twm-opt-label">Duplicate &amp; Edit</div>
+            <div class="twm-opt-sub">Creates a copy — scheduled campaign stays untouched</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="twm-actions">
+      <button class="btn btn-outline twm-cancel" id="tplEditWarnCancel"><i class="fas fa-times"></i> Cancel</button>
+      <button class="btn btn-outline twm-continue" id="tplEditWarnContinue"><i class="fas fa-edit"></i> Edit Anyway</button>
+      <button class="btn btn-primary twm-duplicate" id="tplEditWarnDuplicate"><i class="fas fa-copy"></i> Duplicate &amp; Edit</button>
+    </div>
+
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="tpl-modal-overlay" id="tplDeleteModal">
+  <div class="tpl-modal">
+    <h3>Delete Template</h3>
+    <p>Delete "<strong id="tplDeleteName"></strong>"? This cannot be undone.</p>
+    <div class="tpl-modal-actions">
+      <button class="btn btn-outline" id="tplDeleteCancel">Cancel</button>
+      <button class="btn btn-danger" id="tplDeleteConfirm"><i class="fas fa-trash"></i> Delete</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const CSRF = '{{ csrf_token }}';
+
+/* ── Load iframe previews from JSON map (avoids srcdoc escaping issues) ── */
+var userHtmlMap = {{ user_html_map|safe }};
+var libHtmlMap  = {{ lib_html_map|safe }};
+var usedHtmlMap = {{ used_html_map|safe }};
+
+function loadPreviews(map, prefix) {
+  Object.keys(map).forEach(function(id) {
+    var f = document.getElementById(prefix + id);
+    if (f && map[id]) f.srcdoc = map[id];
+  });
+}
+loadPreviews(userHtmlMap, 'uFrame');
+loadPreviews(libHtmlMap,  'lFrame');
+loadPreviews(usedHtmlMap, 'usdFrame');
+
+/* ── Tabs ───────────────────────────────────────────── */
+var tabSections = { my: 'tabMy', used: 'tabUsed', library: 'tabLibrary' };
+var _activeTab  = 'my';
+
+document.querySelectorAll('.tpl-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.tpl-tab').forEach(function(t) { t.classList.remove('active'); });
+    this.classList.add('active');
+    var which = this.dataset.tab;
+    _activeTab = which;
+    Object.keys(tabSections).forEach(function(key) {
+      document.getElementById(tabSections[key]).style.display = key === which ? '' : 'none';
+    });
+    /* clear search and re-apply to new tab */
+    var input = document.getElementById('tplSearch');
+    var clear = document.getElementById('tplSearchClear');
+    if (input) { input.value = ''; if (clear) clear.style.display = 'none'; }
+    applyTplSearch();
+  });
+});
+
+/* ── Edit warning for My Templates that are in use ──── */
+(function () {
+  var warnModal    = document.getElementById('tplEditWarnModal');
+  var btnCancel    = document.getElementById('tplEditWarnCancel');
+  var btnContinue  = document.getElementById('tplEditWarnContinue');
+  var btnDuplicate = document.getElementById('tplEditWarnDuplicate');
+  var _editHref    = '';
+  var _editId      = '';
+
+  document.querySelectorAll('.tpl-my-edit-btn').forEach(function(a) {
+    a.addEventListener('click', function(e) {
+      if (this.dataset.used !== 'true') return; // unused — let href navigate normally
+      e.preventDefault();
+      _editHref = this.href;
+      _editId   = this.dataset.id;
+      warnModal.classList.add('open');
+    });
+  });
+
+  btnCancel.addEventListener('click', function() {
+    warnModal.classList.remove('open');
+  });
+
+  btnContinue.addEventListener('click', function() {
+    warnModal.classList.remove('open');
+    window.location.href = _editHref;
+  });
+
+  btnDuplicate.addEventListener('click', function() {
+    btnDuplicate.disabled = true;
+    btnDuplicate.innerHTML = '<span class="btn-spinner"></span>';
+    fetch('/Email_Campaigns/templates/' + _editId + '/duplicate/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === 'ok') {
+        warnModal.classList.remove('open');
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates';
+      } else {
+        WTI.toast(d.message || 'Could not duplicate template.', 'error');
+        btnDuplicate.disabled = false;
+        btnDuplicate.innerHTML = '<i class="fas fa-copy"></i> Duplicate & Edit';
+      }
+    })
+    .catch(function(e) {
+      btnDuplicate.disabled = false;
+      btnDuplicate.innerHTML = '<i class="fas fa-copy"></i> Duplicate & Edit';
+      WTI.handleFetchError(e);
+    });
+  });
+
+  warnModal.addEventListener('click', function(e) {
+    if (e.target === warnModal) warnModal.classList.remove('open');
+  });
+})();
+
+/* ── Duplicate & Edit (used templates) ──────────────── */
+document.querySelectorAll('.tpl-used-edit-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var id = this.dataset.id;
+    this.disabled = true;
+    this.innerHTML = '<span class="btn-spinner"></span>';
+    fetch('/Email_Campaigns/templates/' + id + '/duplicate/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === 'ok') {
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates';
+      } else {
+        WTI.toast(d.message || 'Could not duplicate template.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-copy"></i> Duplicate & Edit';
+      }
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-copy"></i> Duplicate & Edit';
+      WTI.handleFetchError(e);
+    });
+  });
+});
+
+/* ── Use library template ───────────────────────────── */
+document.querySelectorAll('.tpl-use-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    var id = this.dataset.id;
+    this.disabled = true;
+    this.innerHTML = '<span class="btn-spinner"></span>';
+    fetch('/Email_Campaigns/template-library/' + id + '/use/', {
+      method: 'POST',
+      headers: { 'X-CSRFToken': CSRF }
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === 'ok') {
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template.id + '&from=templates';
+      } else {
+        WTI.toast(d.message || 'Could not use template.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-arrow-right"></i> Use Template';
+      }
+    })
+    .catch(function(e) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-arrow-right"></i> Use Template';
+      WTI.handleFetchError(e);
+    });
+  });
+});
+
+/* ── Delete ─────────────────────────────────────────── */
+var _deleteId = null;
+var deleteModal   = document.getElementById('tplDeleteModal');
+var deleteNameEl  = document.getElementById('tplDeleteName');
+var deleteConfirm = document.getElementById('tplDeleteConfirm');
+
+document.querySelectorAll('.tpl-delete-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    _deleteId = this.dataset.id;
+    deleteNameEl.textContent = this.dataset.name;
+    deleteModal.classList.add('open');
+  });
+});
+
+document.getElementById('tplDeleteCancel').addEventListener('click', function() {
+  deleteModal.classList.remove('open');
+  _deleteId = null;
+});
+
+deleteConfirm.addEventListener('click', function() {
+  if (!_deleteId) return;
+  deleteConfirm.disabled = true;
+  deleteConfirm.innerHTML = '<span class="btn-spinner"></span>';
+  fetch('/Email_Campaigns/templates/' + _deleteId + '/delete/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF }
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status === 'ok') {
+      var card = document.getElementById('tplCard' + _deleteId);
+      if (card) card.remove();
+      deleteModal.classList.remove('open');
+      _deleteId = null;
+      /* Update count badge */
+      var myTab = document.querySelector('[data-tab="my"] .tpl-count');
+      if (myTab) myTab.textContent = parseInt(myTab.textContent || '0') - 1;
+    } else {
+      WTI.toast(d.message || 'Could not delete template.', 'error');
+    }
+    deleteConfirm.disabled = false;
+    deleteConfirm.innerHTML = '<i class="fas fa-trash"></i> Delete';
+  })
+  .catch(function(e) {
+    deleteConfirm.disabled = false;
+    deleteConfirm.innerHTML = '<i class="fas fa-trash"></i> Delete';
+    WTI.handleFetchError(e);
+  });
+});
+
+/* Close modal on overlay click */
+deleteModal.addEventListener('click', function(e) {
+  if (e.target === deleteModal) { deleteModal.classList.remove('open'); _deleteId = null; }
+});
+
+/* ── Card-based search + pagination ─────────────────── */
+(function () {
+  var CARDS_PER_PAGE = 12;
+
+  function cardPaginate(gridId, prevId, nextId, infoId, numId, barId) {
+    var grid = document.getElementById(gridId);
+    if (!grid) return null;
+    var bar     = document.getElementById(barId);
+    var prevBtn = document.getElementById(prevId);
+    var nextBtn = document.getElementById(nextId);
+    var infoEl  = document.getElementById(infoId);
+    var numEl   = document.getElementById(numId);
+    var cur = 1;
+
+    function visibleCards() {
+      return Array.prototype.filter.call(grid.querySelectorAll('.tpl-card'), function(c) {
+        return c.dataset.filtered !== 'true';
+      });
+    }
+
+    function render() {
+      var all   = visibleCards();
+      var total = all.length;
+      var pages = Math.ceil(total / CARDS_PER_PAGE) || 1;
+      if (cur > pages) cur = pages;
+      var start = (cur - 1) * CARDS_PER_PAGE;
+      var end   = Math.min(start + CARDS_PER_PAGE, total);
+      Array.prototype.forEach.call(grid.querySelectorAll('.tpl-card'), function(c) {
+        c.style.display = 'none';
+      });
+      all.forEach(function(c, i) {
+        c.style.display = (i >= start && i < end) ? '' : 'none';
+      });
+      if (infoEl) infoEl.textContent = total ? 'Showing ' + (start + 1) + '–' + end + ' of ' + total : 'No results';
+      if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+      if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+      if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+      if (bar) bar.style.display = total <= CARDS_PER_PAGE ? 'none' : '';
+    }
+
+    if (prevBtn) prevBtn.addEventListener('click', function() { if (cur > 1) { cur--; render(); } });
+    if (nextBtn) nextBtn.addEventListener('click', function() {
+      var pages = Math.ceil(visibleCards().length / CARDS_PER_PAGE);
+      if (cur < pages) { cur++; render(); }
+    });
+
+    render();
+    return { refresh: function() { cur = 1; render(); } };
+  }
+
+  function cardSearch(inputId, clearId, gridId, barId, getPag) {
+    var input = document.getElementById(inputId);
+    var clear = document.getElementById(clearId);
+    if (!input) return;
+
+    function applyFilter() {
+      var q = input.value.trim().toLowerCase();
+      var grid = document.getElementById(gridId);
+      if (!grid) return;
+      Array.prototype.forEach.call(grid.querySelectorAll('.tpl-card'), function(c) {
+        var match = !q || c.textContent.toLowerCase().indexOf(q) >= 0;
+        c.dataset.filtered = match ? 'false' : 'true';
+      });
+      if (clear) clear.style.display = q ? 'block' : 'none';
+      var pag = getPag();
+      if (pag) pag.refresh();
+      var bar = document.getElementById(barId);
+      if (bar && q) bar.style.display = 'none';
+    }
+
+    input.addEventListener('input', applyFilter);
+    if (clear) {
+      clear.addEventListener('click', function() {
+        input.value = '';
+        applyFilter();
+        input.focus();
+      });
+    }
+  }
+
+  var _myPag   = cardPaginate('myGrid',   'myPrevBtn',   'myNextBtn',   'myPagInfo',   'myPagNum',   'myPagBar');
+  var _usedPag = cardPaginate('usedGrid', 'usedPrevBtn', 'usedNextBtn', 'usedPagInfo', 'usedPagNum', 'usedPagBar');
+  var _libPag  = cardPaginate('libGrid',  'libPrevBtn',  'libNextBtn',  'libPagInfo',  'libPagNum',  'libPagBar');
+
+  var _tabGridMap  = { my: 'myGrid',   used: 'usedGrid',  library: 'libGrid'   };
+  var _tabPagBarMap = { my: 'myPagBar', used: 'usedPagBar', library: 'libPagBar' };
+  var _tabPagFn    = { my: function(){ return _myPag; }, used: function(){ return _usedPag; }, library: function(){ return _libPag; } };
+
+  window.applyTplSearch = function() {
+    var input  = document.getElementById('tplSearch');
+    var clear  = document.getElementById('tplSearchClear');
+    var q      = input ? input.value.trim().toLowerCase() : '';
+    var gridId = _tabGridMap[_activeTab];
+    var barId  = _tabPagBarMap[_activeTab];
+    var grid   = document.getElementById(gridId);
+    if (grid) {
+      Array.prototype.forEach.call(grid.querySelectorAll('.tpl-card'), function(c) {
+        c.dataset.filtered = (!q || c.textContent.toLowerCase().indexOf(q) >= 0) ? 'false' : 'true';
+      });
+    }
+    if (clear) clear.style.display = q ? 'block' : 'none';
+    var pag = _tabPagFn[_activeTab] && _tabPagFn[_activeTab]();
+    if (pag) pag.refresh();
+    var bar = document.getElementById(barId);
+    if (bar && q) bar.style.display = 'none';
+  };
+
+  var _tplInput = document.getElementById('tplSearch');
+  var _tplClear = document.getElementById('tplSearchClear');
+  if (_tplInput) {
+    _tplInput.addEventListener('input', applyTplSearch);
+    if (_tplClear) {
+      _tplClear.addEventListener('click', function() {
+        _tplInput.value = '';
+        applyTplSearch();
+        _tplInput.focus();
+      });
+    }
+  }
+})();
+</script>
+{% endblock %}

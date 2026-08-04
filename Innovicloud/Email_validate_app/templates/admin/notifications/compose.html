@@ -1,0 +1,145 @@
+{% extends 'admin/base.html' %}
+{% block title %}Send Notifications{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Notifications</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Send Notifications</h1>
+    <p class="admin-page-subtitle">Broadcast in-app notifications to users · {{ user_count }} active user{{ user_count|pluralize }}</p>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:2fr 1fr;gap:20px;align-items:start;">
+  <!-- Compose Form -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-paper-plane" style="color:var(--teal);margin-right:6px;"></i>Compose</span>
+    </div>
+    <div style="padding:24px;">
+      <div id="form-msg" style="display:none;margin-bottom:16px;" class="admin-card"></div>
+      <form id="notifForm">
+        {% csrf_token %}
+        <div class="admin-form-group">
+          <label class="admin-form-label">Target Audience <span style="color:var(--red);">*</span></label>
+          <select name="target" class="admin-input admin-filter-select" id="targetSelect" onchange="toggleUserField(this.value)">
+            <option value="all">All Active Users ({{ user_count }})</option>
+            <option value="admins">Admins Only</option>
+            <option value="user">Single User</option>
+          </select>
+        </div>
+
+        <div class="admin-form-group" id="userIdGroup" style="display:none;">
+          <label class="admin-form-label">User ID <span style="color:var(--red);">*</span></label>
+          <input type="number" name="user_id" class="admin-input" placeholder="Enter user numeric ID" min="1">
+        </div>
+
+        <div class="admin-form-group">
+          <label class="admin-form-label">Notification Type</label>
+          <select name="notif_type" class="admin-input admin-filter-select">
+            <option value="info">Info</option>
+            <option value="success">Success</option>
+            <option value="warning">Warning</option>
+            <option value="alert">Alert</option>
+            <option value="system">System</option>
+          </select>
+        </div>
+
+        <div class="admin-form-group">
+          <label class="admin-form-label">Message <span style="color:var(--red);">*</span></label>
+          <textarea name="message" class="admin-input" rows="4" maxlength="255"
+                    placeholder="Notification message (max 255 chars)…" id="msgField"
+                    oninput="updateCount(this)"></textarea>
+          <small style="color:var(--ink-3);font-size:12px;"><span id="charCount">0</span>/255 characters</small>
+        </div>
+
+        <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px;">
+          <button type="submit" class="btn-admin btn-admin-primary" id="sendBtn">
+            <i class="fas fa-paper-plane"></i> Send Notification
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Info panel -->
+  <div style="display:flex;flex-direction:column;gap:16px;">
+    <div class="admin-card">
+      <div class="admin-card-header">
+        <span class="admin-card-title">About Notifications</span>
+      </div>
+      <div style="padding:16px 20px;font-size:13px;color:var(--ink-3);line-height:1.6;">
+        <p style="margin:0 0 10px;">Notifications are delivered as in-app messages. Users see them the next time they log in.</p>
+        <ul style="margin:0;padding-left:18px;">
+          <li><strong>All users</strong> — broadcasts to every active account</li>
+          <li><strong>Admins only</strong> — only admin-flagged accounts</li>
+          <li><strong>Single user</strong> — enter the numeric user ID</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="admin-card">
+      <div class="admin-card-header">
+        <span class="admin-card-title">Notification Types</span>
+      </div>
+      <div style="padding:16px 20px;">
+        <div style="display:flex;flex-direction:column;gap:8px;font-size:13px;">
+          <div><span class="badge badge-info">Info</span> <span style="color:var(--ink-3);margin-left:8px;">General information</span></div>
+          <div><span class="badge badge-success">Success</span> <span style="color:var(--ink-3);margin-left:8px;">Positive updates</span></div>
+          <div><span class="badge badge-warning">Warning</span> <span style="color:var(--ink-3);margin-left:8px;">Requires attention</span></div>
+          <div><span class="badge badge-danger">Alert</span> <span style="color:var(--ink-3);margin-left:8px;">Urgent notices</span></div>
+          <div><span class="badge badge-grey">System</span> <span style="color:var(--ink-3);margin-left:8px;">Platform updates</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function toggleUserField(val) {
+  document.getElementById('userIdGroup').style.display = val === 'user' ? '' : 'none';
+}
+
+function updateCount(el) {
+  document.getElementById('charCount').textContent = el.value.length;
+}
+
+document.getElementById('notifForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('sendBtn');
+  const msg = document.getElementById('form-msg');
+  msg.style.display = 'none';
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending…';
+
+  const data = new FormData(this);
+  WTI.apiFetch('{% url "admin_notifications" %}', {method:'POST', body: data})
+    .then(r => r.json())
+    .then(res => {
+      if (res.status === 'ok') {
+        WTI.toast(res.message || 'Sent!', 'success');
+        document.getElementById('notifForm').reset();
+        document.getElementById('charCount').textContent = '0';
+        document.getElementById('userIdGroup').style.display = 'none';
+      } else {
+        msg.style.display = 'block';
+        msg.style.padding = '12px 16px';
+        msg.style.color = 'var(--red)';
+        msg.style.borderLeft = '4px solid var(--red)';
+        msg.textContent = res.message || 'An error occurred.';
+      }
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Notification';
+    })
+    .catch(() => {
+      WTI.toast('Network error.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Notification';
+    });
+});
+</script>
+{% endblock %}

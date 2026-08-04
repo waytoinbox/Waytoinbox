@@ -1,0 +1,140 @@
+{% extends 'admin/base.html' %}
+{% block title %}{{ job.file_name|default:"Validation Job" }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_validations' %}">Validations</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ job.file_name|default:"Job #"|add:job.file_id|truncatechars:30 }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">{{ job.file_name|default:"Validation Job" }}</h1>
+    <p class="admin-page-subtitle">Submitted by {{ job.user.user_email|default:"Unknown" }}</p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    {% if job.job_status == 'Complete' %}
+    <a href="{% url 'admin_validation_download' job.file_id %}" class="btn-admin btn-admin-primary">
+      <i class="fas fa-download"></i> Download
+    </a>
+    {% endif %}
+    <a href="{% url 'admin_validations' %}" class="btn-admin btn-admin-outline">
+      <i class="fas fa-arrow-left"></i> Back
+    </a>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+  <!-- Job Info -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-file-alt" style="color:var(--teal);margin-right:6px;"></i>Job Details</span></div>
+    <div style="padding:16px 20px;">
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;">
+        <dt style="color:var(--ink-3);font-weight:600;">File ID</dt>
+        <dd style="margin:0;">#{{ job.file_id }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Status</dt>
+        <dd style="margin:0;">
+          {% if job.job_status == 'Complete' %}<span class="badge badge-success"><span class="badge-dot"></span>Complete</span>
+          {% elif job.job_status == 'Processing' %}<span class="badge badge-info"><span class="badge-dot"></span>Processing</span>
+          {% elif job.job_status == 'Error' %}<span class="badge badge-danger"><span class="badge-dot"></span>Error</span>
+          {% else %}<span class="badge badge-grey">{{ job.job_status|default:"—" }}</span>
+          {% endif %}
+        </dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Owner</dt>
+        <dd style="margin:0;">
+          {% if job.user %}
+            <a href="{% url 'admin_user_detail' job.user.pk %}" style="color:var(--teal);">{{ job.user.user_email }}</a>
+          {% else %}—{% endif %}
+        </dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Submitted</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ job.insert_date|date:"M j, Y H:i"|default:"—" }}</dd>
+        {% if job.started_at %}
+        <dt style="color:var(--ink-3);font-weight:600;">Started</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ job.started_at|date:"M j, Y H:i" }}</dd>
+        {% endif %}
+        {% if job.completed_at %}
+        <dt style="color:var(--ink-3);font-weight:600;">Completed</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ job.completed_at|date:"M j, Y H:i" }}</dd>
+        {% endif %}
+        <dt style="color:var(--ink-3);font-weight:600;">Credit status</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ job.credite_status|default:"—" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-chart-pie" style="color:var(--teal);margin-right:6px;"></i>Results</span></div>
+    <div style="padding:16px 20px;">
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px;">
+        <div style="text-align:center;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);">
+          <div style="font-size:22px;font-weight:800;color:var(--ink);">{{ job.total_count|default:0 }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Total</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);">
+          <div style="font-size:22px;font-weight:800;color:var(--mint);">{{ job.valid_count|default:0 }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Valid</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);">
+          <div style="font-size:22px;font-weight:800;color:#ef4444;">{{ job.invalid_count|default:0 }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Invalid</div>
+        </div>
+      </div>
+      {% if job.total_count %}
+      <div style="height:8px;background:var(--bg-3);border-radius:4px;overflow:hidden;">
+        {% if job.valid_percentage %}<div style="height:100%;width:{{ job.valid_percentage|floatformat:0 }}%;background:var(--mint);border-radius:4px;"></div>{% endif %}
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-3);margin-top:4px;">
+        <span>{{ job.valid_percentage|default:0|floatformat:1 }}% valid</span>
+        <span>{{ job.unknown_count|default:0 }} unknown</span>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Actions -->
+<div class="admin-card">
+  <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-bolt" style="color:var(--teal);margin-right:6px;"></i>Actions</span></div>
+  <div style="padding:16px 20px;display:flex;gap:10px;">
+    {% if job.job_status not in 'Deleted,Cancelled' %}
+    <button class="btn-admin btn-admin-danger" onclick="confirmDelete()">
+      <i class="fas fa-trash"></i> Delete Job
+    </button>
+    {% endif %}
+    {% if job.job_status in 'Processing,Pending' %}
+    <button class="btn-admin btn-admin-outline" onclick="confirmCancel()">
+      <i class="fas fa-ban"></i> Cancel Job
+    </button>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var fid = {{ job.file_id }};
+
+function confirmDelete() {
+  Admin.Modal.confirm('Delete Validation Job?', 'The job will be marked as deleted.',
+    function () {
+      WTI.apiFetch('/wti-admin/validations/' + fid + '/delete/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message, 'success'); setTimeout(function () { window.location.href = '/wti-admin/validations/'; }, 900); }
+      });
+    }, 'Delete', true);
+}
+
+function confirmCancel() {
+  Admin.Modal.confirm('Cancel Job?', 'The processing job will be stopped.',
+    function () {
+      WTI.apiFetch('/wti-admin/validations/' + fid + '/cancel/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message, 'success'); setTimeout(function () { location.reload(); }, 800); }
+      });
+    }, 'Cancel Job', true);
+}
+</script>
+{% endblock %}

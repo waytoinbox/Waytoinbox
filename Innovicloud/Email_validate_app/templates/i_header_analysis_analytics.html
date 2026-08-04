@@ -1,0 +1,367 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="haa-page">
+
+  <a href="{% url 'analytics_overview' %}" class="analytics-back-btn"><i class="fas fa-arrow-left"></i> Back to Insights</a>
+
+  <!-- ── PAGE HEADER + FILTERS ─────────────────────────────────────────── -->
+  <div class="haa-page-head">
+    <div>
+      <h1 class="haa-page-title">Header Analysis Analytics</h1>
+      <p class="haa-page-sub">Email header check history and authentication result trends.</p>
+    </div>
+
+    <div class="haa-filter-bar">
+      <div class="haa-filter-row">
+        <button class="haa-pill {% if preset == 'today' %}haa-pill--active{% endif %}" onclick="applyPreset('today')">Today</button>
+        <button class="haa-pill {% if preset == '7d'    %}haa-pill--active{% endif %}" onclick="applyPreset('7d')">Last 7 Days</button>
+        <button class="haa-pill {% if preset == '30d'   %}haa-pill--active{% endif %}" onclick="applyPreset('30d')">Last 30 Days</button>
+        <button class="haa-pill {% if preset == 'month' %}haa-pill--active{% endif %}" onclick="applyPreset('month')">This Month</button>
+        <button class="haa-pill {% if preset == 'custom'%}haa-pill--active{% endif %}" onclick="applyPreset('custom')">Custom</button>
+      </div>
+      <div class="haa-custom-dates {% if preset == 'custom' %}visible{% endif %}" id="customDates">
+        <input type="date" id="cfrom" class="haa-date-input" value="{{ date_from }}"/>
+        <span style="color:var(--muted);font-size:12px;">to</span>
+        <input type="date" id="cto"   class="haa-date-input" value="{{ date_to }}"/>
+        <button class="haa-date-apply" onclick="applyCustom()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ── SUMMARY CARDS ─────────────────────────────────────────────────── -->
+  <div class="haa-cards-grid">
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--total"><i class="fas fa-envelope-open-text"></i></div>
+      <div class="haa-card-val" id="s-total">{{ total|intcomma }}</div>
+      <div class="haa-card-label">Total Header Checks</div>
+    </div>
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--clean"><i class="fas fa-check-circle"></i></div>
+      <div class="haa-card-val" id="s-clean">{{ clean|intcomma }}</div>
+      <div class="haa-card-label">Clean Headers</div>
+    </div>
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--issues"><i class="fas fa-exclamation-circle"></i></div>
+      <div class="haa-card-val" id="s-issues">{{ issues_found|intcomma }}</div>
+      <div class="haa-card-label">Issues Found</div>
+    </div>
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--spam"><i class="fas fa-radiation"></i></div>
+      <div class="haa-card-val" id="s-spam">{{ spam_risk|intcomma }}</div>
+      <div class="haa-card-label">Spam Risk Detected</div>
+    </div>
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--spf"><i class="fas fa-lock"></i></div>
+      <div class="haa-card-val" id="s-spf">{{ spf_pass|intcomma }}</div>
+      <div class="haa-card-label">SPF Passed</div>
+    </div>
+    <div class="haa-card">
+      <div class="haa-card-icon haa-icon--dkim"><i class="fas fa-key"></i></div>
+      <div class="haa-card-val" id="s-dkim">{{ dkim_pass|intcomma }}</div>
+      <div class="haa-card-label">DKIM Passed</div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 1 ───────────────────────────────────────────────────── -->
+  <div class="haa-charts-row">
+    <div class="haa-chart-box">
+      <div class="haa-loading" id="load-dist"><div class="haa-spinner"></div></div>
+      <div class="haa-chart-head">
+        <h3 class="haa-chart-title">Header Result Distribution</h3>
+        <p class="haa-chart-sub">Clean · Warning · Failed</p>
+      </div>
+      <div class="haa-canvas-wrap haa-canvas-wrap--donut"><canvas id="chartDist"></canvas></div>
+    </div>
+    <div class="haa-chart-box">
+      <div class="haa-loading" id="load-trend"><div class="haa-spinner"></div></div>
+      <div class="haa-chart-head">
+        <h3 class="haa-chart-title">Header Analysis Trend</h3>
+        <p class="haa-chart-sub">Daily header checks submitted</p>
+      </div>
+      <div class="haa-canvas-wrap"><canvas id="chartTrend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 2 ───────────────────────────────────────────────────── -->
+  <div class="haa-charts-row">
+    <div class="haa-chart-box">
+      <div class="haa-loading" id="load-auth"><div class="haa-spinner"></div></div>
+      <div class="haa-chart-head">
+        <h3 class="haa-chart-title">Authentication Status</h3>
+        <p class="haa-chart-sub">SPF · DKIM · DMARC passing checks</p>
+      </div>
+      <div class="haa-canvas-wrap"><canvas id="chartAuth"></canvas></div>
+    </div>
+    <div class="haa-chart-box">
+      <div class="haa-loading" id="load-issues"><div class="haa-spinner"></div></div>
+      <div class="haa-chart-head">
+        <h3 class="haa-chart-title">Issue Category Trend</h3>
+        <p class="haa-chart-sub">Spam · Authentication · Formatting · Security</p>
+      </div>
+      <div class="haa-canvas-wrap"><canvas id="chartIssues"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── HEADER ANALYSIS TABLE ─────────────────────────────────────────── -->
+  <div class="haa-table-section">
+    <div class="haa-table-head">
+      <h3 class="haa-chart-title">Recent Header Checks</h3>
+      <p class="haa-chart-sub" style="margin:2px 0 0;">Latest submitted email headers</p>
+    </div>
+    {% if table_rows %}
+    <div class="haa-table-wrap">
+      <table class="haa-table">
+        <thead>
+          <tr>
+            <th>From Email</th>
+            <th>Origin IP</th>
+            <th>Subject</th>
+            <th>SPF</th>
+            <th>DKIM</th>
+            <th>DMARC</th>
+            <th>Checked Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_rows %}
+          <tr>
+            <td>{{ row.email }}</td>
+            <td><code style="font-size:11px;background:var(--bg);padding:2px 6px;border-radius:4px;">{{ row.ip }}</code></td>
+            <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ row.subject }}</td>
+            <td><span class="haa-badge" style="background:#F3F4F6;color:#6B7280;">N/A</span></td>
+            <td><span class="haa-badge" style="background:#F3F4F6;color:#6B7280;">N/A</span></td>
+            <td><span class="haa-badge" style="background:#F3F4F6;color:#6B7280;">N/A</span></td>
+            <td style="color:var(--muted);white-space:nowrap;">{{ row.date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="haa-empty">
+      <i class="fas fa-envelope-open-text haa-empty-icon"></i>
+      <p>No header checks found for the selected period.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ANALYTICS_URL = "{% url 'header_analysis_analytics' %}";
+const CHART_DATA    = {{ chart_data_json|safe }};
+
+const C_CLEAN  = '#10B981';
+const C_WARN   = '#F59E0B';
+const C_FAILED = '#EF4444';
+const C_SPF    = '#3B82F6';
+const C_DKIM   = '#8B5CF6';
+const C_DMARC  = '#F59E0B';
+const C_LINE   = '#6366F1';
+const C_SPAM   = '#EF4444';
+const C_AUTH   = '#F59E0B';
+const C_FORMAT = '#3B82F6';
+const C_SEC    = '#8B5CF6';
+
+function fmtDate(d) {
+  if (!d) return d;
+  const p = d.split('-');
+  if (p.length !== 3) return d;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+}
+function fmtNum(n) { return Number(n).toLocaleString(); }
+
+function loading(show) {
+  ['dist','trend','auth','issues'].forEach(id => {
+    document.getElementById('load-' + id).classList.toggle('active', show);
+  });
+}
+
+// Chart 1: Doughnut — result distribution
+const distChart = new Chart(document.getElementById('chartDist').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Clean','Warning','Failed'],
+    datasets: [{
+      data: [CHART_DATA.distribution.clean, CHART_DATA.distribution.warning, CHART_DATA.distribution.failed],
+      backgroundColor: [C_CLEAN, C_WARN, C_FAILED],
+      borderWidth: 2, borderColor: '#fff', hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: { position:'bottom', labels:{ usePointStyle:true, padding:16, font:{size:11} } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) } },
+    },
+  },
+});
+
+// Chart 2: Line — daily trend
+const trendChart = new Chart(document.getElementById('chartTrend').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: CHART_DATA.trend.labels.map(fmtDate),
+    datasets: [{
+      label: 'Header Checks',
+      data:  CHART_DATA.trend.data,
+      borderColor: C_LINE, backgroundColor: 'rgba(99,102,241,.08)',
+      borderWidth: 2, tension: 0.4, pointRadius: 3, pointBackgroundColor: C_LINE, fill: true,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' checks' } } },
+    scales: {
+      x: { ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 3: Bar — SPF / DKIM / DMARC
+const authChart = new Chart(document.getElementById('chartAuth').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['SPF','DKIM','DMARC'],
+    datasets: [{
+      label: 'Passing',
+      data:  [CHART_DATA.auth.spf, CHART_DATA.auth.dkim, CHART_DATA.auth.dmarc],
+      backgroundColor: [C_SPF, C_DKIM, C_DMARC],
+      borderRadius: 6, borderSkipped: false,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' passing' } } },
+    scales: {
+      x: { grid:{ display:false }, ticks:{ font:{size:11} } },
+      y: { beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 4: Stacked Bar — issue categories
+const issuesChart = new Chart(document.getElementById('chartIssues').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: CHART_DATA.issues.labels.map(fmtDate),
+    datasets: [
+      { label:'Spam',           data: CHART_DATA.issues.spam,     backgroundColor: C_SPAM,   stack:'i' },
+      { label:'Authentication', data: CHART_DATA.issues.auth,     backgroundColor: C_AUTH,   stack:'i' },
+      { label:'Formatting',     data: CHART_DATA.issues.format,   backgroundColor: C_FORMAT, stack:'i' },
+      { label:'Security',       data: CHART_DATA.issues.security, backgroundColor: C_SEC,    stack:'i' },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ position:'bottom', labels:{ usePointStyle:true, padding:14, font:{size:11} } }, tooltip:{ callbacks:{ label: ctx => ' ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y) } } },
+    scales: {
+      x: { stacked:true, ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { stacked:true, beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Filters
+let activePreset = '{{ preset }}';
+function applyPreset(preset) {
+  if (preset === 'custom') {
+    document.querySelectorAll('.haa-pill').forEach(b => b.classList.remove('haa-pill--active'));
+    document.querySelector('[onclick="applyPreset(\'custom\')"]').classList.add('haa-pill--active');
+    document.getElementById('customDates').classList.add('visible');
+    activePreset = 'custom'; return;
+  }
+  document.getElementById('customDates').classList.remove('visible');
+  activePreset = preset; localStorage.setItem('analytics_preset', preset); fetchData();
+}
+function applyCustom() {
+  const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+  if (!from || !to) { alert('Please select both dates.'); return; }
+  if (from > to) { alert('From date must be before To date.'); return; }
+  localStorage.setItem('analytics_preset', 'custom');
+  localStorage.setItem('analytics_date_from', from);
+  localStorage.setItem('analytics_date_to', to);
+  fetchData();
+}
+async function fetchData() {
+  const preset = activePreset;
+  loading(true);
+  document.querySelectorAll('.haa-pill').forEach(b => b.classList.remove('haa-pill--active'));
+  const pm = {today:0,'7d':1,'30d':2,month:3,custom:4};
+  const pills = document.querySelectorAll('.haa-pill');
+  if (pm[preset] !== undefined) pills[pm[preset]].classList.add('haa-pill--active');
+  let url = ANALYTICS_URL + '?preset=' + preset + '&format=json';
+  if (preset === 'custom') {
+    const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+    if (from && to) url += '&date_from=' + from + '&date_to=' + to;
+  }
+  try {
+    const res  = await fetch(url, { headers:{ 'X-Requested-With':'XMLHttpRequest' } });
+    const data = await res.json();
+    updateCards(data.summary); updateCharts(data.charts);
+  } catch(e) { console.error('Header analytics error:', e); }
+  finally { loading(false); }
+}
+function updateCards(s) {
+  document.getElementById('s-total').textContent  = fmtNum(s.total);
+  document.getElementById('s-clean').textContent  = fmtNum(s.clean);
+  document.getElementById('s-issues').textContent = fmtNum(s.issues_found);
+  document.getElementById('s-spam').textContent   = fmtNum(s.spam_risk);
+  document.getElementById('s-spf').textContent    = fmtNum(s.spf_pass);
+  document.getElementById('s-dkim').textContent   = fmtNum(s.dkim_pass);
+}
+function updateCharts(c) {
+  distChart.data.datasets[0].data = [c.distribution.clean, c.distribution.warning, c.distribution.failed];
+  distChart.update();
+  trendChart.data.labels           = c.trend.labels.map(fmtDate);
+  trendChart.data.datasets[0].data = c.trend.data;
+  trendChart.update();
+  authChart.data.datasets[0].data = [c.auth.spf, c.auth.dkim, c.auth.dmarc];
+  authChart.update();
+  issuesChart.data.labels              = c.issues.labels.map(fmtDate);
+  issuesChart.data.datasets[0].data    = c.issues.spam;
+  issuesChart.data.datasets[1].data    = c.issues.auth;
+  issuesChart.data.datasets[2].data    = c.issues.format;
+  issuesChart.data.datasets[3].data    = c.issues.security;
+  issuesChart.update();
+}
+
+// ── Sync filter with localStorage ────────────────────────────────────────
+(function () {
+  const PKEY = 'analytics_preset', FKEY = 'analytics_date_from', TKEY = 'analytics_date_to';
+  const urlP = new URLSearchParams(location.search).get('preset');
+  if (urlP) {
+    localStorage.setItem(PKEY, urlP);
+    if (urlP === 'custom') {
+      const p = new URLSearchParams(location.search);
+      localStorage.setItem(FKEY, p.get('date_from') || '');
+      localStorage.setItem(TKEY, p.get('date_to')   || '');
+    }
+  } else {
+    const saved = localStorage.getItem(PKEY);
+    if (saved && saved !== '{{ preset }}') {
+      const from = localStorage.getItem(FKEY) || '';
+      const to   = localStorage.getItem(TKEY) || '';
+      if (saved === 'custom' && from) {
+        document.getElementById('cfrom').value = from;
+        document.getElementById('cto').value   = to;
+        activePreset = 'custom';
+        document.getElementById('customDates').classList.add('visible');
+      } else { activePreset = saved; }
+      fetchData();
+    }
+  }
+})();
+</script>
+{% endblock %}

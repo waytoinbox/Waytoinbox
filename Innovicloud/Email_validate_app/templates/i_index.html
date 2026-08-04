@@ -1,0 +1,542 @@
+﻿{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Waytoinbox — Dashboard</title>
+  <!-- Apply saved theme before CSS renders to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('wti-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}());</script>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet" media="print" onload="this.media='all'"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/fontawesome/css/all.min.css' %}"/>
+  <script src="{% static 'Email_validate_app/js/jquery-3.6.0.min.js' %}"></script>
+  <script src="{% static 'Email_validate_app/js/chart.umd.min.js' %}"></script>
+  {% comment %} <link rel="icon" href="{% static 'Email_validate_app/img/logo3.png' %}" type="image/png"/> {% endcomment %}
+  <link rel="icon" href="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" type="image/png"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/components.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/layout-nav-hero.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/dashboard.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/dark-mode.css' %}"/>
+  {% block extra_css %}{% endblock %}
+
+</head>
+<body>
+<div class="dash-wrap">
+
+  <!-- â”€â”€ SIDEBAR â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <aside class="sidebar" id="sidebar">
+
+    <div class="sidebar-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}"
+          alt="Waytoinbox" style="width:36px;height:36px;object-fit:contain;"/>
+      <span class="sidebar-logo-text">Wayto<span>inbox</span></span>
+    </div>
+
+    <nav class="sidebar-nav">
+      <ul style="list-style:none;display:flex;flex-direction:column;gap:2px">
+
+        <!-- Analytics -->
+        <li class="nav-section-label">Analytics</li>
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Overview">
+            <i class="fas fa-th-large"></i>
+            <span class="nav-link-text">Overview <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'dashboard' %}" class="nav-link" data-tooltip="Dashboard">
+                <i class="fas fa-tachometer-alt"></i>
+                <span class="nav-link-text">Dashboard</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'analytics_overview' %}" class="nav-link" data-tooltip="Insights">
+                <i class="fas fa-chart-bar"></i>
+                <span class="nav-link-text">Insights</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Services -->
+        <li class="nav-section-label">Services</li>
+
+        <!-- Email Validation -->
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Email Validation">
+            <i class="fas fa-envelope"></i>
+            <span class="nav-link-text">Email Validation <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'single_service' %}" class="nav-link" data-tooltip="Email Verify">
+                <i class="fas fa-envelope-open-text"></i>
+                <span class="nav-link-text">Email Verify</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'services' %}" class="nav-link" data-tooltip="Bulk Email Verify">
+                <i class="fas fa-envelopes-bulk"></i>
+                <span class="nav-link-text">Bulk Email Verify</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Email Marketing -->
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Email Marketing">
+            <i class="fas fa-paper-plane"></i>
+            <span class="nav-link-text">Email Marketing <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'campaigns' %}" class="nav-link" data-tooltip="Campaigns">
+                <i class="fas fa-bullhorn"></i>
+                <span class="nav-link-text">Campaigns</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'all_contacts' %}" class="nav-link" data-tooltip="Contacts">
+                <i class="fas fa-address-book"></i>
+                <span class="nav-link-text">Contacts</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'list_segment' %}" class="nav-link" data-tooltip="Lists &amp; Segments">
+                <i class="fas fa-layer-group"></i>
+                <span class="nav-link-text">Lists &amp; Segments</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'templates_page' %}" class="nav-link" data-tooltip="Templates">
+                <i class="fas fa-paint-brush"></i>
+                <span class="nav-link-text">Templates</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'sender_verify' %}" class="nav-link" data-tooltip="Sender Verify">
+                <i class="fas fa-shield-alt"></i>
+                <span class="nav-link-text">Sender Verify</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Deliverability -->
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Deliverability">
+            <i class="fas fa-chart-line"></i>
+            <span class="nav-link-text">Deliverability <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'dmarc_check' %}" class="nav-link" data-tooltip="DMARC Analysis">
+                <i class="fas fa-shield-alt"></i>
+                <span class="nav-link-text">DMARC Analysis</span>
+                <span style="font-family:var(--font-head);font-size:9.5px;font-weight:700;letter-spacing:.04em;background:#e6f9f3;color:#007A5E;border:1px solid rgba(0,198,162,.3);border-radius:100px;padding:2px 7px;margin-left:4px;flex-shrink:0;">Free</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'Reputation_Analysis' %}" class="nav-link" data-tooltip="Reputation Analysis">
+                <i class="fas fa-award"></i>
+                <span class="nav-link-text">Reputation Analysis</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'Header_Analysis' %}" class="nav-link" data-tooltip="Header Analysis">
+                <i class="fas fa-gavel"></i>
+                <span class="nav-link-text">Header Analysis</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Blocklist Monitoring -->
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Blocklist Monitoring">
+            <i class="fas fa-ban"></i>
+            <span class="nav-link-text">Blocklist Monitoring <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'Blocklist_Monitor' %}" class="nav-link" data-tooltip="IP Blocklist">
+                <i class="fas fa-server"></i>
+                <span class="nav-link-text">IP Blocklist</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'Domain_Blacklist' %}" class="nav-link" data-tooltip="Domain Blacklist">
+                <i class="fas fa-globe"></i>
+                <span class="nav-link-text">Domain Blacklist</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Account -->
+        <li class="nav-section-label">Account</li>
+        <li class="nav-item" id="payment-menu">
+          <a href="javascript:void(0)" class="nav-link submenu-toggle" data-tooltip="Preferences">
+            <i class="fas fa-user-cog"></i>
+            <span class="nav-link-text">Preferences</span>
+            <i class="fas fa-chevron-right submenu-arrow"></i>
+          </a>
+          <ul class="submenu">
+            <li class="nav-item">
+              <a href="{% url 'profile' %}" class="nav-link" data-tooltip="Profile">
+                <i class="fas fa-id-badge"></i>
+                <span class="nav-link-text">Profile</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'receipt_list' %}" class="nav-link" data-tooltip="Receipts">
+                <i class="fas fa-file-invoice-dollar"></i>
+                <span class="nav-link-text">Billing</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'pricing' %}" class="nav-link" data-tooltip="pricing">
+                <i class="fas fa-wallet"></i>
+                <span class="nav-link-text">Pricing</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+       
+          
+
+      </ul>
+    </nav>
+
+    <div class="sidebar-footer">
+      <button class="sidebar-collapse-btn" id="collapseBtn">
+        <i class="fas fa-bars"></i>
+        <span>Collapse</span>
+      </button>
+    </div>
+
+  </aside>
+
+  <!-- Mobile overlay -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- â”€â”€ MAIN â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <div class="dash-main" id="dashMain">
+
+    <!-- Topbar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <button class="topbar-menu-btn" id="mobileMenuBtn">
+          <i class="fas fa-bars"></i>
+        </button>
+        <span class="topbar-page-title" id="pageTitle">Dashboard</span>
+      </div>
+      <div class="topbar-right">
+        {% if 'logged_in' in request.session %}
+          {% block topbar_credit %}
+          <div class="credit-badge-group">
+            <div class="credit-badge credit-badge--vc" title="Validation Credits (Email Verify)">
+              <i class="fas fa-envelope-open-text"></i>
+              <span>{{ nav_vc_credits }}</span>
+              <span class="credit-badge-label">VC</span>
+            </div>
+            <div class="credit-badge credit-badge--ac" title="Analysis Credits (IP / Domain / Header)">
+              <i class="fas fa-shield-alt"></i>
+              <span>{{ nav_ac_credits }}</span>
+              <span class="credit-badge-label">AC</span>
+            </div>
+            <div class="credit-badge credit-badge--cc" title="Contact Credits (Campaigns)">
+              <i class="fas fa-paper-plane"></i>
+              <span>{{ nav_cc_credits }}</span>
+              <span class="credit-badge-label">CC</span>
+            </div>
+          </div>
+          {% endblock %}
+
+          <!-- Notification bell -->
+          <div class="notif-bell-wrap" id="notifBellWrap">
+            <button class="notif-bell-btn" id="notifBellBtn" title="Notifications">
+              <i class="fas fa-bell"></i>
+              <span class="notif-badge" id="notifBadge" style="display:none;"></span>
+            </button>
+            <div class="notif-dropdown" id="notifDropdown">
+              <div class="notif-dropdown-header">
+                <span>Notifications</span>
+                <a href="/profile/#notifications" class="notif-view-all">View all</a>
+              </div>
+              <div id="notifDropdownList">
+                <div class="notif-dropdown-empty"><i class="fas fa-spinner fa-spin"></i></div>
+              </div>
+            </div>
+          </div>
+
+          <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark / light mode">
+            <i class="fas fa-moon" id="themeToggleIcon"></i>
+          </button>
+          <a href="{% url 'logout' %}" class="topbar-user">
+            <i class="fas fa-sign-out-alt"></i> Log out
+          </a>
+        {% else %}
+          <a href="{% url 'login' %}" class="nav-login">Log in</a>
+          <a href="{% url 'signup' %}" class="btn btn-primary btn-sm">Sign up</a>
+        {% endif %}
+      </div>
+    </header>
+
+    <!-- Page content -->
+    <div class="main-content">
+      {% block content %}{% endblock %}
+    </div>
+
+  </div>
+</div>
+
+<div id="wti-toast-container" aria-live="polite" aria-atomic="false"
+     style="position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem;max-width:360px;pointer-events:none;"></div>
+<script src="{% static 'Email_validate_app/js/wti_toast.js' %}"></script>
+<script src="{% static 'Email_validate_app/js/i_script.js' %}"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.local-dt').forEach(function(el) {
+    var utc = el.dataset.utc;
+    if (!utc) return;
+    var d = new Date(utc);
+    if (isNaN(d)) return;
+    if (el.dataset.format === 'date') {
+      el.textContent = d.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+    } else {
+      el.textContent = d.toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'});
+    }
+  });
+});
+</script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const sidebar        = document.getElementById('sidebar');
+  const collapseBtn    = document.getElementById('collapseBtn');
+  const mobileMenuBtn  = document.getElementById('mobileMenuBtn');
+  const overlay        = document.getElementById('sidebarOverlay');
+  const SIDEBAR_KEY    = 'sidebarCollapsed';
+  const SUBMENU_KEY    = 'openSubmenuIndex';
+
+  /* â”€â”€ Restore collapse state (desktop only) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  if (window.innerWidth > 768 && localStorage.getItem(SIDEBAR_KEY) === 'true') {
+    sidebar.classList.add('collapsed');
+    document.querySelector('.topbar').style.left = '64px';
+  }
+
+  /* â”€â”€ Desktop collapse toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  collapseBtn.addEventListener('click', () => {
+    if (window.innerWidth <= 768) return; // ignore on mobile
+    sidebar.classList.toggle('collapsed');
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    localStorage.setItem(SIDEBAR_KEY, isCollapsed);
+    document.querySelector('.topbar').style.left = isCollapsed ? '64px' : '240px';
+  });
+
+  /* â”€â”€ Mobile menu toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  mobileMenuBtn.addEventListener('click', () => {
+    const isOpen = sidebar.classList.contains('mobile-open');
+    if (isOpen) {
+      sidebar.classList.remove('mobile-open');
+      overlay.classList.remove('show');
+    } else {
+      sidebar.classList.remove('collapsed'); // ensure not collapsed when opening
+      sidebar.classList.add('mobile-open');
+      overlay.classList.add('show');
+    }
+  });
+
+  overlay.addEventListener('click', () => {
+    sidebar.classList.remove('mobile-open');
+    overlay.classList.remove('show');
+  });
+
+  /* â”€â”€ Close mobile sidebar on nav link click â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  sidebar.querySelectorAll('.nav-link:not(.submenu-toggle)').forEach(link => {
+    link.addEventListener('click', () => {
+      if (window.innerWidth <= 768) {
+        sidebar.classList.remove('mobile-open');
+        overlay.classList.remove('show');
+      }
+    });
+  });
+
+  /* â”€â”€ Submenu toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const submenuToggles = sidebar.querySelectorAll('.submenu-toggle');
+
+  // Restore open submenu
+  const savedIdx = localStorage.getItem(SUBMENU_KEY);
+  if (savedIdx !== null && submenuToggles[parseInt(savedIdx)]) {
+    submenuToggles[parseInt(savedIdx)].closest('.nav-item').classList.add('open');
+  }
+
+  submenuToggles.forEach(function(toggle, idx) {
+    toggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+
+      const parentLi = this.closest('.nav-item');
+      const isOpen   = parentLi.classList.contains('open');
+
+      // Close all first
+      submenuToggles.forEach(function(t) {
+        t.closest('.nav-item').classList.remove('open');
+      });
+
+      if (!isOpen) {
+        parentLi.classList.add('open');
+        localStorage.setItem(SUBMENU_KEY, idx);
+      } else {
+        localStorage.removeItem(SUBMENU_KEY);
+      }
+    });
+  });
+
+  /* â”€â”€ Active link highlight â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const currentPath = window.location.pathname;
+  /* Nested submenu toggle */
+  sidebar.querySelectorAll('.nested-submenu-toggle').forEach(function(toggle) {
+    toggle.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      this.closest('.nested-nav-item').classList.toggle('open');
+    });
+  });
+
+  sidebar.querySelectorAll('.nav-link:not(.submenu-toggle):not(.nested-submenu-toggle)').forEach(link => {
+    if (link.getAttribute('href') === currentPath) {
+      link.classList.add('active');
+      const parentSubmenu = link.closest('.submenu');
+      if (parentSubmenu) {
+        parentSubmenu.closest('.nav-item').classList.add('open');
+      }
+      const parentNested = link.closest('.nested-submenu');
+      if (parentNested) {
+        parentNested.closest('.nested-nav-item').classList.add('open');
+      }
+    }
+  });
+
+  /* â”€â”€ Page title from active link â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  const activeLink = sidebar.querySelector('.nav-link.active');
+  if (activeLink) {
+    const text = activeLink.querySelector('.nav-link-text');
+    if (text) document.getElementById('pageTitle').textContent = text.textContent.trim();
+  }
+});
+</script>
+{% if 'logged_in' in request.session %}
+<script>
+(function() {
+  var badge       = document.getElementById('notifBadge');
+  var bellBtn     = document.getElementById('notifBellBtn');
+  var dropdown    = document.getElementById('notifDropdown');
+  var dropList    = document.getElementById('notifDropdownList');
+  var countUrl    = '/profile/notifications-count/';
+  var listUrl     = '/profile/notifications-list/?preview=1';
+  var profileUrl  = '/profile/';
+
+  var iconMap  = { job_complete:'fa-envelope-open-text', blocklist:'fa-shield-alt', payment:'fa-credit-card', expiry:'fa-clock', sender_verify:'fa-shield-check', reputation:'fa-chart-bar' };
+  var colorMap = { job_complete:'blue', blocklist:'red', payment:'green', expiry:'amber', sender_verify:'teal', reputation:'purple' };
+
+  function timeAgo(iso) {
+    var diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (diff < 60)    return 'Just now';
+    if (diff < 3600)  return Math.floor(diff/60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff/3600) + 'h ago';
+    return Math.floor(diff/86400) + 'd ago';
+  }
+
+  function updateBadge(count) {
+    if (count > 0) {
+      badge.textContent = count > 99 ? '99+' : count;
+      badge.style.display = 'flex';
+    } else {
+      badge.style.display = 'none';
+    }
+  }
+
+  function pollCount() {
+    fetch(countUrl).then(function(r){ return r.json(); }).then(function(d){ updateBadge(d.count || 0); }).catch(function(){});
+  }
+
+  pollCount();
+  setInterval(pollCount, 30000);
+
+  function loadDropdown() {
+    dropList.innerHTML = '<div class="notif-dropdown-empty"><i class="fas fa-spinner fa-spin"></i></div>';
+    fetch(listUrl).then(function(r){ return r.json(); }).then(function(data) {
+      if (!data.ok || !data.notifications || !data.notifications.length) {
+        dropList.innerHTML = '<div class="notif-dropdown-empty">No notifications yet.</div>';
+        return;
+      }
+      dropList.innerHTML = data.notifications.map(function(n) {
+        var icon  = iconMap[n.type]  || 'fa-bell';
+        var color = colorMap[n.type] || 'blue';
+        var dot   = n.is_read ? '' : '<div class="notif-unread-dot"></div>';
+        var inner = '<div class="notif-drop-icon ' + color + '"><i class="fas ' + icon + '"></i></div>' +
+          '<div class="notif-drop-body">' +
+            '<div class="notif-drop-msg">' + n.message + '</div>' +
+            '<div class="notif-drop-time">' + timeAgo(n.time) + '</div>' +
+          '</div>' + dot;
+        if (n.url) {
+          return '<a href="' + n.url + '" class="notif-drop-item' + (n.is_read ? '' : ' unread') + '" style="text-decoration:none;">' + inner + '</a>';
+        }
+        return '<div class="notif-drop-item' + (n.is_read ? '' : ' unread') + '">' + inner + '</div>';
+      }).join('');
+    }).catch(function() {
+      dropList.innerHTML = '<div class="notif-dropdown-empty">Failed to load.</div>';
+    });
+  }
+
+  bellBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var isOpen = dropdown.classList.contains('open');
+    dropdown.classList.toggle('open');
+    if (!isOpen) {
+      loadDropdown();
+      // After opening, reset badge (user is looking)
+      setTimeout(pollCount, 500);
+    }
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!document.getElementById('notifBellWrap').contains(e.target)) {
+      dropdown.classList.remove('open');
+    }
+  });
+})();
+</script>
+{% endif %}
+
+<script>
+// ── Theme toggle (all dashboard pages) ───────────────
+(function() {
+  var btn  = document.getElementById('themeToggleBtn');
+  var icon = document.getElementById('themeToggleIcon');
+  if (!btn) return;
+  function applyIcon() {
+    icon.className = document.documentElement.getAttribute('data-theme') === 'dark'
+      ? 'fas fa-sun' : 'fas fa-moon';
+  }
+  applyIcon();
+  btn.addEventListener('click', function() {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    if (dark) {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('wti-theme', 'light');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('wti-theme', 'dark');
+    }
+    applyIcon();
+  });
+}());
+</script>
+{% block extra_js %}{% endblock %}
+</body>
+</html>

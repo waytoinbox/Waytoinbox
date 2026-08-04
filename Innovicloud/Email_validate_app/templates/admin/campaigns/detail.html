@@ -1,0 +1,184 @@
+{% extends 'admin/base.html' %}
+{% block title %}{{ campaign.campaign_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_campaigns' %}">Campaigns</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ campaign.campaign_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">{{ campaign.campaign_name }}</h1>
+    <p class="admin-page-subtitle">
+      By {{ campaign.user.user_email }}
+      &nbsp;·&nbsp;
+      {% if campaign.status == 'sent' %}<span class="badge badge-success"><span class="badge-dot"></span>Sent</span>
+      {% elif campaign.status == 'sending' %}<span class="badge badge-info"><span class="badge-dot"></span>Sending</span>
+      {% elif campaign.status == 'scheduled' %}<span class="badge badge-warning"><span class="badge-dot"></span>Scheduled</span>
+      {% elif campaign.status == 'draft' %}<span class="badge badge-grey">Draft</span>
+      {% elif campaign.status == 'failed' %}<span class="badge badge-danger"><span class="badge-dot"></span>Failed</span>
+      {% elif campaign.status == 'cancelled' %}<span class="badge badge-grey">Cancelled</span>
+      {% endif %}
+    </p>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a href="{% url 'admin_campaign_preview' campaign.pk %}" target="_blank" class="btn-admin btn-admin-outline">
+      <i class="fas fa-external-link-alt"></i> Preview
+    </a>
+    <a href="{% url 'admin_campaigns' %}" class="btn-admin btn-admin-outline">
+      <i class="fas fa-arrow-left"></i> Back
+    </a>
+  </div>
+</div>
+
+<!-- Info Cards Row -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;">
+
+  <!-- Campaign Info -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-paper-plane" style="color:var(--teal);margin-right:6px;"></i>Campaign Info</span></div>
+    <div style="padding:16px 20px;">
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;">
+        <dt style="color:var(--ink-3);font-weight:600;">ID</dt>
+        <dd style="margin:0;">{{ campaign.Campaign_ID|default:campaign.pk }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Sender</dt>
+        <dd style="margin:0;">{{ campaign.sender_name }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">From</dt>
+        <dd style="margin:0;">{{ campaign.from_email }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Reply-To</dt>
+        <dd style="margin:0;">{{ campaign.reply_email }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Recipients</dt>
+        <dd style="margin:0;font-weight:600;color:var(--teal);">{{ campaign.total_recipients }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Created</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ campaign.created_at|date:"M j, Y H:i" }}</dd>
+        {% if campaign.sent_at %}
+        <dt style="color:var(--ink-3);font-weight:600;">Sent at</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ campaign.sent_at|date:"M j, Y H:i" }}</dd>
+        {% endif %}
+        {% if campaign.schedule_at %}
+        <dt style="color:var(--ink-3);font-weight:600;">Scheduled</dt>
+        <dd style="margin:0;color:var(--ink-3);">{{ campaign.schedule_at|date:"M j, Y H:i" }}</dd>
+        {% endif %}
+      </dl>
+    </div>
+  </div>
+
+  <!-- List & Template -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-list" style="color:var(--teal);margin-right:6px;"></i>List & Template</span></div>
+    <div style="padding:16px 20px;">
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;">
+        <dt style="color:var(--ink-3);font-weight:600;">List</dt>
+        <dd style="margin:0;">
+          {% if campaign.campaign_list %}
+            <a href="{% url 'admin_list_detail' campaign.campaign_list.pk %}" style="color:var(--teal);">{{ campaign.campaign_list.list_name }}</a>
+            <span style="color:var(--ink-3);font-size:11px;">({{ campaign.campaign_list.total_count }} contacts)</span>
+          {% else %}—{% endif %}
+        </dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Template</dt>
+        <dd style="margin:0;">{{ campaign.template.name|default:"—" }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Timezone</dt>
+        <dd style="margin:0;">{{ campaign.schedule_timezone|default:"—" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Delivery Stats -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header"><span class="admin-card-title"><i class="fas fa-chart-bar" style="color:var(--teal);margin-right:6px;"></i>Delivery Stats</span></div>
+    <div style="padding:16px 20px;">
+      {% if stats %}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        {% with s=stats %}
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:var(--teal);">{{ s.total_sent }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Sent</div>
+        </div>
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:var(--mint);">{{ s.total_delivered }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Delivered</div>
+        </div>
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:#7c3aed;">{{ s.total_opened }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Opened</div>
+        </div>
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:#2563eb;">{{ s.total_clicked }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Clicked</div>
+        </div>
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:#ef4444;">{{ s.total_bounced }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Bounced</div>
+        </div>
+        <div style="padding:10px;background:var(--bg-2);border-radius:var(--radius-sm);text-align:center;">
+          <div style="font-size:20px;font-weight:800;color:#d97706;">{{ s.total_complaints }}</div>
+          <div style="font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.4px;">Complaints</div>
+        </div>
+        {% endwith %}
+      </div>
+      {% else %}
+      <div class="admin-empty" style="padding:20px 0;"><i class="fas fa-chart-bar"></i><div class="admin-empty-title">No stats yet</div></div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<!-- Quick Actions -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-bolt" style="color:var(--teal);margin-right:6px;"></i>Actions</span>
+  </div>
+  <div style="padding:16px 20px;display:flex;gap:10px;flex-wrap:wrap;">
+    {% if campaign.status in 'draft,scheduled,sending' %}
+    <button class="btn-admin btn-admin-danger" onclick="confirmCancel()">
+      <i class="fas fa-ban"></i> Cancel Campaign
+    </button>
+    {% endif %}
+    {% if not campaign.deleted_at %}
+    <button class="btn-admin btn-admin-outline" onclick="confirmArchive()">
+      <i class="fas fa-archive"></i> Archive
+    </button>
+    {% endif %}
+    <button class="btn-admin btn-admin-outline" onclick="confirmDuplicate()">
+      <i class="fas fa-copy"></i> Duplicate
+    </button>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var cid = {{ campaign.pk }};
+
+function confirmCancel() {
+  Admin.Modal.confirm('Cancel Campaign?', 'The campaign will be stopped and marked as cancelled.',
+    function () {
+      WTI.apiFetch('/wti-admin/campaigns/' + cid + '/cancel/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message, 'success'); setTimeout(function () { location.reload(); }, 800); }
+      });
+    }, 'Cancel Campaign', true);
+}
+
+function confirmArchive() {
+  Admin.Modal.confirm('Archive Campaign?', 'The campaign will be hidden from the default list.',
+    function () {
+      WTI.apiFetch('/wti-admin/campaigns/' + cid + '/archive/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message, 'success'); setTimeout(function () { window.location.href = '/wti-admin/campaigns/'; }, 900); }
+      });
+    }, 'Archive', true);
+}
+
+function confirmDuplicate() {
+  Admin.Modal.confirm('Duplicate Campaign?', 'A draft copy will be created for the same user.',
+    function () {
+      WTI.apiFetch('/wti-admin/campaigns/' + cid + '/duplicate/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message, 'success'); setTimeout(function () { window.location.href = res.data.data.redirect; }, 900); }
+      });
+    }, 'Duplicate', false);
+}
+</script>
+{% endblock %}

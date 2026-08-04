@@ -1,0 +1,178 @@
+{% extends 'admin/base.html' %}
+{% block title %}Admin Profile{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">My Profile</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">My Profile</h1>
+    <p class="admin-page-subtitle">Manage your admin account settings</p>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;">
+
+  <!-- Profile Info -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-user-circle" style="color:var(--teal);margin-right:6px;"></i>Profile Information</span>
+    </div>
+    <div style="padding:24px;">
+      <!-- Avatar -->
+      <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;padding-bottom:20px;border-bottom:1px solid var(--border);">
+        <div style="width:64px;height:64px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;font-size:28px;font-weight:700;color:#fff;flex-shrink:0;">
+          {{ admin_user.user_name|first|upper }}
+        </div>
+        <div>
+          <div style="font-weight:600;font-size:16px;">{{ admin_user.user_name }}</div>
+          <div style="font-size:13px;color:var(--ink-3);">{{ admin_user.user_email }}</div>
+          <div style="margin-top:4px;"><span class="badge badge-purple">Admin</span></div>
+        </div>
+      </div>
+
+      <div id="profile-msg" style="display:none;margin-bottom:16px;" class="admin-card"></div>
+      <form id="profileForm">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="profile">
+        <div class="admin-form-group">
+          <label class="admin-form-label">Display Name</label>
+          <input type="text" name="user_name" class="admin-input" value="{{ admin_user.user_name }}" maxlength="50">
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Email</label>
+          <input type="email" class="admin-input" value="{{ admin_user.user_email }}" disabled
+                 style="opacity:.6;cursor:not-allowed;" title="Email cannot be changed here">
+          <small style="font-size:11px;color:var(--ink-3);">Email changes require a support request.</small>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="admin-form-group">
+            <label class="admin-form-label">Company</label>
+            <input type="text" name="company" class="admin-input" value="{{ admin_user.company|default:'' }}" maxlength="100">
+          </div>
+          <div class="admin-form-group">
+            <label class="admin-form-label">Role</label>
+            <input type="text" name="role" class="admin-input" value="{{ admin_user.role|default:'' }}" maxlength="100">
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="admin-form-group">
+            <label class="admin-form-label">Timezone</label>
+            <input type="text" name="timezone" class="admin-input" value="{{ admin_user.timezone|default:'' }}" placeholder="e.g. Asia/Kolkata">
+          </div>
+          <div class="admin-form-group">
+            <label class="admin-form-label">Website</label>
+            <input type="url" name="website" class="admin-input" value="{{ admin_user.website|default:'' }}" placeholder="https://…">
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+          <button type="submit" class="btn-admin btn-admin-primary" id="saveProfileBtn">
+            <i class="fas fa-save"></i> Save Profile
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Change Password -->
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-lock" style="color:var(--teal);margin-right:6px;"></i>Change Password</span>
+    </div>
+    <div style="padding:24px;">
+      <div id="pw-msg" style="display:none;margin-bottom:16px;" class="admin-card"></div>
+      <form id="passwordForm">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="password">
+        <div class="admin-form-group">
+          <label class="admin-form-label">Current Password <span style="color:var(--red);">*</span></label>
+          <input type="password" name="current_password" class="admin-input" autocomplete="current-password" required>
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">New Password <span style="color:var(--red);">*</span></label>
+          <input type="password" name="new_password" class="admin-input" autocomplete="new-password"
+                 minlength="8" required placeholder="At least 8 characters">
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Confirm New Password <span style="color:var(--red);">*</span></label>
+          <input type="password" name="confirm_password" class="admin-input" autocomplete="new-password" required>
+        </div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+          <button type="submit" class="btn-admin btn-admin-primary" id="savePwBtn">
+            <i class="fas fa-key"></i> Change Password
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+</div>
+
+<!-- Account Info -->
+<div class="admin-card" style="margin-top:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-info-circle" style="color:var(--teal);margin-right:6px;"></i>Account Details</span>
+  </div>
+  <div style="padding:16px 20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;font-size:13px;">
+    <div>
+      <div style="color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">User ID</div>
+      <div style="font-weight:600;">{{ admin_user.pk }}</div>
+    </div>
+    <div>
+      <div style="color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Account Status</div>
+      <div>{% if admin_user.is_active %}<span class="badge badge-success">Active</span>{% else %}<span class="badge badge-danger">Inactive</span>{% endif %}</div>
+    </div>
+    <div>
+      <div style="color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Joined</div>
+      <div style="font-weight:600;">{{ admin_user.date_joined|date:"M j, Y"|default:"—" }}</div>
+    </div>
+    <div>
+      <div style="color:var(--ink-3);font-size:11px;text-transform:uppercase;letter-spacing:.5px;">Last Login</div>
+      <div style="font-weight:600;">{{ admin_user.last_login|date:"M j, Y H:i"|default:"—" }}</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function handleForm(formId, msgId, btnId) {
+  const form = document.getElementById(formId);
+  const msg = document.getElementById(msgId);
+  const btn = document.getElementById(btnId);
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    msg.style.display = 'none';
+    const origHtml = btn.innerHTML;
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+    const data = new FormData(form);
+    WTI.apiFetch('{% url "admin_profile" %}', {method:'POST', body: data})
+      .then(r => r.json())
+      .then(res => {
+        if (res.status === 'ok') {
+          WTI.toast(res.message || 'Saved.', 'success');
+          if (formId === 'passwordForm') form.reset();
+        } else {
+          msg.style.display = 'block';
+          msg.style.padding = '12px 16px';
+          msg.style.color = 'var(--red)';
+          msg.style.borderLeft = '4px solid var(--red)';
+          msg.textContent = res.message || 'An error occurred.';
+        }
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      })
+      .catch(() => {
+        WTI.toast('Network error.', 'error');
+        btn.disabled = false;
+        btn.innerHTML = origHtml;
+      });
+  });
+}
+
+handleForm('profileForm', 'profile-msg', 'saveProfileBtn');
+handleForm('passwordForm', 'pw-msg', 'savePwBtn');
+</script>
+{% endblock %}

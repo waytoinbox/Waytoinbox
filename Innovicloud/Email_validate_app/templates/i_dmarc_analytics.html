@@ -1,0 +1,440 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="dma-page">
+
+  <a href="{% url 'analytics_overview' %}" class="analytics-back-btn"><i class="fas fa-arrow-left"></i> Back to Insights</a>
+
+  <!-- ── PAGE HEADER + FILTERS ─────────────────────────────────────────── -->
+  <div class="dma-page-head">
+    <div>
+      <h1 class="dma-page-title">DMARC Analytics</h1>
+      <p class="dma-page-sub">SPF, DKIM, and DMARC authentication results and compliance trends.</p>
+    </div>
+
+    <div class="dma-filter-bar">
+      <div class="dma-filter-row">
+        <button class="dma-pill {% if preset == 'today' %}dma-pill--active{% endif %}" onclick="applyPreset('today')">Today</button>
+        <button class="dma-pill {% if preset == '7d'    %}dma-pill--active{% endif %}" onclick="applyPreset('7d')">Last 7 Days</button>
+        <button class="dma-pill {% if preset == '30d'   %}dma-pill--active{% endif %}" onclick="applyPreset('30d')">Last 30 Days</button>
+        <button class="dma-pill {% if preset == 'month' %}dma-pill--active{% endif %}" onclick="applyPreset('month')">This Month</button>
+        <button class="dma-pill {% if preset == 'custom'%}dma-pill--active{% endif %}" onclick="applyPreset('custom')">Custom</button>
+      </div>
+      <div class="dma-custom-dates {% if preset == 'custom' %}visible{% endif %}" id="customDates">
+        <input type="date" id="cfrom" class="dma-date-input" value="{{ date_from }}"/>
+        <span style="color:var(--muted);font-size:12px;">to</span>
+        <input type="date" id="cto"   class="dma-date-input" value="{{ date_to }}"/>
+        <button class="dma-date-apply" onclick="applyCustom()">Apply</button>
+      </div>
+      <div class="dma-filter-row">
+        <select class="dma-select" id="policySelect" onchange="fetchData()">
+          <option value="all"        {% if policy_filter == 'all'        %}selected{% endif %}>All Policies</option>
+          <option value="none"       {% if policy_filter == 'none'       %}selected{% endif %}>None</option>
+          <option value="quarantine" {% if policy_filter == 'quarantine' %}selected{% endif %}>Quarantine</option>
+          <option value="reject"     {% if policy_filter == 'reject'     %}selected{% endif %}>Reject</option>
+        </select>
+        <select class="dma-select" id="resultSelect" onchange="fetchData()">
+          <option value="all"  {% if result_filter == 'all'  %}selected{% endif %}>All Results</option>
+          <option value="pass" {% if result_filter == 'pass' %}selected{% endif %}>Pass</option>
+          <option value="fail" {% if result_filter == 'fail' %}selected{% endif %}>Fail</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PASS RATE BANNER ───────────────────────────────────────────────── -->
+  <div class="dma-banner">
+    <div class="dma-banner-ring">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle class="dma-ring-bg" cx="48" cy="48" r="40"/>
+        <circle class="dma-ring-val {% if pass_rate >= 80 %}dma-ring-val--good{% elif pass_rate >= 50 %}dma-ring-val--warn{% else %}dma-ring-val--bad{% endif %}"
+          id="passRing" cx="48" cy="48" r="40"
+          stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
+      </svg>
+      <div class="dma-ring-label" id="passPct">{{ pass_rate }}%</div>
+    </div>
+    <div>
+      <p class="dma-banner-title">DMARC Pass Rate</p>
+      <p class="dma-banner-sub">Percentage of checks where DMARC authentication passed.</p>
+      <span class="dma-banner-pill {% if pass_rate >= 80 %}dma-pill--good{% elif pass_rate >= 50 %}dma-pill--warn{% else %}dma-pill--bad{% endif %}" id="passBadge">
+        {% if pass_rate >= 80 %}Compliant{% elif pass_rate >= 50 %}Partial{% else %}Non-Compliant{% endif %}
+      </span>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#10B981" id="hs-pass">{{ dmarc_pass|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">DMARC Pass</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#3B82F6" id="hs-spf">{{ spf_pass|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">SPF Pass</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#8B5CF6" id="hs-dkim">{{ dkim_pass|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">DKIM Pass</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:var(--ink)" id="hs-total">{{ total|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">Total Checks</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY CARDS ─────────────────────────────────────────────────── -->
+  <div class="dma-cards-grid">
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--total"><i class="fas fa-shield-alt"></i></div>
+      <div class="dma-card-val" id="s-total">{{ total|intcomma }}</div>
+      <div class="dma-card-label">Total DMARC Checks</div>
+    </div>
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--pass"><i class="fas fa-check-circle"></i></div>
+      <div class="dma-card-val" id="s-passrate">{{ pass_rate }}%</div>
+      <div class="dma-card-label">Pass Rate</div>
+      <span class="dma-card-pct dma-pct--pass" id="s-pr-pct">DMARC</span>
+    </div>
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--spf"><i class="fas fa-lock"></i></div>
+      <div class="dma-card-val" id="s-spf">{{ spf_pass|intcomma }}</div>
+      <div class="dma-card-label">SPF Pass</div>
+    </div>
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--dkim"><i class="fas fa-key"></i></div>
+      <div class="dma-card-val" id="s-dkim">{{ dkim_pass|intcomma }}</div>
+      <div class="dma-card-label">DKIM Pass</div>
+    </div>
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--dmarc"><i class="fas fa-certificate"></i></div>
+      <div class="dma-card-val" id="s-dmarc">{{ dmarc_pass|intcomma }}</div>
+      <div class="dma-card-label">DMARC Pass</div>
+    </div>
+    <div class="dma-card">
+      <div class="dma-card-icon dma-icon--fail"><i class="fas fa-times-circle"></i></div>
+      <div class="dma-card-val" id="s-failed">{{ failed|intcomma }}</div>
+      <div class="dma-card-label">Failed Checks</div>
+      <span class="dma-card-pct dma-pct--fail" id="s-fail-pct">FAIL</span>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 1 ───────────────────────────────────────────────────── -->
+  <div class="dma-charts-row">
+    <div class="dma-chart-box">
+      <div class="dma-loading" id="load-dist"><div class="dma-spinner"></div></div>
+      <div class="dma-chart-head">
+        <h3 class="dma-chart-title">DMARC Result Distribution</h3>
+        <p class="dma-chart-sub">Pass vs Fail</p>
+      </div>
+      <div class="dma-canvas-wrap dma-canvas-wrap--donut"><canvas id="chartDist"></canvas></div>
+    </div>
+    <div class="dma-chart-box">
+      <div class="dma-loading" id="load-trend"><div class="dma-spinner"></div></div>
+      <div class="dma-chart-head">
+        <h3 class="dma-chart-title">Authentication Trend</h3>
+        <p class="dma-chart-sub">Daily DMARC checks</p>
+      </div>
+      <div class="dma-canvas-wrap"><canvas id="chartTrend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 2 ───────────────────────────────────────────────────── -->
+  <div class="dma-charts-row">
+    <div class="dma-chart-box">
+      <div class="dma-loading" id="load-auth"><div class="dma-spinner"></div></div>
+      <div class="dma-chart-head">
+        <h3 class="dma-chart-title">SPF vs DKIM vs DMARC</h3>
+        <p class="dma-chart-sub">Passing checks per authentication type</p>
+      </div>
+      <div class="dma-canvas-wrap"><canvas id="chartAuth"></canvas></div>
+    </div>
+    <div class="dma-chart-box">
+      <div class="dma-loading" id="load-policy"><div class="dma-spinner"></div></div>
+      <div class="dma-chart-head">
+        <h3 class="dma-chart-title">Policy Distribution</h3>
+        <p class="dma-chart-sub">None · Quarantine · Reject · Unknown</p>
+      </div>
+      <div class="dma-canvas-wrap dma-canvas-wrap--donut"><canvas id="chartPolicy"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── DMARC TABLE ────────────────────────────────────────────────────── -->
+  <div class="dma-table-section">
+    <div class="dma-table-head">
+      <h3 class="dma-chart-title">Recent DMARC Checks</h3>
+      <p class="dma-chart-sub" style="margin:2px 0 0;">Latest authentication results per domain</p>
+    </div>
+    {% if table_rows %}
+    <div class="dma-table-wrap">
+      <table class="dma-table">
+        <thead>
+          <tr>
+            <th>Domain</th>
+            <th>Policy</th>
+            <th>SPF</th>
+            <th>DKIM</th>
+            <th>DMARC</th>
+            <th>Result</th>
+            <th>Checked Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_rows %}
+          <tr>
+            <td><strong>{{ row.domain }}</strong></td>
+            <td><span class="dma-badge dma-b-{{ row.policy }}">{{ row.policy }}</span></td>
+            <td><span class="dma-badge dma-b-{{ row.spf }}">{{ row.spf }}</span></td>
+            <td><span class="dma-badge dma-b-{{ row.dkim }}">{{ row.dkim }}</span></td>
+            <td><span class="dma-badge dma-b-{{ row.dmarc }}">{{ row.dmarc }}</span></td>
+            <td><span class="dma-badge dma-b-{{ row.result }}">{{ row.result }}</span></td>
+            <td style="color:var(--muted);white-space:nowrap;">{{ row.date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="dma-empty">
+      <i class="fas fa-shield-alt dma-empty-icon"></i>
+      <p>No DMARC checks found for the selected period.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ANALYTICS_URL = "{% url 'dmarc_analytics' %}";
+const CHART_DATA    = {{ chart_data_json|safe }};
+const CIRC = 251.3;
+
+const C_PASS       = '#10B981';
+const C_FAIL       = '#EF4444';
+const C_SPF        = '#3B82F6';
+const C_DKIM       = '#8B5CF6';
+const C_DMARC      = '#F59E0B';
+const C_NONE       = '#9CA3AF';
+const C_QUARANTINE = '#3B82F6';
+const C_REJECT     = '#EF4444';
+const C_UNKNOWN    = '#E5E7EB';
+
+function fmtDate(d) {
+  if (!d) return d;
+  const p = d.split('-');
+  if (p.length !== 3) return d;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+}
+function fmtNum(n) { return Number(n).toLocaleString(); }
+
+(function() {
+  const rate   = parseFloat('{{ pass_rate }}') || 0;
+  const offset = CIRC - (rate / 100) * CIRC;
+  const ring   = document.getElementById('passRing');
+  if (ring) setTimeout(() => ring.style.strokeDashoffset = offset, 50);
+})();
+
+function loading(show) {
+  ['dist','trend','auth','policy'].forEach(id => {
+    document.getElementById('load-' + id).classList.toggle('active', show);
+  });
+}
+
+// Chart 1: Doughnut — pass/fail
+const distChart = new Chart(document.getElementById('chartDist').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Pass','Fail'],
+    datasets: [{
+      data: [CHART_DATA.distribution.pass, CHART_DATA.distribution.fail],
+      backgroundColor: [C_PASS, C_FAIL],
+      borderWidth: 2, borderColor: '#fff', hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: { position:'bottom', labels:{ usePointStyle:true, padding:16, font:{size:11} } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) } },
+    },
+  },
+});
+
+// Chart 2: Line — daily trend
+const trendChart = new Chart(document.getElementById('chartTrend').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: CHART_DATA.trend.labels.map(fmtDate),
+    datasets: [{
+      label: 'DMARC Checks',
+      data:  CHART_DATA.trend.data,
+      borderColor: C_DMARC, backgroundColor: 'rgba(245,158,11,.08)',
+      borderWidth: 2, tension: 0.4, pointRadius: 3, pointBackgroundColor: C_DMARC, fill: true,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' checks' } } },
+    scales: {
+      x: { ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 3: Bar — SPF vs DKIM vs DMARC
+const authChart = new Chart(document.getElementById('chartAuth').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['SPF Pass','DKIM Pass','DMARC Pass'],
+    datasets: [{
+      label: 'Passing',
+      data:  [CHART_DATA.auth.spf, CHART_DATA.auth.dkim, CHART_DATA.auth.dmarc],
+      backgroundColor: [C_SPF, C_DKIM, C_DMARC],
+      borderRadius: 6, borderSkipped: false,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' passing' } } },
+    scales: {
+      x: { grid:{ display:false }, ticks:{ font:{size:11} } },
+      y: { beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 4: Doughnut — policy distribution
+const policyChart = new Chart(document.getElementById('chartPolicy').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: ['None','Quarantine','Reject','Unknown'],
+    datasets: [{
+      data: [CHART_DATA.policy.none, CHART_DATA.policy.quarantine, CHART_DATA.policy.reject, CHART_DATA.policy.unknown],
+      backgroundColor: [C_NONE, C_QUARANTINE, C_REJECT, C_UNKNOWN],
+      borderWidth: 2, borderColor: '#fff', hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: { position:'bottom', labels:{ usePointStyle:true, padding:16, font:{size:11} } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) } },
+    },
+  },
+});
+
+// Filters
+let activePreset = '{{ preset }}';
+function applyPreset(preset) {
+  if (preset === 'custom') {
+    document.querySelectorAll('.dma-pill').forEach(b => b.classList.remove('dma-pill--active'));
+    document.querySelector('[onclick="applyPreset(\'custom\')"]').classList.add('dma-pill--active');
+    document.getElementById('customDates').classList.add('visible');
+    activePreset = 'custom'; return;
+  }
+  document.getElementById('customDates').classList.remove('visible');
+  activePreset = preset; localStorage.setItem('analytics_preset', preset); fetchData();
+}
+function applyCustom() {
+  const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+  if (!from || !to) { alert('Please select both dates.'); return; }
+  if (from > to) { alert('From date must be before To date.'); return; }
+  localStorage.setItem('analytics_preset', 'custom');
+  localStorage.setItem('analytics_date_from', from);
+  localStorage.setItem('analytics_date_to', to);
+  fetchData();
+}
+async function fetchData() {
+  const preset = activePreset;
+  const policy = document.getElementById('policySelect').value;
+  const result = document.getElementById('resultSelect').value;
+  loading(true);
+  document.querySelectorAll('.dma-pill').forEach(b => b.classList.remove('dma-pill--active'));
+  const pm = {today:0,'7d':1,'30d':2,month:3,custom:4};
+  const pills = document.querySelectorAll('.dma-pill');
+  if (pm[preset] !== undefined) pills[pm[preset]].classList.add('dma-pill--active');
+  let url = ANALYTICS_URL + '?preset=' + preset + '&policy=' + policy + '&result=' + result + '&format=json';
+  if (preset === 'custom') {
+    const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+    if (from && to) url += '&date_from=' + from + '&date_to=' + to;
+  }
+  try {
+    const res  = await fetch(url, { headers:{ 'X-Requested-With':'XMLHttpRequest' } });
+    const data = await res.json();
+    updateCards(data.summary); updateBanner(data.summary); updateCharts(data.charts);
+  } catch(e) { console.error('DMARC analytics error:', e); }
+  finally { loading(false); }
+}
+function updateCards(s) {
+  document.getElementById('s-total').textContent    = fmtNum(s.total);
+  document.getElementById('s-passrate').textContent = s.pass_rate + '%';
+  document.getElementById('s-spf').textContent      = fmtNum(s.spf_pass);
+  document.getElementById('s-dkim').textContent     = fmtNum(s.dkim_pass);
+  document.getElementById('s-dmarc').textContent    = fmtNum(s.dmarc_pass);
+  document.getElementById('s-failed').textContent   = fmtNum(s.failed);
+}
+function updateBanner(s) {
+  const rate   = s.pass_rate || 0;
+  const offset = CIRC - (rate / 100) * CIRC;
+  const ring   = document.getElementById('passRing');
+  const pct    = document.getElementById('passPct');
+  const badge  = document.getElementById('passBadge');
+  if (ring) ring.style.strokeDashoffset = offset;
+  if (pct)  pct.textContent  = rate + '%';
+  document.getElementById('hs-pass').textContent  = fmtNum(s.dmarc_pass);
+  document.getElementById('hs-spf').textContent   = fmtNum(s.spf_pass);
+  document.getElementById('hs-dkim').textContent  = fmtNum(s.dkim_pass);
+  document.getElementById('hs-total').textContent = fmtNum(s.total);
+  if (badge) {
+    badge.className = 'dma-banner-pill';
+    if (rate >= 80) { badge.classList.add('dma-pill--good'); badge.textContent = 'Compliant'; }
+    else if (rate >= 50) { badge.classList.add('dma-pill--warn'); badge.textContent = 'Partial'; }
+    else { badge.classList.add('dma-pill--bad'); badge.textContent = 'Non-Compliant'; }
+  }
+}
+function updateCharts(c) {
+  distChart.data.datasets[0].data = [c.distribution.pass, c.distribution.fail];
+  distChart.update();
+  trendChart.data.labels           = c.trend.labels.map(fmtDate);
+  trendChart.data.datasets[0].data = c.trend.data;
+  trendChart.update();
+  authChart.data.datasets[0].data = [c.auth.spf, c.auth.dkim, c.auth.dmarc];
+  authChart.update();
+  policyChart.data.datasets[0].data = [c.policy.none, c.policy.quarantine, c.policy.reject, c.policy.unknown];
+  policyChart.update();
+}
+
+// ── Sync filter with localStorage ────────────────────────────────────────
+(function () {
+  const PKEY = 'analytics_preset', FKEY = 'analytics_date_from', TKEY = 'analytics_date_to';
+  const urlP = new URLSearchParams(location.search).get('preset');
+  if (urlP) {
+    localStorage.setItem(PKEY, urlP);
+    if (urlP === 'custom') {
+      const p = new URLSearchParams(location.search);
+      localStorage.setItem(FKEY, p.get('date_from') || '');
+      localStorage.setItem(TKEY, p.get('date_to')   || '');
+    }
+  } else {
+    const saved = localStorage.getItem(PKEY);
+    if (saved && saved !== '{{ preset }}') {
+      const from = localStorage.getItem(FKEY) || '';
+      const to   = localStorage.getItem(TKEY) || '';
+      if (saved === 'custom' && from) {
+        document.getElementById('cfrom').value = from;
+        document.getElementById('cto').value   = to;
+        activePreset = 'custom';
+        document.getElementById('customDates').classList.add('visible');
+      } else { activePreset = saved; }
+      fetchData();
+    }
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,420 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="eva-page">
+
+  <!-- ── PAGE HEADER + FILTERS ─────────────────────────────────────────── -->
+  <a href="{% url 'analytics_overview' %}" class="analytics-back-btn"><i class="fas fa-arrow-left"></i> Back to Insights</a>
+
+  <div class="eva-page-head">
+    <div>
+      <h1 class="eva-page-title">Email Validation Analytics</h1>
+      <p class="eva-page-sub">Insights across single and bulk email validation.</p>
+    </div>
+
+    <div class="eva-filter-wrap">
+      <div class="eva-filter-pills" id="filterPills">
+        <button class="eva-pill {% if preset == 'today' %}eva-pill--active{% endif %}" onclick="applyPreset('today')">Today</button>
+        <button class="eva-pill {% if preset == '7d' %}eva-pill--active{% endif %}"    onclick="applyPreset('7d')">Last 7 Days</button>
+        <button class="eva-pill {% if preset == '30d' %}eva-pill--active{% endif %}"   onclick="applyPreset('30d')">Last 30 Days</button>
+        <button class="eva-pill {% if preset == 'month' %}eva-pill--active{% endif %}" onclick="applyPreset('month')">This Month</button>
+        <button class="eva-pill {% if preset == 'custom' %}eva-pill--active{% endif %}" onclick="applyPreset('custom')">Custom</button>
+      </div>
+      <div class="eva-custom-dates {% if preset == 'custom' %}visible{% endif %}" id="customDates">
+        <input type="date" id="cfrom" class="eva-date-input" value="{{ date_from }}"/>
+        <span style="color:var(--muted);font-size:12px;">to</span>
+        <input type="date" id="cto"   class="eva-date-input" value="{{ date_to }}"/>
+        <button class="eva-date-apply" onclick="applyCustom()">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY CARDS ─────────────────────────────────────────────────── -->
+  <div class="eva-cards-grid">
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--total"><i class="fas fa-envelope"></i></div>
+      <div class="eva-card-val" id="s-total">{{ total|intcomma }}</div>
+      <div class="eva-card-label">Total Emails Checked</div>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--valid"><i class="fas fa-check-circle"></i></div>
+      <div class="eva-card-val" id="s-valid">{{ valid|intcomma }}</div>
+      <div class="eva-card-label">Valid Emails</div>
+      <span class="eva-card-pct eva-pct--valid" id="s-valid-pct">{{ valid_pct }}%</span>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--invalid"><i class="fas fa-times-circle"></i></div>
+      <div class="eva-card-val" id="s-invalid">{{ invalid|intcomma }}</div>
+      <div class="eva-card-label">Invalid Emails</div>
+      <span class="eva-card-pct eva-pct--invalid" id="s-invalid-pct">{{ invalid_pct }}%</span>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--risky"><i class="fas fa-exclamation-triangle"></i></div>
+      <div class="eva-card-val" id="s-risky">{{ risky|intcomma }}</div>
+      <div class="eva-card-label">Risky Emails</div>
+      <span class="eva-card-pct eva-pct--risky" id="s-risky-pct">{{ risky_pct }}%</span>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--others"><i class="fas fa-question-circle"></i></div>
+      <div class="eva-card-val" id="s-others">{{ others|intcomma }}</div>
+      <div class="eva-card-label">Others</div>
+      <span class="eva-card-pct eva-pct--others" id="s-others-pct">{{ others_pct }}%</span>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--bulk"><i class="fas fa-file-csv"></i></div>
+      <div class="eva-card-val" id="s-bulk">{{ bulk_jobs|intcomma }}</div>
+      <div class="eva-card-label">Bulk Jobs</div>
+    </div>
+
+    <div class="eva-card">
+      <div class="eva-card-icon eva-card-icon--credits"><i class="fas fa-coins"></i></div>
+      <div class="eva-card-val" id="s-credits">{{ credits_used|intcomma }}</div>
+      <div class="eva-card-label">Credits Used</div>
+    </div>
+
+  </div>
+
+  <!-- ── CHARTS ROW 1 ───────────────────────────────────────────────────── -->
+  <div class="eva-charts-row">
+
+    <!-- Chart 1: Doughnut — Result Distribution -->
+    <div class="eva-chart-box" style="position:relative;">
+      <div class="eva-loading" id="load-donut"><div class="eva-spinner"></div></div>
+      <div class="eva-chart-head">
+        <div>
+          <h3 class="eva-chart-title">Validation Result Distribution</h3>
+          <p class="eva-chart-sub">Valid · Invalid · Risky · Others</p>
+        </div>
+      </div>
+      <div class="eva-chart-canvas-wrap eva-chart-canvas-wrap--donut">
+        <canvas id="chartDonut"></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 2: Line — Daily Trend -->
+    <div class="eva-chart-box" style="position:relative;">
+      <div class="eva-loading" id="load-trend"><div class="eva-spinner"></div></div>
+      <div class="eva-chart-head">
+        <div>
+          <h3 class="eva-chart-title">Validation Volume Trend</h3>
+          <p class="eva-chart-sub">Emails checked per day</p>
+        </div>
+      </div>
+      <div class="eva-chart-canvas-wrap">
+        <canvas id="chartTrend"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CHARTS ROW 2 ───────────────────────────────────────────────────── -->
+  <div class="eva-charts-row">
+
+    <!-- Chart 3: Bar — Single vs Bulk -->
+    <div class="eva-chart-box" style="position:relative;">
+      <div class="eva-loading" id="load-bar"><div class="eva-spinner"></div></div>
+      <div class="eva-chart-head">
+        <div>
+          <h3 class="eva-chart-title">Single vs Bulk Validation</h3>
+          <p class="eva-chart-sub">Emails validated by method</p>
+        </div>
+      </div>
+      <div class="eva-chart-canvas-wrap">
+        <canvas id="chartBar"></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 4: Stacked Bar — Result Trend -->
+    <div class="eva-chart-box" style="position:relative;">
+      <div class="eva-loading" id="load-stacked"><div class="eva-spinner"></div></div>
+      <div class="eva-chart-head">
+        <div>
+          <h3 class="eva-chart-title">Result Trend by Day</h3>
+          <p class="eva-chart-sub">Valid · Invalid · Risky · Others — bulk data</p>
+        </div>
+      </div>
+      <div class="eva-chart-canvas-wrap">
+        <canvas id="chartStacked"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+</div><!-- /.eva-page -->
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+const ANALYTICS_URL = "{% url 'email_analytics' %}";
+const CHART_DATA    = {{ chart_data_json|safe }};
+
+const C_VALID   = '#10B981';
+const C_INVALID = '#EF4444';
+const C_RISKY   = '#F59E0B';
+const C_OTHERS  = '#6366F1';
+const C_TEAL    = '#0EA5E9';
+
+// ── Helpers ──────────────────────────────────────────────────────────────
+function fmtDate(d) {
+  if (!d) return d;
+  const parts = d.split('-');
+  if (parts.length !== 3) return d;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[parseInt(parts[1], 10) - 1] + ' ' + parseInt(parts[2], 10);
+}
+function fmtNum(n) {
+  return Number(n).toLocaleString();
+}
+function loading(show) {
+  ['donut','trend','bar','stacked'].forEach(id => {
+    document.getElementById('load-' + id).classList.toggle('active', show);
+  });
+}
+
+// ── Chart: Doughnut ──────────────────────────────────────────────────────
+const donutCtx = document.getElementById('chartDonut').getContext('2d');
+const donutChart = new Chart(donutCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['Valid', 'Invalid', 'Risky', 'Others'],
+    datasets: [{
+      data: CHART_DATA.donut.data,
+      backgroundColor: [C_VALID, C_INVALID, C_RISKY, C_OTHERS],
+      borderWidth: 2,
+      borderColor: '#fff',
+      hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    cutout: '68%',
+    plugins: {
+      legend: { position: 'bottom', labels: { usePointStyle: true, padding: 18, font: { size: 12 } } },
+      tooltip: {
+        callbacks: {
+          label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) + ' (' +
+            (ctx.dataset.data.reduce((a,b)=>a+b,0) ? (ctx.parsed / ctx.dataset.data.reduce((a,b)=>a+b,0) * 100).toFixed(1) : 0) + '%)',
+        }
+      }
+    },
+  },
+});
+
+// ── Chart: Line Trend ────────────────────────────────────────────────────
+const trendCtx = document.getElementById('chartTrend').getContext('2d');
+const trendChart = new Chart(trendCtx, {
+  type: 'line',
+  data: {
+    labels: CHART_DATA.trend.labels.map(fmtDate),
+    datasets: [{
+      label: 'Emails Checked',
+      data: CHART_DATA.trend.data,
+      borderColor: C_TEAL,
+      backgroundColor: 'rgba(14,165,233,.08)',
+      borderWidth: 2,
+      tension: 0.4,
+      pointRadius: 3,
+      pointBackgroundColor: C_TEAL,
+      fill: true,
+    }],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' emails' } }
+    },
+    scales: {
+      x: { ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+      y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+    },
+  },
+});
+
+// ── Chart: Bar (Single vs Bulk) ──────────────────────────────────────────
+const barCtx = document.getElementById('chartBar').getContext('2d');
+const barChart = new Chart(barCtx, {
+  type: 'bar',
+  data: {
+    labels: ['Single Validation', 'Bulk Validation'],
+    datasets: [{
+      label: 'Emails',
+      data: CHART_DATA.bar.data,
+      backgroundColor: [C_TEAL, '#6366F1'],
+      borderRadius: 6,
+      borderSkipped: false,
+    }],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' emails' } }
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 12 } } },
+      y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+    },
+  },
+});
+
+// ── Chart: Stacked Bar (Result Trend) ────────────────────────────────────
+const stackedCtx = document.getElementById('chartStacked').getContext('2d');
+const stackedChart = new Chart(stackedCtx, {
+  type: 'bar',
+  data: {
+    labels: CHART_DATA.stacked.labels.map(fmtDate),
+    datasets: [
+      { label: 'Valid',   data: CHART_DATA.stacked.valid,   backgroundColor: C_VALID,   stack: 'r' },
+      { label: 'Invalid', data: CHART_DATA.stacked.invalid, backgroundColor: C_INVALID, stack: 'r' },
+      { label: 'Risky',   data: CHART_DATA.stacked.risky,   backgroundColor: C_RISKY,   stack: 'r' },
+      { label: 'Others',  data: CHART_DATA.stacked.others,  backgroundColor: C_OTHERS,  stack: 'r' },
+    ],
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16, font: { size: 11 } } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y) } },
+    },
+    scales: {
+      x: { stacked: true, ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+      y: { stacked: true, beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+    },
+  },
+});
+
+// ── Preset filter ─────────────────────────────────────────────────────────
+let activePreset = '{{ preset }}';
+
+function applyPreset(preset) {
+  if (preset === 'custom') {
+    document.querySelectorAll('.eva-pill').forEach(b => b.classList.remove('eva-pill--active'));
+    document.querySelector('[onclick="applyPreset(\'custom\')"]').classList.add('eva-pill--active');
+    document.getElementById('customDates').classList.add('visible');
+    activePreset = 'custom';
+    return;
+  }
+  document.getElementById('customDates').classList.remove('visible');
+  localStorage.setItem('analytics_preset', preset);
+  fetchData(preset, null, null);
+}
+
+function applyCustom() {
+  const from = document.getElementById('cfrom').value;
+  const to   = document.getElementById('cto').value;
+  if (!from || !to) { alert('Please select both From and To dates.'); return; }
+  if (from > to)    { alert('From date must be before To date.'); return; }
+  localStorage.setItem('analytics_preset',    'custom');
+  localStorage.setItem('analytics_date_from', from);
+  localStorage.setItem('analytics_date_to',   to);
+  fetchData('custom', from, to);
+}
+
+async function fetchData(preset, from, to) {
+  loading(true);
+
+  // Update pill active state
+  document.querySelectorAll('.eva-pill').forEach(b => b.classList.remove('eva-pill--active'));
+  const presetMap = { today: 0, '7d': 1, '30d': 2, month: 3, custom: 4 };
+  const pills = document.querySelectorAll('.eva-pill');
+  if (presetMap[preset] !== undefined) pills[presetMap[preset]].classList.add('eva-pill--active');
+
+  let url = ANALYTICS_URL + '?preset=' + preset + '&format=json';
+  if (preset === 'custom' && from && to) url += '&date_from=' + from + '&date_to=' + to;
+
+  try {
+    const res  = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const data = await res.json();
+    updateCards(data.summary);
+    updateCharts(data.charts);
+  } catch (e) {
+    console.error('Analytics fetch error:', e);
+  } finally {
+    loading(false);
+  }
+}
+
+function updateCards(s) {
+  document.getElementById('s-total').textContent   = fmtNum(s.total);
+  document.getElementById('s-valid').textContent   = fmtNum(s.valid);
+  document.getElementById('s-invalid').textContent = fmtNum(s.invalid);
+  document.getElementById('s-risky').textContent   = fmtNum(s.risky);
+  document.getElementById('s-others').textContent  = fmtNum(s.others);
+  document.getElementById('s-bulk').textContent    = fmtNum(s.bulk_jobs);
+  document.getElementById('s-credits').textContent = fmtNum(s.credits_used);
+  document.getElementById('s-valid-pct').textContent   = s.valid_pct   + '%';
+  document.getElementById('s-invalid-pct').textContent = s.invalid_pct + '%';
+  document.getElementById('s-risky-pct').textContent   = s.risky_pct   + '%';
+  document.getElementById('s-others-pct').textContent  = s.others_pct  + '%';
+}
+
+function updateCharts(c) {
+  // Doughnut
+  donutChart.data.datasets[0].data = c.donut.data;
+  donutChart.update();
+
+  // Line trend
+  trendChart.data.labels          = c.trend.labels.map(fmtDate);
+  trendChart.data.datasets[0].data = c.trend.data;
+  trendChart.update();
+
+  // Bar
+  barChart.data.datasets[0].data = c.bar.data;
+  barChart.update();
+
+  // Stacked
+  stackedChart.data.labels              = c.stacked.labels.map(fmtDate);
+  stackedChart.data.datasets[0].data    = c.stacked.valid;
+  stackedChart.data.datasets[1].data    = c.stacked.invalid;
+  stackedChart.data.datasets[2].data    = c.stacked.risky;
+  stackedChart.data.datasets[3].data    = c.stacked.others;
+  stackedChart.update();
+}
+
+// ── Sync filter with localStorage ────────────────────────────────────────
+(function () {
+  const PKEY = 'analytics_preset', FKEY = 'analytics_date_from', TKEY = 'analytics_date_to';
+  const params = new URLSearchParams(location.search);
+  const urlP   = params.get('preset');
+  if (urlP) {
+    // URL preset wins — save it
+    localStorage.setItem(PKEY, urlP);
+    if (urlP === 'custom') {
+      localStorage.setItem(FKEY, params.get('date_from') || '');
+      localStorage.setItem(TKEY, params.get('date_to')   || '');
+    }
+  } else {
+    // No URL preset — apply from localStorage if different
+    const saved = localStorage.getItem(PKEY);
+    if (saved && saved !== '{{ preset }}') {
+      const from = localStorage.getItem(FKEY) || '';
+      const to   = localStorage.getItem(TKEY) || '';
+      if (saved === 'custom' && from) {
+        document.getElementById('cfrom').value = from;
+        document.getElementById('cto').value   = to;
+        activePreset = 'custom';
+        document.getElementById('customDates').classList.add('visible');
+      } else { activePreset = saved; }
+      fetchData(activePreset, from, to);
+    }
+  }
+})();
+</script>
+{% endblock %}

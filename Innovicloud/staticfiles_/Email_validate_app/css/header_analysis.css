@@ -1,0 +1,15 @@
+.hac-bar{display:flex;align-items:center;gap:14px;background:var(--bg-2);border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 16px;margin-bottom:18px;flex-wrap:wrap;}
+.hac-icon{font-size:16px;color:var(--teal);flex:0 0 auto;}
+.hac-info{flex:1;min-width:160px;}
+.hac-label{font-family:var(--font-head);font-size:12px;font-weight:700;color:var(--ink-2);margin-bottom:5px;display:flex;justify-content:space-between;}
+.hac-label span{color:var(--ink-3);font-weight:600;}
+.hac-track{height:6px;background:var(--border);border-radius:100px;overflow:hidden;}
+.hac-fill{height:100%;border-radius:100px;transition:width .4s,background .3s;background:var(--teal);}
+.hac-fill.warn{background:#F5A623;}
+.hac-fill.empty{background:#C94A1D;}
+.hac-badge{flex:0 0 auto;font-family:var(--font-head);font-size:12.5px;font-weight:700;padding:4px 12px;border-radius:100px;white-space:nowrap;}
+.hac-badge.ok{background:var(--teal-lt);color:var(--teal-dk);border:1px solid rgba(0,153,204,.2);}
+.hac-badge.warn{background:#FFFBEF;color:#9A6800;border:1px solid rgba(245,166,35,.25);}
+.hac-badge.empty{background:#FFF3EF;color:#C94A1D;border:1px solid rgba(255,107,53,.2);}
+.ac-plan-meta{width:100%;font-size:11px;color:var(--ink-3);margin-top:4px;display:flex;align-items:center;gap:4px;flex-wrap:wrap;}
+.ac-plan-meta i{color:var(--teal);font-size:10px;}

@@ -1,0 +1,159 @@
+{% extends 'admin/base.html' %}
+{% block title %}Coupons{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Coupons</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Coupons</h1>
+    <p class="admin-page-subtitle">{{ total }} coupon{{ total|pluralize }}</p>
+  </div>
+  <a href="{% url 'admin_coupon_create' %}" class="btn-admin btn-admin-primary">
+    <i class="fas fa-plus"></i> New Coupon
+  </a>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search code…"/>
+      </div>
+      <select name="status" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not status %}selected{% endif %}>All Status</option>
+        <option value="active" {% if status == 'active' %}selected{% endif %}>Active</option>
+        <option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactive</option>
+        <option value="expired" {% if status == 'expired' %}selected{% endif %}>Expired</option>
+      </select>
+      <select name="dtype" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not dtype %}selected{% endif %}>All Types</option>
+        <option value="percentage" {% if dtype == 'percentage' %}selected{% endif %}>Percentage</option>
+        <option value="fixed_credits" {% if dtype == 'fixed_credits' %}selected{% endif %}>Fixed Credits</option>
+        <option value="fixed_amount" {% if dtype == 'fixed_amount' %}selected{% endif %}>Fixed Amount</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q or status or dtype %}<a href="{% url 'admin_coupons' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table" id="couponsTable">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Type</th>
+          <th>Value</th>
+          <th>Used / Max</th>
+          <th>Valid From</th>
+          <th>Valid Until</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for coupon in page_obj %}
+        <tr id="coupon-row-{{ coupon.pk }}">
+          <td class="td-strong td-mono">{{ coupon.code }}</td>
+          <td style="font-size:12.5px;">
+            {% if coupon.discount_type == 'percentage' %}<span class="badge badge-info">%</span>
+            {% elif coupon.discount_type == 'fixed_credits' %}<span class="badge badge-purple">Credits</span>
+            {% else %}<span class="badge badge-grey">Amount</span>{% endif %}
+            {{ coupon.get_discount_type_display }}
+          </td>
+          <td>
+            {% if coupon.discount_type == 'percentage' %}{{ coupon.discount_value }}%
+            {% elif coupon.discount_type == 'fixed_credits' %}{{ coupon.discount_value }} credits
+            {% else %}&dollar;{{ coupon.discount_value }}{% endif %}
+          </td>
+          <td style="font-size:12.5px;">
+            {{ coupon.used_count }} / {% if coupon.max_uses %}{{ coupon.max_uses }}{% else %}&infin;{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ coupon.valid_from|date:"M j, Y" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ coupon.valid_until|date:"M j, Y"|default:"No expiry" }}</td>
+          <td id="coupon-status-{{ coupon.pk }}">
+            {% if coupon.is_active %}
+              <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+            {% else %}
+              <span class="badge badge-grey"><span class="badge-dot"></span>Inactive</span>
+            {% endif %}
+          </td>
+          <td>
+            <div style="display:flex;gap:6px;align-items:center;">
+              <a href="{% url 'admin_coupon_edit' coupon.pk %}" class="btn-admin btn-admin-sm btn-admin-outline" title="Edit">
+                <i class="fas fa-edit"></i>
+              </a>
+              <button class="btn-admin btn-admin-sm btn-admin-outline"
+                      onclick="toggleCoupon({{ coupon.pk }})"
+                      title="{% if coupon.is_active %}Deactivate{% else %}Activate{% endif %}">
+                <i class="fas fa-{% if coupon.is_active %}pause{% else %}play{% endif %}"></i>
+              </button>
+              <button class="btn-admin btn-admin-sm btn-admin-danger"
+                      onclick="deleteCoupon({{ coupon.pk }}, '{{ coupon.code }}')"
+                      title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="8"><div class="admin-empty"><i class="fas fa-ticket-alt"></i><div class="admin-empty-title">No coupons found</div><div class="admin-empty-sub"><a href="{% url 'admin_coupon_create' %}">Create your first coupon</a></div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if dtype %}dtype={{ dtype }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if dtype %}dtype={{ dtype }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}{% if dtype %}dtype={{ dtype }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function toggleCoupon(coid) {
+  WTI.apiFetch(`/wti-admin/coupons/${coid}/toggle/`, {method:'POST'})
+    .then(r => r.json()).then(data => {
+      if (data.status === 'ok') {
+        document.getElementById(`coupon-status-${coid}`).innerHTML = data.data.badge_html;
+        WTI.toast('Coupon updated.', 'success');
+      } else {
+        WTI.toast(data.message || 'Error', 'error');
+      }
+    });
+}
+
+function deleteCoupon(coid, code) {
+  Admin.Modal.confirm(
+    'Delete Coupon',
+    `Delete coupon <strong>${code}</strong>? This cannot be undone.`,
+    () => {
+      WTI.apiFetch(`/wti-admin/coupons/${coid}/delete/`, {method:'POST'})
+        .then(r => r.json()).then(data => {
+          if (data.status === 'ok') {
+            document.getElementById(`coupon-row-${coid}`).remove();
+            WTI.toast(data.message, 'success');
+          } else {
+            WTI.toast(data.message || 'Error', 'error');
+          }
+        });
+    },
+    'Delete', true
+  );
+}
+</script>
+{% endblock %}

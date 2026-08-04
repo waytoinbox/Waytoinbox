@@ -1,0 +1,130 @@
+{% extends 'admin/base.html' %}
+{% block title %}Subscriptions{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Subscriptions</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Subscriptions</h1>
+    <p class="admin-page-subtitle">{{ total }} subscription{{ total|pluralize }}</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ params.q }}" placeholder="Search email or plan…"/>
+      </div>
+      <select name="status" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not params.status %}selected{% endif %}>All Status</option>
+        <option value="Active" {% if params.status == 'Active' %}selected{% endif %}>Active</option>
+        <option value="Expired" {% if params.status == 'Expired' %}selected{% endif %}>Expired</option>
+        <option value="Cancelled" {% if params.status == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if params.q or params.status %}<a href="{% url 'admin_subscriptions' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>User</th>
+          <th>Plan</th>
+          <th>Status</th>
+          <th>Amount</th>
+          <th>Valid Until</th>
+          <th>Paid</th>
+          <th style="text-align:right;">Extend</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in page_obj %}
+        <tr id="sub-row-{{ sub.pk }}">
+          <td>
+            <a href="{% url 'admin_user_detail' sub.user.pk %}" style="color:var(--teal);font-size:12.5px;">
+              {{ sub.user.user_email }}
+            </a>
+          </td>
+          <td class="td-strong">{{ sub.subs_plan|default:"—" }}</td>
+          <td>
+            {% if sub.plan_status == 'Active' %}<span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+            {% elif sub.plan_status == 'Expired' %}<span class="badge badge-danger"><span class="badge-dot"></span>Expired</span>
+            {% elif sub.plan_status == 'Cancelled' %}<span class="badge badge-grey">Cancelled</span>
+            {% else %}<span class="badge badge-grey">{{ sub.plan_status|default:"—" }}</span>{% endif %}
+          </td>
+          <td style="font-weight:600;color:var(--mint);">{{ sub.amount|default:"—" }} {{ sub.currency|default:"" }}</td>
+          <td id="valid-{{ sub.pk }}" style="font-size:12.5px;{% if sub.plan_status == 'Expired' %}color:#ef4444;{% else %}color:var(--ink-3);{% endif %}">
+            {{ sub.valid_time|date:"M j, Y"|default:"—" }}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ sub.payment_time|date:"M j, Y" }}</td>
+          <td class="td-actions" style="text-align:right;">
+            <div style="display:inline-flex;gap:4px;align-items:center;">
+              <input type="number" id="days-{{ sub.pk }}" min="1" max="365" placeholder="days"
+                style="width:60px;padding:5px 7px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:12px;background:var(--bg-2);color:var(--ink);"/>
+              <button onclick="extendSub({{ sub.pk }})"
+                style="padding:5px 10px;font-size:12px;font-weight:600;background:var(--teal);color:#fff;border:none;border-radius:var(--radius-sm);cursor:pointer;">
+                +
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="admin-empty">
+              <i class="fas fa-credit-card"></i>
+              <div class="admin-empty-title">No subscriptions found</div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+function extendSub(sid) {
+  var days = document.getElementById('days-' + sid).value;
+  if (!days || parseInt(days) <= 0) { WTI.toast('Enter a positive number of days.', 'error'); return; }
+  var fd = new FormData();
+  fd.append('days', days);
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+  WTI.apiFetch('/wti-admin/subscriptions/' + sid + '/extend/', { method: 'POST', body: fd }).then(function (res) {
+    if (res.ok) {
+      WTI.toast(res.data.message, 'success');
+      var el = document.getElementById('valid-' + sid);
+      if (el && res.data.data) { el.textContent = res.data.data.new_valid_time; el.style.color = 'var(--mint)'; }
+      document.getElementById('days-' + sid).value = '';
+    }
+  });
+}
+</script>
+{% endblock %}

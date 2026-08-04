@@ -1,0 +1,17 @@
+{% comment %}
+Shared empty state partial.
+Visible when a filter/search returns zero results.
+Hidden by default on server-side pages — show it when page_obj has no items.
+On client-side (Pattern A) pages PF.showEmpty() controls visibility via JS.
+
+Optional context:
+  pf_empty_icon     — Font Awesome icon class (default: fa-filter)
+  pf_empty_title    — heading text (default: 'No matching records found')
+  pf_empty_message  — body text (default: 'Try adjusting or clearing your filters.')
+{% endcomment %}
+<div class="pf-empty" id="pfEmptyState" role="status"
+     style="display:{% if page_obj and not page_obj.object_list %}block{% else %}none{% endif %}">
+  <i class="fas {{ pf_empty_icon|default:'fa-filter' }}" aria-hidden="true"></i>
+  <strong>{{ pf_empty_title|default:'No matching records found' }}</strong>
+  <p>{{ pf_empty_message|default:'Try adjusting or clearing your filters.' }}</p>
+</div>

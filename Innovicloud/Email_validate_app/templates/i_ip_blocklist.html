@@ -1,0 +1,449 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/ip_blocklist.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+{% endblock %}
+{% block content %}
+
+<div class="bl-page">
+
+  <!-- ── ADD IP CARD ───────────────────────────────────── -->
+  <div class="bl-add-card">
+    <div class="bl-card-head">
+      <div class="bl-card-icon">&#128737;</div>
+      <div>
+        <h2>IP Blocklist Monitor</h2>
+        <p>Add an IP address to monitor it across 60+ global DNS blocklists.</p>
+      </div>
+    </div>
+
+    <!-- Analysis Credit bar -->
+    <div class="ipc-bar">
+      <i class="fas fa-coins ipc-icon"></i>
+      <div class="ipc-info">
+        <div class="ipc-label">Analysis Credits <span id="ipcText">{{ ac_current_credits }} / {{ ac_total_credits }}</span></div>
+        <div class="ipc-track"><div class="ipc-fill" id="ipcFill"></div></div>
+        {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
+      </div>
+      <span class="ipc-badge" id="ipcBadge"></span>
+    </div>
+
+    <div id="bl-alert-area"></div>
+
+    <form id="blIpForm" novalidate>
+      {% csrf_token %}
+      <div class="bl-form">
+        <input
+          class="bl-input" type="text"
+          id="Ip_s" name="Ip_s"
+          placeholder="Enter IP address e.g. 192.168.1.1"
+          autocomplete="off"
+        />
+        <button type="submit" class="bl-btn" id="blIpBtn">
+          <i class="fas fa-shield-alt"></i> Start Monitoring
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── TABLE CARD ────────────────────────────────────── -->
+  <div class="bl-table-card">
+    <div class="bl-table-head">
+      <h3>Monitored IPs (<span id="blCount">—</span>)</h3>
+    </div>
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_show_date=True pf_search_placeholder="Search IPs…" %}
+
+    <div id="blocklist-container">
+      <div class="bl-skeleton">
+        <div class="bl-skeleton-spinner"></div>
+        <p>Loading monitored IPs...</p>
+      </div>
+    </div>
+    <div class="cp-pag" id="blIpPagBar">
+      <span class="cp-pag-info" id="blIpPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="blIpPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="blIpPagNum"></span>
+        <button class="cp-pag-btn" id="blIpNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── DELETE CONFIRM MODAL ──────────────────────────────── -->
+<div class="bl-del-modal" id="blDelModal">
+  <div class="bl-del-modal-box">
+    <h4>Remove from Monitor</h4>
+    <p class="bl-del-modal-sub">Type <strong id="blDelTarget"></strong> below to confirm removal.</p>
+    <input class="bl-del-modal-input" type="text" id="blDelInput" placeholder="Type here to confirm" autocomplete="off"/>
+    <div class="bl-del-modal-actions">
+      <button class="bl-del-modal-cancel" onclick="closeBlDelModal()">Cancel</button>
+      <button class="bl-del-modal-confirm" id="blDelConfirmBtn" disabled onclick="doBlHide()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── DETAIL POPUP ──────────────────────────────────────── -->
+<div class="bl-popup" id="blPopup">
+  <div class="bl-popup-box">
+    <button class="ev-result__close" onclick="closeBlPopup()"
+      style="position:absolute;top:16px;right:16px">&#10005;</button>
+    <h3>Blocklist Details</h3>
+    <div class="bl-popup-ip" id="blPopupIp"></div>
+    <div class="bl-popup-label">Listed on the following blocklists</div>
+    <div id="blPopupContent"></div>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+/* ── Search + Pagination ─────────────────────────────── */
+var _blIpPag = null;
+
+function initBlIpPag() {
+  var tbody   = document.getElementById('blTbody');
+  if (!tbody) return;
+  var bar     = document.getElementById('blIpPagBar');
+  var prevBtn = document.getElementById('blIpPrevBtn');
+  var nextBtn = document.getElementById('blIpNextBtn');
+  var infoEl  = document.getElementById('blIpPagInfo');
+  var numEl   = document.getElementById('blIpPagNum');
+  var PAGE = 15, cur = 1;
+
+  function visibleRows() {
+    return Array.prototype.filter.call(tbody.querySelectorAll('tr'), function(tr) {
+      return tr.dataset.filtered !== 'true';
+    });
+  }
+
+  function render() {
+    var all   = visibleRows();
+    var total = all.length;
+    var pages = Math.ceil(total / PAGE) || 1;
+    if (cur > pages) cur = pages;
+    var start = (cur - 1) * PAGE;
+    var end   = Math.min(start + PAGE, total);
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) { tr.style.display = 'none'; });
+    all.forEach(function(tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+    if (infoEl) infoEl.textContent = total ? 'Showing ' + (start + 1) + '–' + end + ' of ' + total : '';
+    if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+    if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+    if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+    if (bar) bar.style.display = total <= PAGE ? 'none' : '';
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', function () { if (cur > 1) { cur--; render(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function () {
+    var pages = Math.ceil(visibleRows().length / PAGE);
+    if (cur < pages) { cur++; render(); }
+  });
+
+  render();
+  _blIpPag = { refresh: function () { cur = 1; render(); } };
+}
+
+function reNumberBlIp() {
+  var tbody = document.getElementById('blTbody');
+  if (!tbody) return;
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  rows.forEach(function(tr, i) {
+    var td = tr.querySelector('td');
+    if (td) td.textContent = i + 1;
+  });
+}
+
+/* ── Typed-confirm delete state ──────────────────────── */
+var _blPendingId  = null;
+var _blPendingRow = null;
+
+function openBlDelModal(recordId, ipValue, row) {
+  _blPendingId  = recordId;
+  _blPendingRow = row;
+  document.getElementById('blDelTarget').textContent = ipValue;
+  document.getElementById('blDelInput').value = '';
+  document.getElementById('blDelConfirmBtn').disabled = true;
+  document.getElementById('blDelModal').classList.add('show');
+  setTimeout(function() { document.getElementById('blDelInput').focus(); }, 50);
+}
+
+function closeBlDelModal() {
+  document.getElementById('blDelModal').classList.remove('show');
+  _blPendingId  = null;
+  _blPendingRow = null;
+}
+
+document.getElementById('blDelInput').addEventListener('input', function() {
+  var target = document.getElementById('blDelTarget').textContent;
+  document.getElementById('blDelConfirmBtn').disabled = (this.value !== target);
+});
+
+function doBlHide() {
+  if (!_blPendingId) return;
+  var rowToRemove = _blPendingRow;
+  var recordId    = _blPendingId;
+  closeBlDelModal();
+
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+  fd.append('record_id', recordId);
+  fd.append('record_type', 'ip');
+
+  fetch('/blocklist/hide_row/', { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        if (rowToRemove) {
+          rowToRemove.style.transition = 'opacity .4s';
+          rowToRemove.style.opacity = '0';
+          setTimeout(function() {
+            rowToRemove.remove();
+            var tbody = document.getElementById('blTbody');
+            if (tbody) {
+              var n = tbody.querySelectorAll('tr').length;
+              var countEl = document.getElementById('blCount');
+              if (countEl) countEl.textContent = n;
+            }
+            if (_blIpPag) _blIpPag.refresh();
+            reNumberBlIp();
+          }, 400);
+        }
+      } else {
+        WTI.toast(data.message || 'Failed to remove.', 'error');
+      }
+    })
+    .catch(function() { WTI.toast('Something went wrong.', 'error'); });
+}
+
+document.getElementById('blDelModal').addEventListener('click', function(e) {
+  if (e.target === this) closeBlDelModal();
+});
+
+/* ── IP Credit bar ───────────────────────────────────── */
+var _ipcCurrent = {{ ac_current_credits|default:0 }};
+var _ipcTotal   = {{ ac_total_credits|default:0 }};
+
+function updateIpcBar(current, total) {
+  _ipcCurrent = current; _ipcTotal = total;
+  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var fill  = document.getElementById('ipcFill');
+  var badge = document.getElementById('ipcBadge');
+  var text  = document.getElementById('ipcText');
+  var btn   = document.getElementById('blIpBtn');
+  var input = document.getElementById('Ip_s');
+  text.textContent = current + ' / ' + total;
+  fill.style.width = pct + '%';
+  fill.className  = 'ipc-fill';
+  badge.className = 'ipc-badge';
+  if (current <= 0) {
+    fill.classList.add('empty'); badge.classList.add('empty');
+    badge.textContent = 'No Credits';
+    btn.disabled = true; input.disabled = true;
+    input.placeholder = 'No credits left — purchase more';
+  } else if (pct <= 20) {
+    fill.classList.add('warn'); badge.classList.add('warn');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false; input.disabled = false;
+    input.placeholder = 'Enter IP address e.g. 192.168.1.1';
+  } else {
+    badge.classList.add('ok');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false; input.disabled = false;
+    input.placeholder = 'Enter IP address e.g. 192.168.1.1';
+  }
+}
+updateIpcBar(_ipcCurrent, _ipcTotal);
+
+/* ── Form submit via fetch ───────────────────────────── */
+document.getElementById('blIpForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('blIpBtn');
+  var ip  = document.getElementById('Ip_s').value.trim();
+  if (!ip) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Checking...';
+
+  try {
+    var res  = await fetch('/api/blocklist/ip/', { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+
+    if (data.status === 'ok') {
+      WTI.toast("IP '" + data.ip + "' has been successfully added to the monitor.", 'success');
+      document.getElementById('Ip_s').value = '';
+      blPrependRow(data.ip_id, data.ip, data.listed_count);
+      if (data.ac_current_credits !== undefined) updateIpcBar(data.ac_current_credits, _ipcTotal);
+    } else if (data.status === 'warning') {
+      WTI.toast(data.message, 'warning');
+    } else {
+      WTI.toast(data.message || 'Something went wrong.', 'error');
+      if (data.ac_current_credits !== undefined) updateIpcBar(data.ac_current_credits, _ipcTotal);
+    }
+  } catch (err) {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-shield-alt"></i> Start Monitoring';
+  }
+});
+
+/* ── Prepend a new row to the table ─────────────────── */
+function blPrependRow(ipId, ip, listedCount) {
+  var tbody = document.getElementById('blTbody');
+  if (!tbody) {
+    loadBlocklistData();
+    return;
+  }
+  var now = new Date().toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'});
+  var todayIso = new Date().toISOString().slice(0, 10);
+  var isClean = listedCount === 0 || listedCount === '0';
+  var statusCell = isClean
+    ? '<span class="bl-ok">&#10003; Clean</span>'
+    : '<a class="bl-listed blocklist-link" data-ip-id="' + ipId + '" data-ip="' + ip + '">&#9888; Listed on ' + listedCount + '</a>';
+  var safeIp = ip.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  var tr = document.createElement('tr');
+  tr.dataset.search = ip;
+  tr.dataset.status = isClean ? 'clean' : 'listed';
+  tr.dataset.date   = todayIso;
+  tr.innerHTML =
+    '<td data-label="#"></td>' +
+    '<td data-label="IP Address"><span class="bl-ip">' + ip + '</span></td>' +
+    '<td data-label="Added"><span class="bl-date">' + now + '</span></td>' +
+    '<td data-label="Last Checked"><span class="bl-date">' + now + '</span></td>' +
+    '<td data-label="Status">' + statusCell + '</td>' +
+    '<td data-label=""><button class="sv-del-btn" title="Remove" onclick="openBlDelModal(\'' + ipId + '\',\'' + safeIp + '\',this.closest(\'tr\'))"><i class="fas fa-trash"></i></button></td>';
+  tbody.insertBefore(tr, tbody.firstChild);
+  var countEl = document.getElementById('blCount');
+  if (countEl) {
+    var n = tbody.querySelectorAll('tr').length;
+    countEl.textContent = n;
+  }
+  if (_blIpPag) _blIpPag.refresh();
+  reNumberBlIp();
+}
+
+/* ── Load blocklist data ─────────────────────────────── */
+function loadBlocklistData() {
+  fetch('/get-blocklist-data/')
+    .then(function(r) { return r.json(); })
+    .then(function(json) {
+      var container = document.getElementById('blocklist-container');
+      var data = json.data || [];
+
+      document.getElementById('blCount').textContent = data.length;
+
+      if (!data.length) {
+        container.innerHTML =
+          '<div class="bl-empty">' +
+            '<div class="bl-empty-icon">&#128737;</div>' +
+            '<h4>No IPs monitored yet</h4>' +
+            '<p>Add your first IP address above to start monitoring.</p>' +
+          '</div>';
+        return;
+      }
+
+      container.innerHTML =
+        '<table class="bl-table">' +
+          '<thead><tr><th>#</th><th>IP Address</th><th>Added</th><th>Last Checked</th><th>Status</th><th></th></tr></thead>' +
+          '<tbody id="blTbody"></tbody>' +
+        '</table>';
+
+      var tbody = document.getElementById('blTbody');
+      data.forEach(function(item) {
+        var tr = document.createElement('tr');
+        var isClean = item.listed_count === '0' || item.listed_count === 0;
+        var statusCell = isClean
+          ? '<span class="bl-ok">&#10003; Clean</span>'
+          : '<a class="bl-listed blocklist-link" data-ip-id="' + item.ip_id + '" data-ip="' + item.ips + '">&#9888; Listed on ' + item.listed_count + '</a>';
+        var safeIp = item.ips.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+        var dateIso = item.created_date ? item.created_date.slice(0, 10) : '';
+        tr.dataset.search = item.ips;
+        tr.dataset.status = isClean ? 'clean' : 'listed';
+        tr.dataset.date   = dateIso;
+        var addedDate = item.created_date ? new Date(item.created_date).toLocaleDateString(undefined, {dateStyle:'medium'}) : '—';
+        var lastDate  = item.last_monitor_date ? new Date(item.last_monitor_date).toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'}) : '—';
+        tr.innerHTML =
+          '<td data-label="#"></td>' +
+          '<td data-label="IP Address"><span class="bl-ip">' + item.ips + '</span></td>' +
+          '<td data-label="Added"><span class="bl-date">' + addedDate + '</span></td>' +
+          '<td data-label="Last Checked"><span class="bl-date">' + lastDate + '</span></td>' +
+          '<td data-label="Status">' + statusCell + '</td>' +
+          '<td data-label=""><button class="sv-del-btn" title="Remove" onclick="openBlDelModal(\'' + item.ip_id + '\',\'' + safeIp + '\',this.closest(\'tr\'))"><i class="fas fa-trash"></i></button></td>';
+        tbody.appendChild(tr);
+      });
+      initBlIpPag();
+      reNumberBlIp();
+      applyBlIpFilters();
+    })
+    .catch(function(err) {
+      document.getElementById('blocklist-container').innerHTML =
+        '<div class="bl-empty">' +
+          '<div class="bl-empty-icon">&#9888;&#65039;</div>' +
+          '<h4>Failed to load data</h4>' +
+          '<p>Please refresh the page and try again.</p>' +
+        '</div>';
+      console.error('Error loading blocklist data:', err);
+    });
+}
+
+loadBlocklistData();
+
+function applyBlIpFilters() {
+  var f = PF.getFilters();
+  var tbody = document.getElementById('blTbody');
+  if (!tbody) return;
+  Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+    var match = PF.matchesSearch(tr.dataset.search || '', f.search)
+              && PF.matchesStatus(tr.dataset.status || '', f.status)
+              && PF.matchesDate(tr.dataset.date || '', f.dateFrom, f.dateTo);
+    tr.dataset.filtered = match ? 'false' : 'true';
+  });
+  if (_blIpPag) _blIpPag.refresh();
+}
+
+PF.init({ debounce: 250, urlSync: false });
+PF.wire(applyBlIpFilters);
+
+/* ── Detail popup ────────────────────────────────────── */
+document.addEventListener('click', function(e) {
+  var link = e.target.closest('.blocklist-link');
+  if (!link) return;
+  e.preventDefault();
+
+  var ipId = link.dataset.ipId;
+  var ip   = link.dataset.ip;
+
+  document.getElementById('blPopupIp').textContent = ip;
+  document.getElementById('blPopupContent').innerHTML =
+    '<div class="bl-skeleton"><div class="bl-skeleton-spinner"></div><p>Loading details...</p></div>';
+  document.getElementById('blPopup').classList.add('show');
+
+  fetch('/blocklist_names/?ip_id=' + ipId)
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      var content = document.getElementById('blPopupContent');
+      if (!data.blacklists || !data.blacklists.length) {
+        content.innerHTML = '<p style="color:var(--ink-3);font-size:13.5px">Not listed on any blocklist.</p>';
+        return;
+      }
+      content.innerHTML = data.blacklists.map(function(item) {
+        return '<div class="bl-list-item"><span class="bl-list-name">&#9888; ' + item.blacklists_name + '</span><span class="bl-list-date">' + (item.created_date ? new Date(item.created_date).toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'}) : '') + '</span></div>';
+      }).join('');
+    })
+    .catch(function(err) {
+      document.getElementById('blPopupContent').innerHTML = '<p style="color:#C94A1D">Failed to load details.</p>';
+      console.error(err);
+    });
+});
+
+function closeBlPopup() {
+  document.getElementById('blPopup').classList.remove('show');
+}
+
+document.getElementById('blPopup').addEventListener('click', function(e) {
+  if (e.target === this) closeBlPopup();
+});
+</script>
+
+{% endblock %}

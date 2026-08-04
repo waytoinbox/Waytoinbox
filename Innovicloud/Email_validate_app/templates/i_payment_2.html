@@ -1,0 +1,183 @@
+﻿{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Complete Payment — Waytoinbox</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/components.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/layout-nav-hero.css' %}"/>
+
+</head>
+<body>
+
+<!-- ── NAV ─────────────────────────────────────────────── -->
+<nav class="nav" id="mainNav">
+  <div class="container nav-inner">
+    <a href="{% url 'home' %}" class="nav-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" alt="Waytoinbox" style="width:36px;height:36px;object-fit:contain;"/>
+      Wayto<span>inbox</span>
+    </a>
+    <div class="nav-cta">
+      {% if 'logged_in' not in request.session %}
+        
+        <a href="{% url 'login' %}" class="nav-login">Log in</a>
+        <a href="{% url 'signup' %}" class="btn btn-primary btn-sm">Get started free</a>
+      {% else %}
+        <a href="#" class="nav-login">Dashboard</a>
+        <a href="{% url 'logout' %}" class="btn btn-primary btn-sm">Log out</a>
+      {% endif %}
+    </div>
+  </div>
+</nav>
+
+<!-- ── PAYMENT PAGE ───────────────────────────────────────── -->
+<div class="pay-page">
+  <div class="pay-card">
+
+    <!-- Head -->
+    <div class="pay-card-head">
+      <div class="pay-card-icon">💳</div>
+      <h2>Complete your payment</h2>
+      <p>Review your order details before proceeding.</p>
+    </div>
+
+    <!-- Details -->
+    <div class="pay-rows">
+      <div class="pay-row">
+        <span class="pay-row-label">Name</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val">{{ user_data.user_name }}</span>
+      </div>
+      <div class="pay-row">
+        <span class="pay-row-label">Email</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val">{{ user_data.user_email }}</span>
+      </div>
+      <div class="pay-row">
+        <span class="pay-row-label">Order ID</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val mono">{{ payment.id }}</span>
+      </div>
+      <div class="pay-row">
+        <span class="pay-row-label">Credits</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val">{{ credit }}.00</span>
+      </div>
+     <div class="pay-row">
+        <span class="pay-row-label">Discounted</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val">{{ discount_percentage }}%</span>
+      </div>
+    
+      <div class="pay-row pay-row-amount">
+        <span class="pay-row-label">Amount</span>
+        <span class="pay-row-sep">:</span>
+        <span class="pay-row-val">${{ payment.display_amount }}</span>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="pay-actions">
+      <button id="rzp-button1">🔐 Pay Now</button>
+      <a href="{% url 'subscription_cancel' %}" class="pay-cancel">Cancel order</a>
+    </div>
+
+    <p class="pay-secure">Secured by Razorpay — 256-bit SSL encryption</p>
+
+  </div>
+</div>
+ <!-- Hidden form to submit payment data to the server -->
+            <form id="payment-form" action="payment/" method="POST" style="display: none;">
+                {% csrf_token %}
+                <input type="hidden" name="payment_id" id="payment_id">
+                <input type="hidden" name="order_id" id="order_id">
+                <input type="hidden" name="amount" id="amount">
+                <input type="hidden" name="credits" id="credits">
+                <input type="hidden" name="user_id" id="user_id">
+                <input type="hidden" name="user_email" id="user_email">
+                <input type="hidden" name="user_name" id="user_name">
+                <input type="hidden" name="currency" id="currency">
+                <input type="hidden" name="plan" id="plan">
+                <input type="hidden" name="description" id="description">
+            </form>
+            
+            <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+            
+            <script>
+                var options = {
+                    "key": "{{ key_id }}",
+                    "amount": "{{ payment.display_amount }}",  // Amount in paise
+                    "currency": "{{ payment.currency }}",
+                    "name": "{{ user_data.user_name }}",
+                    "description": "Live Transaction",
+                    "image": "{% static 'Email_validate_app/img/logo3.png' %}",
+                    "order_id": "{{ payment.id }}",
+                    "handler": function (response) {
+                        // Set form values with the response data
+                        document.getElementById("payment_id").value = response.razorpay_payment_id;
+                        document.getElementById("order_id").value = options.order_id;
+                        document.getElementById("amount").value = options.amount;
+                        document.getElementById("credits").value = "{{ credit }}";
+                        document.getElementById("user_id").value = "{{ user_data.id  }}";
+                        document.getElementById("user_email").value = "{{ user_data.user_email }}";
+                        document.getElementById("user_name").value = "{{ user_data.user_name  }}";
+                        document.getElementById("currency").value = "{{ currency }}";
+                        document.getElementById("plan").value = "{{ plan }}";
+                        document.getElementById("description").value = "Purchase payment.";
+            
+                        // Submit the form to /payment route
+                        document.getElementById("payment-form").submit();
+                    },
+                    "theme": {
+                        "color": "#3399cc"
+                    }
+                };
+            
+                var rzp1 = new Razorpay(options);
+                rzp1.on('payment.failed', function (response) {
+                    /*alert("Payment failed! Error: " + response.error.description);*/
+                });
+                /*rzp1.on('payment.failed', function (response) {
+                    // Create a form to send the failure details to the server
+                    var failureForm = document.createElement("form");
+                    failureForm.action = "/failure";
+                    failureForm.method = "POST";
+                    failureForm.style.display = "none";
+                
+                    // Append failure details as hidden fields
+                    var fields = {
+                        "error_code": response.error.code,
+                        "error_description": response.error.description,
+                        "order_id": options.order_id,
+                        "user_id": "{{ user_data.user_id }}",
+                        "amount": options.amount
+                    };
+                
+                    for (var key in fields) {
+                        if (fields.hasOwnProperty(key)) {
+                            var input = document.createElement("input");
+                            input.type = "hidden";
+                            input.name = key;
+                            input.value = fields[key];
+                            failureForm.appendChild(input);
+                        }
+                    }
+                
+                    // Append the form to the body and submit it
+                    document.body.appendChild(failureForm);
+                    failureForm.submit();
+                });*/
+                
+            
+                document.getElementById('rzp-button1').onclick = function(e) {
+                    rzp1.open();
+                    e.preventDefault();
+                };
+            </script>
+            
+</body>
+</html>
+

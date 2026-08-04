@@ -1,0 +1,449 @@
+{% extends 'admin/base.html' %}
+{% block title %}{{ target_user.user_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_users' %}">Users</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ target_user.user_name }}</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="admin-page-header">
+  <div style="display:flex;align-items:center;gap:14px;">
+    <div class="admin-user-avatar" style="width:48px;height:48px;font-size:18px;flex-shrink:0;">
+      {{ target_user.user_name|first|upper }}
+    </div>
+    <div>
+      <h1 class="admin-page-title" style="margin-bottom:4px;">{{ target_user.user_name }}</h1>
+      <div style="font-size:13px;color:var(--ink-3);">
+        {{ target_user.user_email }}
+        &nbsp;·&nbsp;
+        {% if target_user.is_active %}
+          <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+        {% else %}
+          <span class="badge badge-grey"><span class="badge-dot"></span>Inactive</span>
+        {% endif %}
+        {% if target_user.is_verified %}
+          <span class="badge badge-info" style="margin-left:4px;"><span class="badge-dot"></span>Verified</span>
+        {% else %}
+          <span class="badge badge-warning" style="margin-left:4px;"><span class="badge-dot"></span>Unverified</span>
+        {% endif %}
+        {% if target_user.is_admin %}
+          <span class="badge badge-purple" style="margin-left:4px;">Admin</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a href="{% url 'admin_user_edit' target_user.pk %}" class="btn-admin btn-admin-primary">
+      <i class="fas fa-pen"></i> Edit Profile
+    </a>
+    <a href="{% url 'admin_users' %}" class="btn-admin btn-admin-outline">
+      <i class="fas fa-arrow-left"></i> Back
+    </a>
+  </div>
+</div>
+
+<!-- Top row: Profile | Credits | Subscription -->
+<div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;" class="detail-grid">
+
+  <!-- Profile Card -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-user" style="color:var(--teal);margin-right:6px;"></i>Profile</span>
+    </div>
+    <div style="padding:16px 20px;">
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;">
+        <dt style="color:var(--ink-3);font-weight:600;">ID</dt>
+        <dd style="margin:0;color:var(--ink);">#{{ target_user.pk }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Company</dt>
+        <dd style="margin:0;color:var(--ink);">{{ target_user.company|default:"—" }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Role</dt>
+        <dd style="margin:0;color:var(--ink);">{{ target_user.role|default:"—" }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Timezone</dt>
+        <dd style="margin:0;color:var(--ink);">{{ target_user.timezone|default:"—" }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Website</dt>
+        <dd style="margin:0;">
+          {% if target_user.website %}
+            <a href="{{ target_user.website }}" target="_blank" rel="noopener" style="color:var(--teal);">{{ target_user.website|truncatechars:30 }}</a>
+          {% else %}—{% endif %}
+        </dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Joined</dt>
+        <dd style="margin:0;color:var(--ink);">{{ target_user.created_date|date:"M j, Y H:i" }}</dd>
+      </dl>
+    </div>
+  </div>
+
+  <!-- Credits Card -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-coins" style="color:var(--teal);margin-right:6px;"></i>Credits</span>
+    </div>
+    <div style="padding:16px 20px;">
+      {% if credits %}
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div style="text-align:center;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);">
+          <div style="font-size:22px;font-weight:800;color:var(--teal);">{{ credits.current_credits|default:0 }}</div>
+          <div style="font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Current</div>
+        </div>
+        <div style="text-align:center;padding:12px;background:var(--bg-2);border-radius:var(--radius-sm);">
+          <div style="font-size:22px;font-weight:800;color:var(--ink);">{{ credits.total_credits|default:0 }}</div>
+          <div style="font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.4px;">Total</div>
+        </div>
+      </div>
+      {% else %}
+      <p style="color:var(--ink-3);font-size:13px;margin-bottom:14px;">No credit record.</p>
+      {% endif %}
+
+      <!-- Adjust Credits -->
+      <form id="adjustCreditsForm" style="display:flex;gap:8px;align-items:center;">
+        {% csrf_token %}
+        <input type="number" name="delta" id="creditDelta" placeholder="±credits"
+          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-2);font-size:13px;color:var(--ink);outline:none;"/>
+        <button type="submit" class="btn-admin btn-admin-primary" style="padding:7px 12px;">
+          <i class="fas fa-plus-minus"></i> Adjust
+        </button>
+      </form>
+      <div id="adjustResult" style="font-size:12px;margin-top:6px;"></div>
+    </div>
+  </div>
+
+  <!-- Subscription Card -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title"><i class="fas fa-credit-card" style="color:var(--teal);margin-right:6px;"></i>Subscription</span>
+    </div>
+    <div style="padding:16px 20px;">
+      {% if subscription %}
+      <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;">
+        <dt style="color:var(--ink-3);font-weight:600;">Plan</dt>
+        <dd style="margin:0;color:var(--ink);">{{ subscription.subs_plan|default:"—" }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Status</dt>
+        <dd style="margin:0;">
+          {% if subscription.plan_status == 'Active' %}
+            <span class="badge badge-success"><span class="badge-dot"></span>Active</span>
+          {% else %}
+            <span class="badge badge-grey"><span class="badge-dot"></span>{{ subscription.plan_status|default:"—" }}</span>
+          {% endif %}
+        </dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Amount</dt>
+        <dd style="margin:0;color:var(--ink);">{{ subscription.amount|default:"—" }} {{ subscription.currency }}</dd>
+        <dt style="color:var(--ink-3);font-weight:600;">Valid until</dt>
+        <dd style="margin:0;color:var(--ink);">
+          {% if subscription.valid_time %}{{ subscription.valid_time|date:"M j, Y" }}{% else %}—{% endif %}
+        </dd>
+      </dl>
+      {% else %}
+      <div class="admin-empty" style="padding:20px 0;">
+        <i class="fas fa-credit-card"></i>
+        <div class="admin-empty-title">No Subscription</div>
+        <div class="admin-empty-sub">User has no active subscription.</div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Actions Row -->
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-bolt" style="color:var(--teal);margin-right:6px;"></i>Quick Actions</span>
+  </div>
+  <div style="padding:16px 20px;display:flex;flex-wrap:wrap;gap:10px;">
+
+    <!-- Toggle Active -->
+    <button class="btn-admin {% if target_user.is_active %}btn-admin-outline{% else %}btn-admin-primary{% endif %}"
+      id="toggleActiveBtn"
+      onclick="confirmToggle()">
+      <i class="fas {% if target_user.is_active %}fa-ban{% else %}fa-check{% endif %}"></i>
+      {% if target_user.is_active %}Deactivate{% else %}Activate{% endif %}
+    </button>
+
+    <!-- Verify -->
+    {% if not target_user.is_verified %}
+    <button class="btn-admin btn-admin-outline" id="verifyBtn" onclick="confirmVerify()">
+      <i class="fas fa-shield-check"></i> Mark Verified
+    </button>
+    {% endif %}
+
+    <!-- Toggle Admin -->
+    {% if target_user.pk != admin_pk %}
+    <button class="btn-admin btn-admin-outline" id="grantAdminBtn" onclick="confirmGrantAdmin()">
+      <i class="fas fa-user-shield"></i>
+      {% if target_user.is_admin %}Revoke Admin{% else %}Grant Admin{% endif %}
+    </button>
+    {% endif %}
+
+    <!-- Reset Password -->
+    <button class="btn-admin btn-admin-outline" onclick="confirmResetPw()">
+      <i class="fas fa-key"></i> Send Reset Email
+    </button>
+
+    <!-- Soft Delete -->
+    {% if target_user.pk != admin_pk %}
+    <button class="btn-admin btn-admin-danger" onclick="confirmDelete()">
+      <i class="fas fa-trash"></i> Deactivate & Delete
+    </button>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- History Grid -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+  <!-- Login History -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Login History <span style="font-weight:400;color:var(--ink-3);font-size:12px;">(last 10)</span></span>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table" style="font-size:12.5px;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>IP</th>
+            <th>Browser / OS</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for log in login_history %}
+          <tr>
+            <td style="white-space:nowrap;">{{ log.login_at|date:"M j, H:i" }}</td>
+            <td class="td-mono">{{ log.ip_address|default:"—" }}</td>
+            <td>{{ log.browser|default:"—" }}{% if log.os %} / {{ log.os }}{% endif %}</td>
+            <td>
+              {% if log.status == 'success' %}
+                <span class="badge badge-success">OK</span>
+              {% else %}
+                <span class="badge badge-danger">Failed</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align:center;color:var(--ink-3);padding:16px;">No login history.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Payments -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Payments <span style="font-weight:400;color:var(--ink-3);font-size:12px;">(last 5)</span></span>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table" style="font-size:12.5px;">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Amount</th>
+            <th>Currency</th>
+            <th>Credits</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for payment in recent_payments %}
+          <tr>
+            <td style="white-space:nowrap;">{{ payment.payment_time|date:"M j, Y" }}</td>
+            <td style="font-weight:600;color:var(--mint);">{{ payment.amount|default:"—" }}</td>
+            <td>{{ payment.currency|default:"—" }}</td>
+            <td>{{ payment.credits|default:"—" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align:center;color:var(--ink-3);padding:16px;">No payments.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<!-- Validations + Campaigns -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+
+  <!-- Recent Validations -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Validation Jobs <span style="font-weight:400;color:var(--ink-3);font-size:12px;">(last 5)</span></span>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table" style="font-size:12.5px;">
+        <thead>
+          <tr>
+            <th>File</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Valid</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in recent_validations %}
+          <tr>
+            <td class="td-strong" style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              {{ job.file_name|default:"—" }}
+            </td>
+            <td>
+              {% if job.job_status == 'Complete' %}
+                <span class="badge badge-success">Done</span>
+              {% elif job.job_status == 'Processing' %}
+                <span class="badge badge-info">Processing</span>
+              {% elif job.job_status == 'Error' %}
+                <span class="badge badge-danger">Error</span>
+              {% else %}
+                <span class="badge badge-grey">{{ job.job_status|default:"—" }}</span>
+              {% endif %}
+            </td>
+            <td>{{ job.total_count|default:"—" }}</td>
+            <td style="color:var(--mint);">{{ job.valid_count|default:"—" }}</td>
+            <td style="white-space:nowrap;">{{ job.insert_date|date:"M j, Y"|default:"—" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5" style="text-align:center;color:var(--ink-3);padding:16px;">No validation jobs.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Recent Campaigns -->
+  <div class="admin-card" style="margin-bottom:0;">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Campaigns <span style="font-weight:400;color:var(--ink-3);font-size:12px;">(last 5)</span></span>
+    </div>
+    <div class="admin-table-wrap">
+      <table class="admin-table" style="font-size:12.5px;">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Status</th>
+            <th>Recipients</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for campaign in recent_campaigns %}
+          <tr>
+            <td class="td-strong" style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+              {{ campaign.campaign_name|default:"—" }}
+            </td>
+            <td>
+              {% if campaign.status == 'sent' %}
+                <span class="badge badge-success">Sent</span>
+              {% elif campaign.status == 'sending' %}
+                <span class="badge badge-info">Sending</span>
+              {% elif campaign.status == 'scheduled' %}
+                <span class="badge badge-warning">Scheduled</span>
+              {% elif campaign.status == 'draft' %}
+                <span class="badge badge-grey">Draft</span>
+              {% else %}
+                <span class="badge badge-grey">{{ campaign.status|capfirst }}</span>
+              {% endif %}
+            </td>
+            <td>{{ campaign.total_recipients|default:"—" }}</td>
+            <td style="white-space:nowrap;">{{ campaign.created_at|date:"M j, Y"|default:"—" }}</td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4" style="text-align:center;color:var(--ink-3);padding:16px;">No campaigns.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var uid = {{ target_user.pk }};
+
+function confirmToggle() {
+  var isActive = {% if target_user.is_active %}true{% else %}false{% endif %};
+  Admin.Modal.confirm(
+    isActive ? 'Deactivate User?' : 'Activate User?',
+    isActive ? 'The user will be logged out and cannot log in until reactivated.' : 'The user will be able to log in again.',
+    function () {
+      WTI.apiFetch('/wti-admin/users/' + uid + '/toggle/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message || 'Updated.', 'success'); setTimeout(function () { location.reload(); }, 800); }
+      });
+    },
+    isActive ? 'Deactivate' : 'Activate',
+    isActive
+  );
+}
+
+function confirmVerify() {
+  Admin.Modal.confirm('Mark User as Verified?', 'This will set email verification to true.', function () {
+    WTI.apiFetch('/wti-admin/users/' + uid + '/verify/', { method: 'POST' }).then(function (res) {
+      if (res.ok) { WTI.toast(res.data.message || 'Verified.', 'success'); setTimeout(function () { location.reload(); }, 800); }
+    });
+  }, 'Verify', false);
+}
+
+function confirmGrantAdmin() {
+  var isAdmin = {% if target_user.is_admin %}true{% else %}false{% endif %};
+  Admin.Modal.confirm(
+    isAdmin ? 'Revoke Admin Access?' : 'Grant Admin Access?',
+    isAdmin ? 'User will lose all admin permissions.' : 'User will gain full admin console access.',
+    function () {
+      WTI.apiFetch('/wti-admin/users/' + uid + '/grant-admin/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message || 'Updated.', 'success'); setTimeout(function () { location.reload(); }, 800); }
+      });
+    },
+    isAdmin ? 'Revoke' : 'Grant Admin',
+    isAdmin
+  );
+}
+
+function confirmResetPw() {
+  Admin.Modal.confirm('Send Password Reset?', 'A reset link will be emailed to the user.', function () {
+    WTI.apiFetch('/wti-admin/users/' + uid + '/reset-password/', { method: 'POST' }).then(function (res) {
+      if (res.ok) { WTI.toast(res.data.message || 'Email sent.', 'success'); }
+    });
+  }, 'Send Email', false);
+}
+
+function confirmDelete() {
+  Admin.Modal.confirm(
+    'Deactivate & Delete User?',
+    'The account will be deactivated. This action cannot be easily undone.',
+    function () {
+      WTI.apiFetch('/wti-admin/users/' + uid + '/delete/', { method: 'POST' }).then(function (res) {
+        if (res.ok) { WTI.toast(res.data.message || 'User deleted.', 'success'); setTimeout(function () { window.location.href = '/wti-admin/users/'; }, 900); }
+      });
+    },
+    'Deactivate',
+    true
+  );
+}
+
+// Adjust Credits
+document.getElementById('adjustCreditsForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var delta = document.getElementById('creditDelta').value;
+  if (!delta || delta === '0') { WTI.toast('Enter a non-zero delta.', 'error'); return; }
+  var formData = new FormData(this);
+  WTI.apiFetch('/wti-admin/users/' + uid + '/credits/', { method: 'POST', body: formData }).then(function (res) {
+    var el = document.getElementById('adjustResult');
+    if (res.ok) {
+      WTI.toast(res.data.message, 'success');
+      el.style.color = 'var(--mint)';
+      el.textContent = 'New balance: ' + res.data.data.new_balance;
+      document.getElementById('creditDelta').value = '';
+    } else {
+      el.style.color = '#ef4444';
+      el.textContent = res.data.message || 'Error adjusting credits.';
+    }
+  });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,1153 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block topbar_credit %}
+<div class="clock-topbar">
+  <div class="clock-topbar-dot"></div>
+  <span id="clockFlagTop"></span>
+  <span id="clockTimeTop"></span>
+</div>
+{% endblock %}
+
+{% block content %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/profile.css' %}"/>
+
+<div class="content">
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchProfileTab('profile', this)">Profile</div>
+    <div class="tab" onclick="switchProfileTab('security', this)">Security</div>
+    <div class="tab" onclick="switchProfileTab('notifications', this)">Notifications</div>
+    <div class="tab" onclick="switchProfileTab('billing', this)">Billing</div>
+  </div>
+
+  <!-- PROFILE TAB -->
+  <div id="tab-profile" class="tab-section visible">
+    <div class="profile-hero">
+      <div class="avatar-lg">
+        {{ username|slice:":2"|upper }}
+      </div>
+      <div class="profile-info">
+        <div class="profile-name">{{ username|default:"—" }}</div>
+        <div class="profile-email">{{ user_email }}</div>
+        <div class="profile-badges">
+          <span class="badge badge-pro">{% if active_plan %}{{ active_plan }}{% else %}Member{% endif %}</span>
+          {% if user.is_verified %}<span class="badge badge-verified">Email verified</span>{% endif %}
+        </div>
+      </div>
+      <div class="profile-stats">
+        {% with cr=credit_row %}
+        <div class="profile-stat">
+          <div class="profile-stat-val">{{ cr.vc_current_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-label">Validation Credits</div>
+        </div>
+        <div class="profile-stat">
+          <div class="profile-stat-val">{{ cr.ac_current_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-label">Analysis Credits</div>
+        </div>
+        <div class="profile-stat">
+          <div class="profile-stat-val">{{ cr.cc_current_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-label">Contact Credits</div>
+        </div>
+        {% endwith %}
+      </div>
+    </div>
+
+    <div class="section-grid-3">
+      <div class="card" id="personalInfoCard">
+        <div class="card-header"><span class="card-title">Personal information</span></div>
+        <div id="profileWarning" style="display:none;background:rgba(220,38,38,.07);border:1.5px solid rgba(220,38,38,.20);border-radius:8px;padding:10px 14px;margin-bottom:16px;font-size:13px;color:var(--danger);align-items:center;gap:8px;">
+          <i class="fas fa-exclamation-circle"></i> Please update your data — some fields are empty.
+        </div>
+        <div class="field-row">
+          <div class="field"><label class="field-label">First name</label><input id="piFirstName" class="input pi-field" type="text" value="{{ first_name }}" placeholder="First name" /></div>
+          <div class="field"><label class="field-label">Last name</label><input id="piLastName" class="input pi-field" type="text" value="{{ last_name }}" placeholder="Last name" /></div>
+        </div>
+        <div class="field">
+          <label class="field-label">Email address</label>
+          <div class="input-group">
+            <input class="input" type="email" value="{{ user_email }}" readonly />
+            <span class="input-suffix">{% if user.is_verified %}✓ verified{% else %}unverified{% endif %}</span>
+          </div>
+        </div>
+        <div class="field"><label class="field-label">Company / organization</label><input id="piCompany" class="input pi-field" type="text" value="{{ pi_company }}" placeholder="Your company" /></div>
+        <div class="field-row">
+          <div class="field"><label class="field-label">Role</label>
+            <select id="piRole" class="input select pi-field">
+              <option value="">Select role</option>
+              <option {% if pi_role == 'Email marketer' %}selected{% endif %}>Email marketer</option>
+              <option {% if pi_role == 'Developer' %}selected{% endif %}>Developer</option>
+              <option {% if pi_role == 'Growth / Ops' %}selected{% endif %}>Growth / Ops</option>
+              <option {% if pi_role == 'Other' %}selected{% endif %}>Other</option>
+            </select>
+          </div>
+          <div class="field"><label class="field-label">Timezone</label><select id="piTimezone" class="input select pi-field"><option value="">Select timezone</option>{% for tz in timezones %}<option value="{{ tz }}" {% if pi_timezone == tz %}selected{% endif %}>{{ tz }}</option>{% endfor %}</select></div>
+        </div>
+        <div class="field"><label class="field-label">Website</label><input id="piWebsite" class="input pi-field" type="url" value="{{ pi_website }}" placeholder="https://yoursite.com" /></div>
+        <div class="divider"></div>
+        <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+          <span id="piMsg" style="font-size:12px;display:none;"></span>
+          <button id="saveProfileBtn" class="btn btn-primary">Save changes</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Recent activity</span></div>
+        <div id="activityList">
+          <div style="text-align:center;padding:20px 0;color:var(--muted);font-size:13px;">
+            <i class="fas fa-spinner fa-spin"></i> Loading...
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SECURITY TAB -->
+  <div id="tab-security" class="tab-section">
+    <div class="section-grid" style="margin-bottom:16px;">
+
+      <!-- Change password -->
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">Change password</span>
+          {% if password_changed_at %}
+            <span style="font-size:11px;color:var(--muted);">Last changed: <span class="local-dt" data-utc="{{ password_changed_at|date:'c' }}" data-format="date">{{ password_changed_at|date:"M d, Y" }}</span></span>
+          {% endif %}
+        </div>
+        <div class="field">
+          <label class="field-label">Current password</label>
+          <div class="cp-input-wrap">
+            <input id="cpCurrent" class="input" type="password" placeholder="••••••••" autocomplete="current-password" style="padding-right:42px"/>
+            <i class="fa-solid fa-eye-slash cp-toggle-pw" id="cpToggleCurrent"></i>
+          </div>
+          <div class="signup-error" id="cpCurrentError"></div>
+        </div>
+        <div class="field">
+          <label class="field-label">New password</label>
+          <div class="cp-input-wrap">
+            <input id="cpNew" class="input" type="password" placeholder="Min. 8 characters" autocomplete="new-password" style="padding-right:42px"/>
+            <i class="fa-solid fa-eye-slash cp-toggle-pw" id="cpToggleNew"></i>
+          </div>
+          <div class="signup-error" id="cpNewError"></div>
+        </div>
+        <div class="field">
+          <label class="field-label">Confirm new password</label>
+          <div class="cp-input-wrap">
+            <input id="cpConfirm" class="input" type="password" placeholder="••••••••" autocomplete="new-password" style="padding-right:42px"/>
+            <i class="fa-solid fa-eye-slash cp-toggle-pw" id="cpToggleConfirm"></i>
+          </div>
+          <div class="signup-error" id="cpConfirmError"></div>
+        </div>
+        <div id="cpMsg" style="font-size:13px;margin-top:8px;display:none;"></div>
+        <div class="divider"></div>
+        <div style="display:flex;justify-content:flex-end;"><button id="cpBtn" class="btn btn-primary">Update password</button></div>
+      </div>
+
+      <!-- Login activity -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Login activity</span><span style="font-size:11px;color:var(--muted);">Last 5 logins</span></div>
+        {% if login_logs %}
+          {% for log in login_logs %}
+            <div class="activity-item">
+              <div class="activity-icon blue"><i class="fas fa-sign-in-alt" style="font-size:13px;"></i></div>
+              <div class="activity-body">
+                <div class="activity-msg" style="font-size:13px;">{{ log.browser }} &middot; {{ log.os }}</div>
+                <div class="activity-meta">
+                  {{ log.ip_address|default:"—" }}&nbsp;&middot;&nbsp;<span class="ltime" data-utc="{{ log.login_at|date:'c' }}">{{ log.login_at|date:"M d, Y, P" }}</span>
+                </div>
+              </div>
+            </div>
+          {% endfor %}
+        {% else %}
+          <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;">
+            <i class="fas fa-clock" style="display:block;font-size:20px;margin-bottom:8px;"></i>No login history yet.
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+
+    <!-- Delete account -->
+    <div class="card" style="margin-top:16px;border-color:rgba(220,38,38,.20);">
+      <div class="card-header" style="margin-bottom:0;">
+        <div>
+          <div class="card-title" style="color:var(--danger);">Delete account</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:3px;">Submit a deletion request to our team. We will process it within 2 business days.</div>
+        </div>
+        <button id="showDeleteFormBtn" class="btn" style="font-size:12px;padding:6px 14px;border:1.5px solid rgba(220,38,38,.35);color:var(--danger);background:rgba(220,38,38,.05);">
+          Delete account
+        </button>
+      </div>
+
+      <div id="deleteAccountForm" style="display:none;margin-top:20px;border-top:1.5px solid rgba(220,38,38,.12);padding-top:20px;">
+
+        <!-- Pre-filled user details (read-only) -->
+        <div class="field-row" style="margin-bottom:16px;">
+          <div class="field">
+            <label class="field-label">Your name</label>
+            <input class="input" type="text" value="{{ username }}" readonly style="opacity:0.6;cursor:not-allowed;" />
+          </div>
+          <div class="field">
+            <label class="field-label">Your email</label>
+            <input class="input" type="text" value="{{ user_email }}" readonly style="opacity:0.6;cursor:not-allowed;" />
+          </div>
+        </div>
+
+        <!-- Reason -->
+        <div class="field" style="margin-bottom:16px;">
+          <label class="field-label">Reason for deletion <span style="color:var(--danger);">*</span></label>
+          <select id="deleteReason" class="input select">
+            <option value="">— Select a reason —</option>
+            <option value="No longer need the service">No longer need the service</option>
+            <option value="Switching to another tool">Switching to another tool</option>
+            <option value="Too expensive">Too expensive</option>
+            <option value="Missing features I need">Missing features I need</option>
+            <option value="Privacy concerns">Privacy concerns</option>
+            <option value="Created account by mistake">Created account by mistake</option>
+            <option value="Other">Other</option>
+          </select>
+          <div class="signup-error" id="deleteReasonError"></div>
+        </div>
+
+        <!-- Note (required) -->
+        <div class="field" style="margin-bottom:16px;">
+          <label class="field-label">Additional note <span style="color:var(--danger);">*</span></label>
+          <textarea id="deleteNote" class="input" rows="3" placeholder="Tell us more so we can improve…" style="resize:vertical;height:80px;"></textarea>
+          <div class="signup-error" id="deleteNoteError"></div>
+        </div>
+
+        <div id="deleteMsg" style="font-size:13px;margin-bottom:12px;display:none;"></div>
+
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+          <button id="cancelDeleteBtn" class="btn btn-outline" style="font-size:13px;">Cancel</button>
+          <button id="submitDeleteBtn" class="btn" style="font-size:13px;background:rgba(220,38,38,.08);color:var(--danger);border:1.5px solid rgba(220,38,38,.25);">
+            Submit deletion request
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- NOTIFICATIONS TAB -->
+  <div id="tab-notifications" class="tab-section">
+
+    <!-- In-app notifications -->
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-header">
+        <span class="card-title">Notifications</span>
+        <span id="notifUnread" style="font-size:11px;background:rgba(239,68,68,0.12);color:var(--danger);padding:2px 8px;border-radius:20px;display:none;"></span>
+      </div>
+      <div id="notifList">
+        <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;">
+          <i class="fas fa-spinner fa-spin"></i> Loading…
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">Email notifications</span></div>
+
+      <!-- Always on — locked -->
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Email verification <span style="font-size:11px;color:var(--muted);margin-left:6px;">Always on</span></div>
+          <div class="toggle-desc">Verification link sent when you sign up or request a new one</div>
+        </div>
+        <label class="toggle" style="opacity:0.5;pointer-events:none;"><input type="checkbox" checked disabled /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Password reset <span style="font-size:11px;color:var(--muted);margin-left:6px;">Always on</span></div>
+          <div class="toggle-desc">Reset link sent when you request a password change</div>
+        </div>
+        <label class="toggle" style="opacity:0.5;pointer-events:none;"><input type="checkbox" checked disabled /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+
+      <!-- Toggleable -->
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Bulk job complete</div>
+          <div class="toggle-desc">Email when a bulk email verification job finishes</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyJobComplete" {% if notify_job_complete %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">IP / Domain blocklist alert</div>
+          <div class="toggle-desc">Notify immediately when your IP or domain is listed</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyBlocklist" {% if notify_blocklist %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Payment success</div>
+          <div class="toggle-desc">Receipt email after every successful payment</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyPayment" {% if notify_payment %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Subscription expiry</div>
+          <div class="toggle-desc">Alert when your subscription plan expires</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyExpiry" {% if notify_expiry %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Campaign result</div>
+          <div class="toggle-desc">Email when a campaign is sent or fails</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyCampaign" {% if notify_campaign %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Reputation check</div>
+          <div class="toggle-desc">Email when a domain reputation check returns unverified</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifyReputation" {% if notify_reputation %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+      <div class="toggle-row">
+        <div class="toggle-info">
+          <div class="toggle-label">Sender domain verified</div>
+          <div class="toggle-desc">Email when your sender domain is successfully verified</div>
+        </div>
+        <label class="toggle"><input type="checkbox" id="notifySenderVerify" {% if notify_sender_verify %}checked{% endif %} /><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
+      </div>
+
+      <div class="divider"></div>
+      <div style="display:flex;align-items:center;justify-content:flex-end;gap:10px;">
+        <span id="notifyMsg" style="font-size:12px;display:none;"></span>
+        <button id="saveNotifyBtn" class="btn btn-primary">Save preferences</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- BILLING TAB -->
+  <div id="tab-billing" class="tab-section">
+    <div class="section-grid-3" style="margin-bottom:16px;">
+
+      <!-- Plan card -->
+      <div class="plan-card">
+        {% if active_sub %}
+          <div class="plan-header">
+            <div class="plan-header-left">
+              <div class="plan-name {% if active_sub.subs_plan == 'Classic' %}plan-classic{% elif active_sub.subs_plan == 'Standard' %}plan-standard{% elif active_sub.subs_plan == 'Advanced' %}plan-advanced{% endif %}">{{ active_sub.subs_plan }}</div>
+              <div class="plan-amount"><span class="plan-amount-val">$ {{ active_sub.amount|default:"0.00" }}</span><span class="plan-amount-period"> /mo</span></div>
+              {% if active_sub.valid_time %}<div class="plan-price-expiry">Expires <span class="local-dt" data-utc="{{ active_sub.valid_time|date:'c' }}" data-format="date">{{ active_sub.valid_time|date:"M d, Y" }}</span></div>{% endif %}
+            </div>
+            <span class="plan-badge" style="{% if active_sub.plan_status == 'Active' %}background:rgba(0,153,204,.10);color:var(--teal);border:1px solid rgba(0,153,204,.20);{% else %}background:rgba(220,38,38,.10);color:var(--danger);border:1px solid rgba(220,38,38,.20);{% endif %}">
+              {{ active_sub.plan_status }}
+            </span>
+          </div>
+          <div class="plan-features">
+            {% with p=active_sub.subs_plan g=plan_group %}
+            {% if p == 'Classic' and g == 1 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>100 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>10 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 2 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 2 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 1 domain</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 10 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>2% Discount on Email Validation</span></div>
+            {% elif p == 'Classic' and g == 2 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>1,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>100 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 10 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 10 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 6 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 70 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>6% Discount on Email Validation</span></div>
+            {% elif p == 'Classic' and g == 3 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>6,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>600 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 60 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 60 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 15 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 100 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>9% Discount on Email Validation</span></div>
+            {% elif p == 'Standard' and g == 1 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>200 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>20 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 3 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 3 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 2 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 20 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>4% Discount on Email Validation</span></div>
+            {% elif p == 'Standard' and g == 2 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>2,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>200 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 20 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 20 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 8 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 80 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>7% Discount on Email Validation</span></div>
+            {% elif p == 'Standard' and g == 3 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>2,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>200 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 70 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 70 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 25 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 180 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>10% Discount on Email Validation</span></div>
+            {% elif p == 'Advanced' and g == 1 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>500 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>50 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 5 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 5 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 4 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 50 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>6% Discount on Email Validation</span></div>
+            {% elif p == 'Advanced' and g == 2 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>5,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>500 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 30 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 30 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 10 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 90 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>8% Discount on Email Validation</span></div>
+            {% elif p == 'Advanced' and g == 3 %}
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Contact Lists</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Unlimited Email Campaigns</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>5,000 Email Validations / month</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>500 Free Single Email Validations</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>IP Monitoring — up to 80 IPs</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Domain Monitoring — up to 80 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Reputation Analysis — up to 30 domains</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Header Analysis — up to 190 headers</span></div>
+              <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>10% Discount on Email Validation</span></div>
+            {% else %}
+              {% if active_sub.description %}<div class="plan-feature" style="color:var(--muted);font-size:12px;">{{ active_sub.description }}</div>{% endif %}
+            {% endif %}
+            {% endwith %}
+          </div>
+        {% else %}
+          <div class="plan-header">
+            <div>
+              <div class="plan-name">Free</div>
+              <div class="plan-price">No active subscription</div>
+            </div>
+            <span class="plan-badge" style="background:rgba(107,122,144,0.1);color:var(--muted);border:1px solid rgba(107,122,144,0.2);">Free</span>
+          </div>
+          <div class="plan-features">
+            <div class="plan-feature"><svg viewBox="0 0 14 14" fill="none"><path d="M2 7l3 4 7-7" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Basic email verification</span></div>
+          </div>
+        {% endif %}
+        <div style="display:flex;gap:8px;">
+          <a href="{% url 'pricing' %}#subscription" class="btn btn-outline" style="flex:1;justify-content:center;text-decoration:none;">{% if active_sub %}Change plan{% else %}Upgrade{% endif %}</a>
+          <a href="{% url 'pricing' %}#payg" class="btn btn-primary" style="flex:1;justify-content:center;text-decoration:none;">Top up credits</a>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:16px;">
+        <!-- Credit balance -->
+        <div class="card">
+          <div class="card-header" style="margin-bottom:14px;"><span class="card-title">Credit balance</span></div>
+
+          {% with cr=credit_row %}
+
+          <!-- Validation Credits (VC) -->
+          <div style="margin-bottom:14px;">
+            <div class="usage-label" style="margin-bottom:5px;">
+              <span style="font-size:12px;color:var(--muted);">Validation Credits</span>
+              <span style="font-size:12px;color:var(--muted);">{{ cr.vc_current_credits|default:0|intcomma }} / {{ cr.vc_total_credits|default:0|intcomma }}</span>
+            </div>
+            <div class="usage-bar-wrap">
+              {% if cr.vc_total_credits %}
+                {% widthratio cr.vc_current_credits|default:0 cr.vc_total_credits 100 as vcpct %}
+                <div class="usage-bar" style="width:{{ vcpct }}%;background:var(--teal-dk);transition:width 0.4s;"></div>
+              {% else %}
+                <div class="usage-bar" style="width:0%;background:var(--teal-dk);"></div>
+              {% endif %}
+            </div>
+            <div style="font-size:11px;color:var(--teal-dk);margin-top:4px;">{{ cr.vc_current_credits|default:0|intcomma }} remaining</div>
+          </div>
+
+          <!-- Analysis Credits (AC) -->
+          <div style="margin-bottom:14px;">
+            <div class="usage-label" style="margin-bottom:5px;">
+              <span style="font-size:12px;color:var(--muted);">Analysis Credits</span>
+              <span style="font-size:12px;color:var(--muted);">{{ cr.ac_current_credits|default:0|intcomma }} / {{ cr.ac_total_credits|default:0|intcomma }}</span>
+            </div>
+            <div class="usage-bar-wrap">
+              {% if cr.ac_total_credits %}
+                {% widthratio cr.ac_current_credits|default:0 cr.ac_total_credits 100 as acpct %}
+                <div class="usage-bar" style="width:{{ acpct }}%;background:#5B21B6;transition:width 0.4s;"></div>
+              {% else %}
+                <div class="usage-bar" style="width:0%;background:#5B21B6;"></div>
+              {% endif %}
+            </div>
+            <div style="font-size:11px;color:#5B21B6;margin-top:4px;">{{ cr.ac_current_credits|default:0|intcomma }} remaining</div>
+          </div>
+
+          <!-- Contact Credits (CC) -->
+          <div>
+            <div class="usage-label" style="margin-bottom:5px;">
+              <span style="font-size:12px;color:var(--muted);">Contact Credits</span>
+              <span style="font-size:12px;color:var(--muted);">{{ cr.cc_current_credits|default:0|intcomma }} / {{ cr.cc_total_credits|default:0|intcomma }}</span>
+            </div>
+            <div class="usage-bar-wrap">
+              {% if cr.cc_total_credits %}
+                {% widthratio cr.cc_current_credits|default:0 cr.cc_total_credits 100 as ccpct %}
+                <div class="usage-bar" style="width:{{ ccpct }}%;background:#F97316;transition:width 0.4s;"></div>
+              {% else %}
+                <div class="usage-bar" style="width:0%;background:#C94A1D;"></div>
+              {% endif %}
+            </div>
+            <div style="font-size:11px;color:#F97316;margin-top:4px;">{{ cr.cc_current_credits|default:0|intcomma }} remaining</div>
+          </div>
+
+          {% endwith %}
+        </div>
+
+        <!-- Payment method -->
+        <div class="card">
+          <div class="card-header" style="margin-bottom:12px;"><span class="card-title">Payment method</span></div>
+          {% if active_sub and active_sub.payer_method %}
+            <div style="display:flex;align-items:center;gap:10px;">
+              <div style="background:var(--bg-2);border:1.5px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px;font-family:var(--mono);color:var(--muted);">{{ active_sub.payer_method }}</div>
+            </div>
+          {% else %}
+            <div style="font-size:13px;color:var(--muted);">No payment method on file.</div>
+          {% endif %}
+        </div>
+      </div>
+
+    </div>
+
+    <div class="section-grid" style="margin-bottom:0;">
+
+      <!-- Subscription Payments -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Subscription Payments</span></div>
+        {% if payments %}
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border);">
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Date</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Plan</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Amount</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in payments %}
+                <tr style="{% if not forloop.last %}border-bottom:1px solid var(--border);{% endif %}">
+                  <td style="padding:10px 0;color:var(--muted);" class="local-dt" data-utc="{{ p.payment_time|date:'c' }}" data-format="date">{{ p.payment_time|date:"M d, Y" }}</td>
+                  <td style="padding:10px 0;">{{ p.subs_plan|default:"—" }}</td>
+                  <td style="padding:10px 0;font-family:var(--mono);">{{ p.currency|default:"" }} {{ p.amount|default:"—" }}</td>
+                  <td style="padding:10px 0;">
+                    {% if p.plan_status == "Active" %}<span class="badge badge-verified">Active</span>
+                    {% elif p.plan_status == "Inactive" %}<span class="badge" style="background:rgba(107,122,144,0.1);color:var(--muted);border:1px solid rgba(107,122,144,0.2);">Inactive</span>
+                    {% else %}<span class="badge badge-pro">{{ p.plan_status|default:"Paid" }}</span>{% endif %}
+                  </td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;"><i class="fas fa-file-invoice" style="display:block;font-size:20px;margin-bottom:8px;"></i>No subscriptions yet.</div>
+        {% endif %}
+        {% if payments %}
+          <div style="margin-top:12px;text-align:right;">
+            <a href="{% url 'receipt_list' %}" class="btn btn-outline" style="font-size:12px;padding:5px 14px;text-decoration:none;">View more →</a>
+          </div>
+        {% endif %}
+      </div>
+
+      <!-- One-Time Payments -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">One-Time Payments</span></div>
+        {% if onetime_payments %}
+          <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+              <tr style="border-bottom:1px solid var(--border);">
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Date</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Description</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Amount</th>
+                <th style="text-align:left;padding:8px 0;font-weight:500;color:var(--muted);font-size:11px;">Credits</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for p in onetime_payments %}
+                <tr style="{% if not forloop.last %}border-bottom:1px solid var(--border);{% endif %}">
+                  <td style="padding:10px 0;color:var(--muted);" class="local-dt" data-utc="{{ p.payment_time|date:'c' }}" data-format="date">{{ p.payment_time|date:"M d, Y" }}</td>
+                  <td style="padding:10px 0;">{{ p.description|default:p.unit_price|default:"Credit top-up" }}</td>
+                  <td style="padding:10px 0;font-family:var(--mono);">{{ p.currency|default:"" }} {{ p.amount|default:"—" }}</td>
+                  <td style="padding:10px 0;font-family:var(--mono);">{{ p.credits|default:"—" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% else %}
+          <div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;"><i class="fas fa-coins" style="display:block;font-size:20px;margin-bottom:8px;"></i>No one-time purchases yet.</div>
+        {% endif %}
+        {% if onetime_payments %}
+          <div style="margin-top:12px;text-align:right;">
+            <a href="{% url 'receipt_list' %}" class="btn btn-outline" style="font-size:12px;padding:5px 14px;text-decoration:none;">View more →</a>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<script>
+function switchProfileTab(name, el) {
+  document.querySelectorAll('.tab-section').forEach(s => s.classList.remove('visible'));
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('visible');
+  el.classList.add('active');
+  if (name === 'notifications') loadNotifications();
+}
+
+function checkProfileFields() {
+  const warning = document.getElementById('profileWarning');
+  const fields  = document.querySelectorAll('.pi-field');
+  const hasEmpty = Array.from(fields).some(f => f.value.trim() === '');
+  warning.style.display = hasEmpty ? 'flex' : 'none';
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+  checkProfileFields();
+  document.querySelectorAll('.pi-field').forEach(function (f) {
+    f.addEventListener('input', checkProfileFields);
+    f.addEventListener('change', checkProfileFields);
+  });
+
+  document.getElementById('saveProfileBtn').addEventListener('click', function () {
+    const btn = this;
+    const msg = document.getElementById('piMsg');
+
+    // Clear previous highlights
+    document.querySelectorAll('.pi-field').forEach(f => f.style.borderColor = '');
+
+    // Validate all fields client-side first
+    const fields = [
+      { el: document.getElementById('piFirstName'), label: 'First name' },
+      { el: document.getElementById('piLastName'),  label: 'Last name' },
+      { el: document.getElementById('piCompany'),   label: 'Company' },
+      { el: document.getElementById('piRole'),      label: 'Role' },
+      { el: document.getElementById('piTimezone'),  label: 'Timezone' },
+      { el: document.getElementById('piWebsite'),   label: 'Website' },
+    ];
+    const empty = fields.filter(f => !f.el || !f.el.value.trim());
+    if (empty.length) {
+      empty.forEach(f => { if (f.el) f.el.style.borderColor = 'var(--danger)'; });
+      msg.innerHTML = '<i class="fas fa-exclamation-circle"></i> Please fill in: ' + empty.map(f => f.label).join(', ');
+      msg.style.color   = 'var(--danger)';
+      msg.style.display = 'inline';
+      return;
+    }
+
+    // Show loading
+    btn.disabled   = true;
+    btn.innerHTML  = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+    fetch('{% url "profile_update_ajax" %}', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({
+        first_name: document.getElementById('piFirstName').value.trim(),
+        last_name:  document.getElementById('piLastName').value.trim(),
+        company:    document.getElementById('piCompany').value.trim(),
+        role:       document.getElementById('piRole').value.trim(),
+        timezone:   document.getElementById('piTimezone').value.trim(),
+        website:    document.getElementById('piWebsite').value.trim(),
+      }),
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.ok) {
+        msg.innerHTML     = '<i class="fas fa-check-circle"></i> Saved successfully';
+        msg.style.color   = 'var(--success)';
+        msg.style.display = 'inline';
+        document.querySelector('.profile-name').textContent = data.name;
+        // Mark website green if saved
+        const wb = document.getElementById('piWebsite');
+        if (wb) wb.style.borderColor = 'rgba(0,212,160,0.5)';
+        checkProfileFields();
+      } else {
+        // Highlight specific field if backend says which one
+        if (data.field) {
+          const fieldMap = { website: 'piWebsite' };
+          const el = document.getElementById(fieldMap[data.field]);
+          if (el) el.style.borderColor = 'var(--danger)';
+        }
+        msg.innerHTML     = '<i class="fas fa-exclamation-circle"></i> ' + (data.error || 'Save failed.');
+        msg.style.color   = 'var(--danger)';
+        msg.style.display = 'inline';
+      }
+    })
+    .catch(() => {
+      msg.innerHTML     = '<i class="fas fa-exclamation-circle"></i> Network error. Please try again.';
+      msg.style.color   = 'var(--danger)';
+      msg.style.display = 'inline';
+    })
+    .finally(() => {
+      btn.disabled  = false;
+      btn.innerHTML = 'Save changes';
+      setTimeout(() => { msg.style.display = 'none'; }, 4000);
+    });
+  });
+});
+
+function getCsrf() {
+  const m = document.cookie.match(/csrftoken=([^;]+)/);
+  return m ? m[1] : '';
+}
+</script>
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+$(document).ready(function () {
+  $('#piTimezone').select2({
+    placeholder: 'Search timezone…',
+    allowClear: true,
+    dropdownParent: $('#personalInfoCard'),
+  });
+
+  // Auto-detect browser timezone — only if not already saved in DB
+  try {
+    const saved = $('#piTimezone').val();
+    if (!saved) {
+      const detected = Intl.DateTimeFormat().resolvedOptions().timeZone;
+      if (detected) $('#piTimezone').val(detected).trigger('change');
+    }
+  } catch (e) {}
+
+  // Auto-detect website — show existing value, mark field if already set
+  const websiteInput = document.getElementById('piWebsite');
+  if (websiteInput && websiteInput.value.trim()) {
+    websiteInput.style.borderColor = 'rgba(0,212,160,0.4)';
+    websiteInput.title = 'Website already saved — will update on save';
+  }
+});
+
+(function loadRecentActivity() {
+  const container = document.getElementById('activityList');
+  const iconMap = {
+    email_verify:    'fa-envelope-open-text',
+    bulk_verify:     'fa-envelopes-bulk',
+    campaign:        'fa-bullhorn',
+    reputation:      'fa-chart-bar',
+    header_analysis: 'fa-code',
+    dmarc:           'fa-shield-halved',
+    ip_blocklist:    'fa-server',
+    domain_blocklist:'fa-globe',
+  };
+  function renderItem(act) {
+    const icon = iconMap[act.type] || 'fa-circle';
+    const time = act.time ? new Date(act.time).toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'}) : '';
+    return `<div class="activity-item">
+      <div class="activity-icon ${act.icon}"><i class="fas ${icon}" style="font-size:13px;"></i></div>
+      <div class="activity-body">
+        <div class="activity-msg">${act.msg} <span style="font-size:11px;font-weight:600;color:var(--muted);margin-left:4px;">${act.result}</span></div>
+        <div class="activity-meta">${act.detail} &middot; ${time}</div>
+      </div>
+    </div>`;
+  }
+
+  fetch('{% url "profile_activity_json" %}')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok || !data.activities || !data.activities.length) {
+        container.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;"><i class="fas fa-clock" style="display:block;font-size:20px;margin-bottom:8px;"></i>No recent activity yet.</div>';
+        return;
+      }
+      container.innerHTML = data.activities.map(renderItem).join('');
+    })
+    .catch(() => {
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;">Failed to load activity.</div>';
+    });
+})();
+
+// In-app notification list
+function loadNotifications() {
+  const container  = document.getElementById('notifList');
+  const unreadEl   = document.getElementById('notifUnread');
+  const iconMap = {
+    job_complete:  'fa-envelope-open-text',
+    blocklist:     'fa-shield-alt',
+    payment:       'fa-credit-card',
+    expiry:        'fa-clock',
+    campaign:      'fa-bullhorn',
+    reputation:    'fa-chart-bar',
+    sender_verify: 'fa-shield-halved',
+  };
+  const colorMap = {
+    job_complete:  'blue',
+    blocklist:     'red',
+    payment:       'green',
+    expiry:        'amber',
+    campaign:      'green',
+    reputation:    'amber',
+    sender_verify: 'green',
+  };
+
+  function timeAgo(iso) {
+    var diff = Math.floor((Date.now() - new Date(iso)) / 1000);
+    if (diff < 60)   return 'Just now';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  fetch('{% url "notifications_json" %}')
+    .then(r => r.json())
+    .then(data => {
+      if (!data.ok || !data.notifications || !data.notifications.length) {
+        container.innerHTML = '<div style="text-align:center;padding:24px 0;color:var(--muted);font-size:13px;"><i class="fas fa-bell" style="display:block;font-size:20px;margin-bottom:8px;"></i>No notifications yet.</div>';
+        return;
+      }
+      if (data.unread_count > 0) {
+        unreadEl.textContent = data.unread_count + ' new';
+        unreadEl.style.display = 'inline';
+      }
+
+      const LIMIT = 5;
+      const all   = data.notifications;
+      let   page  = 0;
+      const total = Math.ceil(all.length / LIMIT);
+
+      function renderItem(n) {
+        const icon  = iconMap[n.type]  || 'fa-bell';
+        const color = colorMap[n.type] || 'blue';
+        const dot   = n.is_read ? '' : '<span style="width:7px;height:7px;border-radius:50%;background:var(--accent2);display:inline-block;margin-left:6px;flex-shrink:0;"></span>';
+        const bg    = n.is_read ? '' : 'background:rgba(37,99,235,.04);border-radius:8px;';
+        const inner = `<div class="activity-icon ${color}"><i class="fas ${icon}" style="font-size:13px;"></i></div>
+          <div class="activity-body" style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+            <div class="activity-msg" style="display:flex;align-items:center;">${n.message}${dot}</div>
+            <div class="activity-meta" style="white-space:nowrap;flex-shrink:0;">${timeAgo(n.time)}</div>
+          </div>`;
+        if (n.url) {
+          return `<a href="${n.url}" class="activity-item" style="${bg}text-decoration:none;">${inner}</a>`;
+        }
+        return `<div class="activity-item" style="${bg}">${inner}</div>`;
+      }
+
+      function renderPage() {
+        const slice = all.slice(page * LIMIT, page * LIMIT + LIMIT);
+        const prevBtn = document.getElementById('notifPrev');
+        const nextBtn = document.getElementById('notifNext');
+        const info    = document.getElementById('notifPageInfo');
+        document.getElementById('notifItems').innerHTML = slice.map(renderItem).join('');
+        if (prevBtn) prevBtn.disabled = page === 0;
+        if (nextBtn) nextBtn.disabled = page >= total - 1;
+        if (info)    info.textContent = `${page + 1} / ${total}`;
+      }
+
+      container.innerHTML = `
+        <div id="notifItems"></div>
+        ${total > 1 ? `<div class="db-ac-pager" style="margin-top:8px;">
+          <button class="db-ac-prev" id="notifPrev" disabled>← Prev</button>
+          <span class="db-ac-page-info" id="notifPageInfo"></span>
+          <button class="db-ac-next" id="notifNext">Next →</button>
+        </div>` : ''}`;
+
+      renderPage();
+
+      if (total > 1) {
+        document.getElementById('notifPrev').addEventListener('click', function () {
+          if (page > 0) { page--; renderPage(); }
+        });
+        document.getElementById('notifNext').addEventListener('click', function () {
+          if (page < total - 1) { page++; renderPage(); }
+        });
+      }
+    })
+    .catch(() => {
+      container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--muted);font-size:13px;">Failed to load notifications.</div>';
+    });
+}
+loadNotifications();
+
+// Notification preferences
+document.getElementById('saveNotifyBtn').addEventListener('click', async function() {
+  const btn   = this;
+  const msgEl = document.getElementById('notifyMsg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+  msgEl.style.display = 'none';
+  try {
+    const res  = await fetch('{% url "notification_update_ajax" %}', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+      body: JSON.stringify({
+        notify_job_complete:  document.getElementById('notifyJobComplete').checked,
+        notify_blocklist:     document.getElementById('notifyBlocklist').checked,
+        notify_payment:       document.getElementById('notifyPayment').checked,
+        notify_expiry:        document.getElementById('notifyExpiry').checked,
+        notify_campaign:      document.getElementById('notifyCampaign').checked,
+        notify_reputation:    document.getElementById('notifyReputation').checked,
+        notify_sender_verify: document.getElementById('notifySenderVerify').checked,
+      }),
+    });
+    const data = await res.json();
+    msgEl.textContent  = data.ok ? 'Preferences saved.' : 'Failed to save.';
+    msgEl.style.color  = data.ok ? 'var(--success)' : 'var(--danger)';
+    msgEl.style.display = 'block';
+  } catch(e) {
+    msgEl.textContent = 'Network error.';
+    msgEl.style.color = 'var(--danger)';
+    msgEl.style.display = 'block';
+  }
+  btn.disabled = false;
+  btn.innerHTML = 'Save preferences';
+});
+
+// Change password — signup-style validation
+(function() {
+  var PW_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+
+  function showCpError(id, msg) {
+    var el = document.getElementById(id);
+    el.textContent = msg;
+    el.style.display = msg ? 'block' : 'none';
+  }
+  function setErr(inputId, errId, msg) {
+    showCpError(errId, msg);
+    document.getElementById(inputId).classList.toggle('error', !!msg);
+  }
+
+  function validateCurrent() {
+    var v = document.getElementById('cpCurrent').value;
+    var ok = v.length > 0;
+    setErr('cpCurrent', 'cpCurrentError', ok ? '' : 'Current password is required.');
+    return ok;
+  }
+  function validateNew() {
+    var v   = document.getElementById('cpNew').value;
+    var cur = document.getElementById('cpCurrent').value;
+    if (!PW_RE.test(v)) {
+      setErr('cpNew', 'cpNewError', 'Min 8 chars: uppercase, lowercase, number and special character.');
+      return false;
+    }
+    if (v === cur) {
+      setErr('cpNew', 'cpNewError', 'New password must be different from your current password.');
+      return false;
+    }
+    setErr('cpNew', 'cpNewError', '');
+    return true;
+  }
+  function validateConfirm() {
+    var pw  = document.getElementById('cpNew').value;
+    var cpw = document.getElementById('cpConfirm').value;
+    var ok  = cpw.length > 0 && pw === cpw;
+    setErr('cpConfirm', 'cpConfirmError', ok ? '' : 'Passwords do not match.');
+    return ok;
+  }
+
+  document.getElementById('cpCurrent').addEventListener('blur', validateCurrent);
+  document.getElementById('cpNew').addEventListener('blur', validateNew);
+  document.getElementById('cpConfirm').addEventListener('blur', validateConfirm);
+  document.getElementById('cpNew').addEventListener('input', function() {
+    if (document.getElementById('cpConfirm').value) validateConfirm();
+  });
+
+  // Eye toggles
+  ['cpToggleCurrent','cpToggleNew','cpToggleConfirm'].forEach(function(toggleId) {
+    var inputMap = { cpToggleCurrent:'cpCurrent', cpToggleNew:'cpNew', cpToggleConfirm:'cpConfirm' };
+    document.getElementById(toggleId).addEventListener('click', function() {
+      var inp = document.getElementById(inputMap[toggleId]);
+      var hidden = inp.type === 'password';
+      inp.type = hidden ? 'text' : 'password';
+      this.classList.toggle('fa-eye-slash', !hidden);
+      this.classList.toggle('fa-eye', hidden);
+    });
+  });
+
+  document.getElementById('cpBtn').addEventListener('click', async function() {
+    var ok = validateCurrent() & validateNew() & validateConfirm();
+    if (!ok) return;
+
+    var btn   = this;
+    var msgEl = document.getElementById('cpMsg');
+    msgEl.style.display = 'none';
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating…';
+
+    try {
+      var res  = await fetch('{% url "change_password_ajax" %}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({
+          current_password:  document.getElementById('cpCurrent').value,
+          new_password:      document.getElementById('cpNew').value,
+          confirm_password:  document.getElementById('cpConfirm').value,
+        }),
+      });
+      var data = await res.json();
+      if (data.ok) {
+        msgEl.textContent = 'Password updated successfully.';
+        msgEl.style.color = 'var(--success)';
+        msgEl.style.display = 'block';
+        document.getElementById('cpCurrent').value = '';
+        document.getElementById('cpNew').value = '';
+        document.getElementById('cpConfirm').value = '';
+        ['cpCurrent','cpNew','cpConfirm'].forEach(function(id){ document.getElementById(id).classList.remove('error'); });
+        ['cpCurrentError','cpNewError','cpConfirmError'].forEach(function(id){ showCpError(id,''); });
+      } else {
+        if (data.error && data.error.toLowerCase().includes('current')) {
+          setErr('cpCurrent', 'cpCurrentError', data.error);
+        } else {
+          msgEl.textContent = data.error || 'Failed to update password.';
+          msgEl.style.color = 'var(--danger)';
+          msgEl.style.display = 'block';
+        }
+      }
+    } catch(e) {
+      msgEl.textContent = 'Network error. Please try again.';
+      msgEl.style.color = 'var(--danger)';
+      msgEl.style.display = 'block';
+    }
+    btn.disabled = false;
+    btn.innerHTML = 'Update password';
+  });
+})();
+
+// Delete account form
+(function() {
+  var showBtn   = document.getElementById('showDeleteFormBtn');
+  var cancelBtn = document.getElementById('cancelDeleteBtn');
+  var submitBtn = document.getElementById('submitDeleteBtn');
+  var form      = document.getElementById('deleteAccountForm');
+  var msgEl     = document.getElementById('deleteMsg');
+  var reasonEl  = document.getElementById('deleteReason');
+  var noteEl    = document.getElementById('deleteNote');
+  var errEl     = document.getElementById('deleteReasonError');
+  var noteErrEl = document.getElementById('deleteNoteError');
+
+  if (!showBtn) return;
+
+  showBtn.addEventListener('click', function() {
+    form.style.display = 'block';
+    showBtn.style.display = 'none';
+    form.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  });
+
+  cancelBtn.addEventListener('click', function() {
+    form.style.display = 'none';
+    showBtn.style.display = '';
+    reasonEl.value = '';
+    noteEl.value   = '';
+    msgEl.style.display  = 'none';
+    errEl.textContent    = '';
+    noteErrEl.textContent = '';
+    reasonEl.classList.remove('error');
+    noteEl.classList.remove('error');
+    submitBtn.style.display = '';
+    submitBtn.disabled      = false;
+    submitBtn.innerHTML     = 'Submit deletion request';
+    cancelBtn.textContent   = 'Cancel';
+  });
+
+  submitBtn.addEventListener('click', async function() {
+    errEl.textContent     = '';
+    noteErrEl.textContent = '';
+    reasonEl.classList.remove('error');
+    noteEl.classList.remove('error');
+    msgEl.style.display = 'none';
+
+    var reason = reasonEl.value.trim();
+    var note   = noteEl.value.trim();
+    var valid  = true;
+
+    if (!reason) {
+      errEl.textContent = 'Please select a reason.';
+      reasonEl.classList.add('error');
+      valid = false;
+    }
+    if (!note) {
+      noteErrEl.textContent = 'Please add a note.';
+      noteEl.classList.add('error');
+      valid = false;
+    }
+    if (!valid) return;
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending…';
+
+    try {
+      var res  = await fetch('{% url "delete_account_request" %}', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCsrf() },
+        body: JSON.stringify({
+          reason:     reason,
+          extra_note: document.getElementById('deleteNote').value.trim(),
+        }),
+      });
+      var data = await res.json();
+      if (data.ok) {
+        msgEl.innerHTML  = '<i class="fas fa-check-circle"></i> Your deletion request has been submitted. Our team will contact you within 2 business days.';
+        msgEl.style.color   = 'var(--success)';
+        msgEl.style.display = 'block';
+        submitBtn.style.display = 'none';
+        cancelBtn.textContent = 'Close';
+      } else {
+        msgEl.textContent   = data.error || 'Failed to submit request.';
+        msgEl.style.color   = 'var(--danger)';
+        msgEl.style.display = 'block';
+        submitBtn.disabled  = false;
+        submitBtn.innerHTML = 'Submit deletion request';
+      }
+    } catch(e) {
+      msgEl.textContent   = 'Network error. Please try again.';
+      msgEl.style.color   = 'var(--danger)';
+      msgEl.style.display = 'block';
+      submitBtn.disabled  = false;
+      submitBtn.innerHTML = 'Submit deletion request';
+    }
+  });
+})();
+
+// Clock topbar
+(function() {
+  var flags = {
+    'America/New_York':'🇺🇸','America/Chicago':'🇺🇸','America/Los_Angeles':'🇺🇸',
+    'America/Denver':'🇺🇸','America/Phoenix':'🇺🇸','America/Anchorage':'🇺🇸',
+    'Pacific/Honolulu':'🇺🇸','America/Toronto':'🇨🇦','America/Vancouver':'🇨🇦',
+    'America/Sao_Paulo':'🇧🇷','America/Mexico_City':'🇲🇽',
+    'Europe/London':'🇬🇧','Europe/Paris':'🇫🇷','Europe/Berlin':'🇩🇪',
+    'Europe/Madrid':'🇪🇸','Europe/Rome':'🇮🇹','Europe/Amsterdam':'🇳🇱',
+    'Europe/Moscow':'🇷🇺','Europe/Istanbul':'🇹🇷','Europe/Stockholm':'🇸🇪',
+    'Asia/Dubai':'🇦🇪','Asia/Singapore':'🇸🇬','Asia/Tokyo':'🇯🇵',
+    'Asia/Shanghai':'🇨🇳','Asia/Seoul':'🇰🇷','Asia/Karachi':'🇵🇰',
+    'Asia/Kolkata':'🇮🇳','Asia/Dhaka':'🇧🇩','Asia/Colombo':'🇱🇰','Asia/Kathmandu':'🇳🇵',
+    'Australia/Sydney':'🇦🇺','Australia/Melbourne':'🇦🇺','Australia/Brisbane':'🇦🇺',
+    'Pacific/Auckland':'🇳🇿',
+    'Africa/Cairo':'🇪🇬','Africa/Lagos':'🇳🇬','Africa/Johannesburg':'🇿🇦'
+  };
+  var tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  var flag = flags[tz] || (tz.startsWith('America/') ? '🌎' : tz.startsWith('Asia/') ? '🌏' : '🌍');
+  var tzShort = Intl.DateTimeFormat(undefined, {timeZoneName:'short'})
+    .formatToParts(new Date()).find(function(p){return p.type==='timeZoneName';});
+  var label = tzShort ? tzShort.value : '';
+  document.getElementById('clockFlagTop').textContent = flag;
+  function tick() {
+    var t = new Date().toLocaleTimeString(undefined, {hour:'2-digit', minute:'2-digit', second:'2-digit'});
+    document.getElementById('clockTimeTop').textContent = label + ' · ' + t;
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+{% endblock %}

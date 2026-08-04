@@ -1,0 +1,82 @@
+{% extends 'admin/base.html' %}
+{% block title %}Email Verification{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Email Verification</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Single Email Verification</h1>
+    <p class="admin-page-subtitle">{{ total }} check{{ total|pluralize }} · {{ mx_found_count }} MX found</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search email or user…"/>
+      </div>
+      <select name="mx" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not mx_filter %}selected{% endif %}>All MX</option>
+        <option value="1" {% if mx_filter == '1' %}selected{% endif %}>MX Found</option>
+        <option value="0" {% if mx_filter == '0' %}selected{% endif %}>No MX</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q or mx_filter %}<a href="{% url 'admin_email_verification' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>MX Found</th>
+          <th>MX Record</th>
+          <th>User</th>
+          <th>Checked</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for record in page_obj %}
+        <tr>
+          <td class="td-strong">{{ record.email }}</td>
+          <td>
+            {% if record.mx_found == 'True' %}<span class="badge badge-success"><span class="badge-dot"></span>Found</span>
+            {% else %}<span class="badge badge-danger"><span class="badge-dot"></span>Not Found</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ record.mx_record|default:"—" }}</td>
+          <td style="font-size:12.5px;">
+            <a href="{% url 'admin_user_detail' record.user.pk %}" style="color:var(--teal);">{{ record.user.user_email }}</a>
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ record.insert_date|date:"M j, Y H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5"><div class="admin-empty"><i class="fas fa-envelope"></i><div class="admin-empty-title">No verification records</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if mx_filter %}mx={{ mx_filter }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if mx_filter %}mx={{ mx_filter }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if mx_filter %}mx={{ mx_filter }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

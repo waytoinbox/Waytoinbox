@@ -1,0 +1,137 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block content %}
+
+
+
+<div class="dmarc-page">
+
+  <!-- ── HERO + FORM ───────────────────────────────────── -->
+  <div class="dmarc-hero-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px;flex-wrap:wrap;">
+      <div class="sv-card-icon sv-card-icon--lg">🔒</div>
+      <div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <h1 style="margin:0;">DMARC Domain Checker</h1>
+          <span style="display:inline-flex;align-items:center;gap:5px;background:#e6f9f3;color:#007A5E;border:1px solid rgba(0,198,162,.3);border-radius:100px;padding:3px 12px;font-family:var(--font-head);font-size:12px;font-weight:700;letter-spacing:.03em;">
+            <i class="fas fa-gift"></i> Free
+          </span>
+        </div>
+      </div>
+    </div>
+    <p>Check if your domain is protected against phishing and spoofing. We analyze DMARC, SPF, and DKIM records and flag any issues instantly.</p>
+
+    <form id="dmarcForm" novalidate>
+      {% csrf_token %}
+      <div class="dmarc-form">
+        <input
+          class="dmarc-input" type="text"
+          name="_domain_" id="domain"
+          placeholder="example.com" required
+        />
+        <button type="submit" class="dmarc-submit" id="dmarcBtn">
+          <i class="fas fa-search"></i> Check Domain
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap;">
+        <label for="dkimSelector" style="font-size:12px;font-family:var(--font-head);font-weight:700;color:var(--ink-3);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap;">
+          <i class="fas fa-key" style="color:var(--teal);font-size:10px;"></i> DKIM Selector
+        </label>
+        <input
+          class="dmarc-input"
+          type="text" id="dkimSelector" name="dkim_selector"
+          placeholder="e.g. google, selector1, k1 — leave blank to auto-discover"
+          style="flex:1;min-width:240px;max-width:440px;"
+          autocomplete="off"
+        />
+      </div>
+      <p class="dmarc-form-hint">Enter any domain to check its DMARC, SPF, and DKIM records.</p>
+    </form>
+  </div>
+
+  <div id="dmarc-result-area"></div>
+
+  <!-- Empty state (shown until first check) -->
+  <div id="dmarc-empty" class="dmarc-empty-state">
+    <div style="font-size:40px;margin-bottom:12px">&#128269;</div>
+    <h4 style="font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px">No results yet</h4>
+    <p style="font-size:13.5px;color:var(--ink-3)">Enter a domain above and click <strong>Check Domain</strong> to see its DMARC, SPF, and DKIM records.</p>
+  </div>
+
+</div>
+
+<script>
+function dmarcCard(label, r, passMsg, inspectorLabel) {
+  var pass = r.status === 'pass';
+  var body = pass
+    ? '<p>' + passMsg + '</p>' +
+      '<details class="dmarc-details"><summary>View raw record</summary><pre>' + (r.record || '') + '</pre></details>' +
+      '<a href="#" class="dmarc-inspector-link"><i class="fas fa-external-link-alt"></i> ' + inspectorLabel + '</a>'
+    : '<div class="dmarc-fail-reason">' + (r.reason || 'No record found.') + '</div>';
+
+  return '<div class="dmarc-result-card">' +
+    '<div class="dmarc-result-header">' +
+      '<div class="dmarc-result-header-left">' +
+        '<div class="dmarc-record-icon ' + (pass ? 'icon-pass' : 'icon-fail') + '">' + (pass ? '&#10003;' : 'i') + '</div>' +
+        '<span class="dmarc-record-label">' + label + '</span>' +
+      '</div>' +
+      '<span class="dmarc-status-badge ' + (pass ? 'badge-pass' : 'badge-fail') + '">' + (pass ? 'Pass' : 'Fail') + '</span>' +
+    '</div>' +
+    '<div class="dmarc-result-body">' + body + '</div>' +
+  '</div>';
+}
+
+document.getElementById('dmarcForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn      = document.getElementById('dmarcBtn');
+  var area     = document.getElementById('dmarc-result-area');
+  var empty    = document.getElementById('dmarc-empty');
+  var domain   = document.getElementById('domain').value.trim();
+  if (!domain) return;
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Checking...';
+  area.innerHTML = '';
+
+  try {
+    var res  = await fetch('/api/domain-validate/', { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+
+    if (data.status !== 'ok') {
+      area.innerHTML = '<div class="ev-flash ev-flash--error" style="margin-bottom:16px">' + data.message + '</div>';
+    } else {
+      empty.style.display = 'none';
+      area.innerHTML =
+        '<div class="dmarc-domain-header">' +
+          '<div class="dmarc-domain-icon">&#127760;</div>' +
+          '<div><div class="dmarc-domain-name">' + data.domain + '</div>' +
+          '<div class="dmarc-domain-sub">Showing DMARC, SPF, and DKIM results for this domain</div></div>' +
+        '</div>' +
+        dmarcCard('DMARC', data.dmarc,
+          'Your domain has a valid DMARC record &mdash; policy set to <span class="dmarc-policy">' + (data.dmarc.policy || '') + '</span>.',
+          'DMARC Inspector') +
+        dmarcCard('SPF',   data.spf,   'Great job &mdash; your domain has a valid SPF record.', 'SPF Surveyor') +
+        dmarcCard('DKIM', data.dkim,
+          'Valid DKIM record found' +
+            (data.dkim.selector
+              ? ' &mdash; selector: <code style="font-size:12px;background:var(--bg-2);padding:1px 6px;border-radius:4px;font-family:monospace;">' + data.dkim.selector + '</code>'
+              : '') +
+            (data.dkim.key_type
+              ? '&nbsp;&nbsp;<span style="color:var(--ink-3);font-size:12px;">' +
+                  data.dkim.key_type.toUpperCase() +
+                  (data.dkim.key_bits ? '-' + data.dkim.key_bits : '') +
+                  ' &middot; ' + (data.dkim.hash_algorithm || 'sha256') +
+                '</span>'
+              : '') + '.',
+          'DKIM Inspector');
+    }
+  } catch (err) {
+    area.innerHTML = '<div class="ev-flash ev-flash--error" style="margin-bottom:16px">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-search"></i> Check Domain';
+  }
+});
+</script>
+
+{% endblock %}

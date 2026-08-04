@@ -1,0 +1,13 @@
+{% if verified_emails %}
+<select id="fromEmail" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:14px;color:var(--ink);font-family:var(--font-body);background:var(--bg);outline:none;box-sizing:border-box;">
+  <option value="" selected disabled>— Select verified email —</option>
+  {% for email in verified_emails %}
+  <option value="{{ email }}">{{ email }}</option>
+  {% endfor %}
+</select>
+{% else %}
+<select id="fromEmail" style="width:100%;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 14px;font-size:14px;color:var(--ink-3);font-family:var(--font-body);background:var(--bg);outline:none;box-sizing:border-box;" disabled>
+  <option value="">No verified emails — go to Sender Verify first</option>
+</select>
+{% endif %}
+<p class="crc-error" id="err-fromEmail"></p>

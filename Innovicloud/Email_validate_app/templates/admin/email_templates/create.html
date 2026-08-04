@@ -1,0 +1,191 @@
+{% extends 'admin/base.html' %}
+{% load static %}
+
+{% block title %}Create Library Template{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/wti_builder.css' %}"/>
+<style>
+  /* ── Normal layout: builder fills full height ───────── */
+  html, body { height: 100%; overflow: hidden; }
+  .admin-wrap { height: 100vh; overflow: hidden; }
+  .admin-main { overflow: hidden; height: 100vh; display: flex; flex-direction: column; }
+  .admin-topbar { flex-shrink: 0; }
+  .admin-content {
+    flex: 1; min-height: 0;
+    padding: 0 !important;
+    max-width: none !important;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Sub-header with form fields ────────────────────── */
+  .ab-header {
+    flex-shrink: 0;
+    background: var(--bg);
+    border-bottom: 1.5px solid var(--border);
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    z-index: 10;
+  }
+  .ab-header label {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: var(--ink-2);
+    white-space: nowrap;
+    font-family: var(--font-head);
+  }
+  .ab-header .admin-input { height: 34px; padding: 0 10px; font-size: 13px; margin: 0; }
+  .ab-err { display: none; color: var(--danger); font-size: 12px; width: 100%; padding-top: 2px; }
+
+  /* ── Builder fills remaining space ──────────────────── */
+  .ab-editor { flex: 1; overflow: hidden; min-height: 0; }
+  #abEditor  { height: 100%; }
+
+  /* ── Full-page mode: hide admin chrome ──────────────── */
+  body.wtib-fp .admin-sidebar,
+  body.wtib-fp .admin-topbar { display: none !important; }
+
+  body.wtib-fp .admin-main {
+    margin-left: 0 !important;
+    width: 100% !important;
+    height: 100vh !important;
+  }
+
+  body.wtib-fp .admin-content {
+    height: 100vh !important;
+  }
+
+  body.wtib-fp .ab-header { display: none !important; }
+
+  body.wtib-fp .ab-editor {
+    height: 100vh !important;
+    flex: none !important;
+  }
+</style>
+{% endblock %}
+
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_email_templates' %}">Email Templates</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Create Template</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Sub-header: form fields + save -->
+<div class="ab-header">
+  <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:200px;">
+    <label>Name <span style="color:var(--danger)">*</span></label>
+    <input id="abName" class="admin-input" type="text" maxlength="255"
+           placeholder="e.g. Monthly Newsletter" style="flex:1;">
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;">
+    <label>Category</label>
+    <select id="abCategory" class="admin-input" style="min-width:130px;">
+      {% for val, label in categories %}
+        <option value="{{ val }}">{{ label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;flex:1;min-width:160px;">
+    <label>Subject</label>
+    <input id="abSubject" class="admin-input" type="text" maxlength="500"
+           placeholder="e.g. Your June update is here" style="flex:1;">
+  </div>
+  <div style="display:flex;align-items:center;gap:6px;">
+    <label>Status</label>
+    <select id="abActive" class="admin-input" style="min-width:110px;">
+      <option value="1">Active</option>
+      <option value="0">Inactive</option>
+    </select>
+  </div>
+  <div style="display:flex;gap:8px;flex-shrink:0;">
+    <a href="{% url 'admin_email_templates' %}" class="btn-admin btn-admin-outline">Cancel</a>
+    <button id="abSaveBtn" class="btn-admin btn-admin-primary">
+      <i class="fas fa-save"></i> Save Template
+    </button>
+  </div>
+  <div class="ab-err" id="abErr"></div>
+</div>
+
+<!-- Builder canvas -->
+<div class="ab-editor">
+  <div id="abEditor"></div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/wti_builder.js' %}"></script>
+<script>
+var CSRF     = '{{ csrf_token }}';
+var SAVE_URL = '{% url "admin_library_template_upload" %}';
+
+var builder = new WTIBuilder('#abEditor');
+
+/* fp-mode Save button (shown in builder toolbar when full-page is active) */
+document.getElementById('wtibSaveBtn').addEventListener('click', function() {
+  document.getElementById('abSaveBtn').click();
+});
+
+document.getElementById('abSaveBtn').addEventListener('click', function() {
+  var btn   = this;
+  var errEl = document.getElementById('abErr');
+  var name  = document.getElementById('abName').value.trim();
+
+  errEl.style.display = 'none';
+
+  if (!name) {
+    errEl.textContent = 'Template name is required.';
+    errEl.style.display = 'block';
+    document.getElementById('abName').focus();
+    return;
+  }
+
+  var design = builder.getDesign();
+  if (!design.rows || !design.rows.length) {
+    errEl.textContent = 'Please add at least one block before saving.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Saving…';
+
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', CSRF);
+  fd.append('name',         name);
+  fd.append('category',     document.getElementById('abCategory').value);
+  fd.append('subject',      document.getElementById('abSubject').value.trim());
+  fd.append('is_active',    document.getElementById('abActive').value);
+  fd.append('html_content', builder.getHtml());
+  fd.append('design_json',  JSON.stringify(design));
+
+  fetch(SAVE_URL, { method: 'POST', body: fd })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status === 'ok') {
+      WTI.toast('Template saved!', 'success');
+      setTimeout(function() { window.location.href = '{% url "admin_email_templates" %}'; }, 800);
+    } else {
+      errEl.textContent = d.message || 'Save failed.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Template';
+    }
+  })
+  .catch(function() {
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> Save Template';
+  });
+});
+</script>
+
+{% endblock %}

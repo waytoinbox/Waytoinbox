@@ -1,0 +1,201 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaigns.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+<style>
+.cc-pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;}
+.cc-page-info{color:var(--ink-3);}
+.cc-page-btns{display:flex;align-items:center;gap:10px;}
+.cc-page-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink-2);font-size:13px;cursor:pointer;text-decoration:none;transition:background .15s;}
+.cc-page-btn:hover:not(.disabled){background:var(--bg-2);color:var(--ink);}
+.cc-page-btn.disabled{opacity:.45;cursor:default;pointer-events:none;}
+.cc-page-current{font-size:13px;color:var(--ink-3);min-width:48px;text-align:center;}
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="ec-page">
+
+  <!-- Header -->
+  <div class="ec-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">📣</div>
+      <div>
+        <h2>Campaigns</h2>
+        <p>All campaigns you've created, drafted, scheduled, or sent.</p>
+      </div>
+    </div>
+    <a href="{% url 'create_campaign' %}" class="btn btn-primary btn-sm">
+      <i class="fas fa-plus"></i> Create Campaign
+    </a>
+  </div>
+
+  <div class="ec-card">
+
+    {% include "includes/filter_bar.html" with pf_show_status=pf_show_status pf_statuses=pf_statuses pf_search_placeholder=pf_search_placeholder pf_total=total_count pf_total_label="Campaigns" %}
+
+    {% if page_obj and page_obj.object_list %}
+    <div class="ec-table-wrap">
+      <table class="ec-table">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Campaign Name</th>
+            <th>List / Recipients</th>
+            <th>Status</th>
+            <th>Created</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in page_obj %}
+          <tr data-campaign-id="{{ c.Campaign_ID }}" data-status="{{ c.status }}">
+            <td><span class="ec-id">{{ forloop.counter0|add:page_obj.start_index }}</span></td>
+
+            <td>
+              <div class="ec-name">{{ c.campaign_name }}</div>
+              {% if c.was_edited %}
+                <div class="ec-sub">Edited <span class="ltime" data-utc="{{ c.updated_at|date:'c' }}">{{ c.updated_at|date:"M d, Y · H:i" }}</span></div>
+              {% endif %}
+            </td>
+
+            <td>
+              <div style="font-weight:500;color:var(--ink)">{{ c.campaign_list.list_name }}</div>
+              <div class="ec-sub">{{ c.total_recipients|default:"0" }} recipients</div>
+            </td>
+
+            <td>
+              <span class="ec-status {{ c.status }}">{{ c.get_status_display }}</span>
+              {% if c.status == 'sent' and c.sent_at %}
+                <div class="ec-sub" style="margin-top:5px">Sent <span class="ltime" data-utc="{{ c.sent_at|date:'c' }}">{{ c.sent_at|date:"M d, Y · H:i" }}</span></div>
+              {% elif c.status == 'scheduled' and c.schedule_at %}
+                <div class="ec-sub" style="margin-top:5px">Scheduled <span class="ltime" data-utc="{{ c.schedule_at|date:'c' }}">{{ c.schedule_at|date:"M d, Y · H:i" }}</span></div>
+              {% endif %}
+            </td>
+
+            <td style="white-space:nowrap">
+              <div style="font-size:13px;color:var(--ink-2)">
+                <span class="ltime ltime-date" data-utc="{{ c.created_at|date:'c' }}">{{ c.created_at|date:"M d, Y" }}</span>
+              </div>
+              <div class="ec-sub">
+                <span class="ltime ltime-time" data-utc="{{ c.created_at|date:'c' }}">{{ c.created_at|date:"H:i" }}</span>
+              </div>
+            </td>
+
+            <td style="white-space:nowrap">
+              {% if c.status == 'sent' %}
+                <a href="{% url 'campaign_detail' c.Campaign_ID %}" class="ec-edit-link ec-view-link">
+                  <i class="fas fa-eye"></i> View
+                </a>
+              {% endif %}
+              {% if c.is_editable %}
+                <a href="{% url 'create_campaign' %}?campaign_id={{ c.Campaign_ID }}" class="ec-edit-link ec-edit-btn" style="margin-left:6px;">
+                  <i class="fas fa-pen"></i> Edit
+                </a>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% include "includes/pagination.html" %}
+
+    {% else %}
+
+    {% include "includes/empty_state.html" with pf_empty_icon="fa-bullhorn" pf_empty_title="No campaigns found" pf_empty_message="Try adjusting your filters, or create your first campaign." %}
+
+    {% if not search and not status and not date_from and not date_to %}
+    <div class="ec-empty" id="ecFirstEmpty" {% if page_obj %}style="display:none"{% endif %}>
+      <div class="ec-empty-icon">📣</div>
+      <h3>No campaigns yet</h3>
+      <p>Create your first campaign to start sending to your contact lists.</p>
+      <a href="{% url 'create_campaign' %}" class="btn btn-primary">
+        <i class="fas fa-plus"></i> Create Campaign
+      </a>
+    </div>
+    {% endif %}
+
+    {% endif %}
+
+  </div>
+
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+(function () {
+  var _tz = window.USER_TZ || undefined;
+  function fmtLocal(d, mode) {
+    try {
+      if (mode === 'date') return d.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric', timeZone: _tz });
+      if (mode === 'time') return d.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true, timeZone: _tz });
+      var p = {};
+      new Intl.DateTimeFormat('en-US', {
+        month:'short', day:'numeric', year:'numeric',
+        hour:'numeric', minute:'2-digit', hour12:true, timeZoneName:'short', timeZone: _tz
+      }).formatToParts(d).forEach(function(x){ p[x.type] = x.value; });
+      return p.month+' '+p.day+', '+p.year+' · '+p.hour+':'+p.minute+' '+p.dayPeriod+' '+p.timeZoneName;
+    } catch(e) { return null; }
+  }
+
+  document.querySelectorAll('.ltime').forEach(function(el) {
+    var d = new Date(el.dataset.utc);
+    if (isNaN(d)) return;
+    var mode = el.classList.contains('ltime-date') ? 'date'
+             : el.classList.contains('ltime-time') ? 'time'
+             : 'full';
+    var text = fmtLocal(d, mode);
+    if (text) el.textContent = text;
+  });
+})();
+
+/* ── PF filter system ─────────────────────────────── */
+PF.init({ debounce: 300, urlSync: true });
+PF.restoreFromURL();
+PF.wire(function () {
+  var f = PF.getFilters();
+  var p = new URLSearchParams();
+  if (f.search)   p.set('search',    f.search);
+  if (f.status)   p.set('status',    f.status);
+  if (f.dateFrom) p.set('date_from', f.dateFrom);
+  if (f.dateTo)   p.set('date_to',   f.dateTo);
+  window.location.href = '?' + p.toString();
+});
+
+/* ── Live status polling ──────────────────────────── */
+(function () {
+  var _campPollTimer = null;
+
+  function _hasActive() {
+    return !!document.querySelector('tr[data-status="sending"], tr[data-status="scheduled"]');
+  }
+
+  function _pollCampaigns() {
+    fetch(window.location.pathname + '?format=json', { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        (data.campaigns || []).forEach(function(c) {
+          var row = document.querySelector('tr[data-campaign-id="' + c.Campaign_ID + '"]');
+          if (!row || row.dataset.status === c.status) return;
+          row.dataset.status = c.status;
+          var badge = row.querySelector('.ec-status');
+          if (badge) {
+            badge.className = 'ec-status ' + c.status;
+            badge.textContent = c.status.charAt(0).toUpperCase() + c.status.slice(1);
+          }
+        });
+        if (!_hasActive()) { clearInterval(_campPollTimer); _campPollTimer = null; }
+      })
+      .catch(function() {});
+  }
+
+  if (_hasActive()) {
+    _campPollTimer = setInterval(_pollCampaigns, 30000);
+  }
+})();
+</script>
+
+{% endblock %}

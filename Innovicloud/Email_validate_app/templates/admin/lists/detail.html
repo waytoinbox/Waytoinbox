@@ -1,0 +1,87 @@
+{% extends 'admin/base.html' %}
+{% block title %}{{ campaign_list.list_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_lists' %}">Contact Lists</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ campaign_list.list_name }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">{{ campaign_list.list_name }}</h1>
+    <p class="admin-page-subtitle">Owner: {{ campaign_list.user.user_email }}</p>
+  </div>
+  <a href="{% url 'admin_lists' %}" class="btn-admin btn-admin-outline"><i class="fas fa-arrow-left"></i> Back</a>
+</div>
+
+<!-- Stats -->
+<div class="stat-grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:20px;">
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Total</span><div class="stat-card-icon teal"><i class="fas fa-users"></i></div></div>
+    <div class="stat-card-value">{{ campaign_list.total_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Subscribed</span><div class="stat-card-icon mint"><i class="fas fa-check"></i></div></div>
+    <div class="stat-card-value">{{ campaign_list.subscribed_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Unsubscribed</span><div class="stat-card-icon red"><i class="fas fa-times"></i></div></div>
+    <div class="stat-card-value">{{ campaign_list.unsubscribed_count }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Never Sub.</span><div class="stat-card-icon grey"><i class="fas fa-minus"></i></div></div>
+    <div class="stat-card-value">{{ campaign_list.neversubscribed_count }}</div>
+  </div>
+</div>
+
+<!-- Contacts Table -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title">Contacts <span style="font-weight:400;color:var(--ink-3);font-size:12px;">({{ email_page.paginator.count }} total)</span></span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Name</th>
+          <th>Status</th>
+          <th>Added</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for email in email_page %}
+        <tr>
+          <td class="td-strong">{{ email.email }}</td>
+          <td>{{ email.display_name }}</td>
+          <td>
+            {% if email.subscribed == 'subscribed' %}<span class="badge badge-success"><span class="badge-dot"></span>Subscribed</span>
+            {% elif email.subscribed == 'unsubscribed' %}<span class="badge badge-danger"><span class="badge-dot"></span>Unsubscribed</span>
+            {% else %}<span class="badge badge-grey">Never subscribed</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ email.created_at|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4"><div class="admin-empty"><i class="fas fa-address-book"></i><div class="admin-empty-title">No contacts</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if email_page.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ email_page.start_index }}–{{ email_page.end_index }} of {{ email_page.paginator.count }}</span>
+    <div class="admin-pagination-pages">
+      {% if email_page.has_previous %}<a href="?page={{ email_page.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in email_page.paginator.page_range %}
+        {% if num == email_page.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= email_page.number|add:"-2" and num <= email_page.number|add:"2" %}<a href="?page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if email_page.has_next %}<a href="?page={{ email_page.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

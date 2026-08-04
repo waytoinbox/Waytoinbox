@@ -1,0 +1,400 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/header_analysis.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="ha-page">
+
+  <!-- ── LEFT: INPUT ───────────────────────────────────── -->
+  <div class="ha-card ha-left">
+    <div class="ha-card-head">
+      <div class="ha-card-icon">&#128232;</div>
+      <div>
+        <h2>Email Header Analyzer</h2>
+        <p>Upload a .txt file or paste raw email headers below.</p>
+      </div>
+    </div>
+    <div class="ha-card-body">
+      <!-- Analysis Credit bar -->
+      <div class="hac-bar">
+        <i class="fas fa-coins hac-icon"></i>
+        <div class="hac-info">
+          <div class="hac-label">Analysis Credits <span id="hacText">{{ ac_current_credits }} / {{ ac_total_credits }}</span></div>
+          <div class="hac-track"><div class="hac-fill" id="hacFill"></div></div>
+          {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
+        </div>
+        <span class="hac-badge" id="hacBadge"></span>
+      </div>
+
+      <form id="analysisForm" novalidate>
+        {% csrf_token %}
+
+        <label class="ha-label">Upload .txt Email File</label>
+        <input type="file" name="header_file" id="headerFile" accept=".txt" class="ha-file-input"/>
+
+        <div class="ha-divider">OR</div>
+
+        <label class="ha-label">Paste Raw Email / Header</label>
+        <textarea
+          name="header" id="headerInput"
+          class="ha-textarea"
+          placeholder="Paste full raw email or headers here..."></textarea>
+
+        <div class="ha-char-count">
+          <span id="charCounter">0</span> characters
+        </div>
+
+        <div id="ha-error-area"></div>
+
+        <div class="ha-btn-row">
+          <button type="submit" class="ha-btn-primary" id="analyzeBtn">
+            <i class="fas fa-search"></i> Analyze
+          </button>
+          <button type="button" class="ha-btn-secondary" id="clearBtn">
+            <i class="fas fa-trash"></i> Clear
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ── RIGHT: RESULTS ────────────────────────────────── -->
+  <div id="ha-result-area">
+    <div class="ha-card">
+      <div class="ha-empty">
+        <div class="ha-empty-icon">&#128205;</div>
+        <h4>No results yet</h4>
+        <p>Paste your email headers or upload a file and click Analyze.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+function syncHaHeight() {
+  var left  = document.querySelector('.ha-left');
+  var right = document.getElementById('ha-result-area');
+  if (left && right) right.style.maxHeight = left.offsetHeight + 'px';
+}
+window.addEventListener('load', syncHaHeight);
+window.addEventListener('resize', syncHaHeight);
+
+var haInput   = document.getElementById('headerInput');
+var haCounter = document.getElementById('charCounter');
+
+haInput.addEventListener('input', function() {
+  haCounter.innerText = this.value.length;
+});
+
+document.getElementById('clearBtn').addEventListener('click', function() {
+  haInput.value = '';
+  haCounter.innerText = 0;
+  document.getElementById('headerFile').value = '';
+  document.getElementById('ha-error-area').innerHTML = '';
+  document.getElementById('ha-result-area').innerHTML =
+    '<div class="ha-card"><div class="ha-empty">' +
+      '<div class="ha-empty-icon">&#128205;</div>' +
+      '<h4>No results yet</h4>' +
+      '<p>Paste your email headers or upload a file and click Analyze.</p>' +
+    '</div></div>';
+});
+
+/* ── IP Credit bar ───────────────────────────────────── */
+var _hacCurrent = {{ ac_current_credits|default:0 }};
+var _hacTotal   = {{ ac_total_credits|default:0 }};
+
+function updateHacBar(current, total) {
+  _hacCurrent = current; _hacTotal = total;
+  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var fill  = document.getElementById('hacFill');
+  var badge = document.getElementById('hacBadge');
+  var text  = document.getElementById('hacText');
+  var btn   = document.getElementById('analyzeBtn');
+  text.textContent = current + ' / ' + total;
+  fill.style.width = pct + '%';
+  fill.className  = 'hac-fill';
+  badge.className = 'hac-badge';
+  if (current <= 0) {
+    fill.classList.add('empty'); badge.classList.add('empty');
+    badge.textContent = 'No Credits'; btn.disabled = true;
+  } else if (pct <= 20) {
+    fill.classList.add('warn'); badge.classList.add('warn');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false;
+  } else {
+    badge.classList.add('ok');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false;
+  }
+}
+updateHacBar(_hacCurrent, _hacTotal);
+
+document.getElementById('analysisForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('analyzeBtn');
+  document.getElementById('ha-error-area').innerHTML = '';
+
+  btn.innerHTML = '<span class="btn-spinner"></span> Analyzing...';
+  btn.disabled = true;
+
+  try {
+    var res  = await fetch('/api/header-analysis/', { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+
+    if (data.status !== 'ok') {
+      document.getElementById('ha-error-area').innerHTML =
+        '<div class="ev-flash ev-flash--error" style="margin-top:10px">' + (data.message || 'Something went wrong.') + '</div>';
+      if (data.credits !== undefined) updateHacBar(data.credits, _hacTotal);
+    } else {
+      haRenderResults(data.results);
+      if (data.credits !== undefined) updateHacBar(data.credits, _hacTotal);
+    }
+  } catch (err) {
+    document.getElementById('ha-error-area').innerHTML =
+      '<div class="ev-flash ev-flash--error" style="margin-top:10px">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-search"></i> Analyze';
+  }
+});
+
+/* ── Helpers ─────────────────────────────────────────── */
+function haAuthClass(val) {
+  val = (val || '').toLowerCase();
+  return val === 'pass' ? 'ha-auth-pass' : val === 'fail' ? 'ha-auth-fail' : 'ha-auth-none';
+}
+
+function haBlClass(status) {
+  return status === 'Listed' ? 'ha-bl-listed' : 'ha-bl-safe';
+}
+
+function haBlList(obj, listId) {
+  if (!obj || obj === 'N/A' || typeof obj !== 'object') {
+    return '<div class="ha-info-val">N/A</div>';
+  }
+  var entries = Object.entries(obj);
+  var rows = entries.map(function(kv, i) {
+    return '<div class="ha-bl-row ha-bl-row--collapsible' + (i >= 5 ? ' ha-bl-hidden' : '') + '">' +
+      '<span>' + kv[0] + '</span>' +
+      '<strong class="' + haBlClass(kv[1]) + '">' + kv[1] + '</strong>' +
+    '</div>';
+  }).join('');
+  var showMore = entries.length > 5
+    ? '<button class="ha-show-more" onclick="toggleShowMore(\'' + listId + '\', this)">Show more (' + (entries.length - 5) + ' more)</button>'
+    : '';
+  return '<div class="ha-bl-list" id="' + listId + '">' + rows + '</div>' + showMore;
+}
+
+/* ── Render full results panel ───────────────────────── */
+function haRenderResults(r) {
+  var risk       = (r.risk || '').toLowerCase();
+  var riskIcon   = (risk === 'low' || risk === 'safe') ? '&#10003;' : risk === 'risky' ? '&#9888;' : '&#10007;';
+  var reasons    = (r.reasons || []).map(function(s) { return '<div class="ha-reason-item">' + s + '</div>'; }).join('');
+  var links      = (r.links || []);
+  var linkRows   = links.map(function(l, i) {
+    return '<div class="ha-link-item ha-bl-row--collapsible' + (i >= 5 ? ' ha-bl-hidden' : '') + '">' + l + '</div>';
+  }).join('');
+  var showMoreLinks = links.length > 5
+    ? '<button class="ha-show-more" onclick="toggleShowMore(\'haLinksList\', this)">Show more (' + (links.length - 5) + ' more)</button>'
+    : '';
+
+  var ipsRows = (r.ips || []).map(function(row) {
+    return '<div class="ha-info-row">' +
+      '<span class="ha-info-label">' + row.type + '</span>' +
+      '<span class="ha-info-val" style="font-family:monospace">' + row.ip + '</span>' +
+    '</div>';
+  }).join('');
+
+  var mismatchHtml = r.domain_info && r.domain_info.mismatch
+    ? '<span style="color:#C94A1D;font-weight:700">&#9888; YES</span>'
+    : '<span style="color:#007A5E;font-weight:700">&#10003; NO</span>';
+
+  var linksCard = links.length
+    ? '<div class="ha-result-card">' +
+        '<div class="ha-result-head"><span>&#128279;</span><h3>Links Found</h3></div>' +
+        '<div class="ha-result-body">' +
+          '<div class="ha-link-list" id="haLinksList">' + linkRows + '</div>' +
+          showMoreLinks +
+        '</div>' +
+      '</div>'
+    : '';
+
+  document.getElementById('ha-result-area').innerHTML =
+    '<div class="ha-results">' +
+
+    /* Risk Summary */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#9889;</span><h3>Risk Summary</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-risk risk-' + risk + '">' + riskIcon + ' ' + r.risk + '</div>' +
+        '<div class="ha-score">Spam Score: <strong>' + r.score + '/10</strong></div>' +
+        (reasons ? '<div class="ha-reason-list">' + reasons + '</div>' : '') +
+      '</div>' +
+    '</div>' +
+
+    /* Authentication */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#128272;</span><h3>Authentication</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-auth-grid">' +
+          '<div class="ha-auth-box"><span>SPF</span><strong class="' + haAuthClass(r.spf) + '">' + (r.spf || 'NONE').toUpperCase() + '</strong></div>' +
+          '<div class="ha-auth-box"><span>DKIM</span><strong class="' + haAuthClass(r.dkim) + '">' + (r.dkim || 'NONE').toUpperCase() + '</strong></div>' +
+          '<div class="ha-auth-box"><span>DMARC</span><strong class="' + haAuthClass(r.dmarc) + '">' + (r.dmarc || 'NONE').toUpperCase() + '</strong></div>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    /* Email Info */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#9993;&#65039;</span><h3>Email Info</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-info-row"><span class="ha-info-label">From</span><span class="ha-info-val">' + (r['from'] || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">To</span><span class="ha-info-val">' + (r['to'] || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">Subject</span><span class="ha-info-val">' + (r.subject || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">Date</span><span class="ha-info-val">' + (r.date || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">Size</span><span class="ha-info-val">' + (r.size || '') + '</span></div>' +
+      '</div>' +
+    '</div>' +
+
+    /* Body Analysis */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#128202;</span><h3>Body Analysis</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-stats-grid">' +
+          '<div class="ha-stat-box"><div class="ha-stat-val">' + links.length + '</div><div class="ha-stat-lbl">Links</div></div>' +
+          '<div class="ha-stat-box"><div class="ha-stat-val">' + (r.images || 0) + '</div><div class="ha-stat-lbl">Images</div></div>' +
+          '<div class="ha-stat-box"><div class="ha-stat-val">' + (r.domains ? r.domains.length : 0) + '</div><div class="ha-stat-lbl">Domains</div></div>' +
+        '</div>' +
+        '<div class="ha-ratio-box">' +
+          '<span>&#128221; Text: ' + (r.text_percent || 0) + '%</span>' +
+          '<span>&#128444; Image: ' + (r.image_percent || 0) + '%</span>' +
+        '</div>' +
+      '</div>' +
+    '</div>' +
+
+    /* Links */
+    linksCard +
+
+    /* Domain Analysis */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#127760;</span><h3>Domain Analysis</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-info-row">' +
+          '<span class="ha-info-label">From Domain</span>' +
+          '<span class="ha-info-val">' + (r.domain_info && r.domain_info.from_domain || '') + '</span>' +
+          (r.domain_info && r.domain_info.from_domain
+            ? '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:auto;">' +
+                '<span class="ha-monitor-msg" style="display:none;font-size:12px;white-space:nowrap;"></span>' +
+                '<button class="ha-check-btn ha-monitor-btn" data-type="domain" data-value="' + (r.domain_info.from_domain) + '"><i class="fas fa-plus"></i> Add to Monitor</button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">Return Path</span><span class="ha-info-val">' + (r.domain_info && r.domain_info.return_path_domain || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">DKIM Domain</span><span class="ha-info-val">' + (r.domain_info && r.domain_info.dkim_domain || '') + '</span></div>' +
+        '<div class="ha-info-row"><span class="ha-info-label">Mismatch</span><span class="ha-info-val">' + mismatchHtml + '</span></div>' +
+      '</div>' +
+    '</div>' +
+
+    /* IP Analysis */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#128421;</span><h3>IP Analysis</h3></div>' +
+      '<div class="ha-result-body">' +
+        '<div class="ha-info-row">' +
+          '<span class="ha-info-label">Origin IP</span>' +
+          '<span class="ha-info-val" style="font-family:monospace;color:var(--teal-dk)">' + (r.origin_ip || '') + '</span>' +
+          (r.origin_ip && r.origin_ip !== 'Not Found'
+            ? '<div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;margin-left:auto;">' +
+                '<span class="ha-monitor-msg" style="display:none;font-size:12px;white-space:nowrap;"></span>' +
+                '<button class="ha-check-btn ha-monitor-btn" data-type="ip" data-value="' + r.origin_ip + '"><i class="fas fa-plus"></i> Add to Monitor</button>' +
+              '</div>'
+            : '') +
+        '</div>' +
+        ipsRows +
+      '</div>' +
+    '</div>' +
+
+    /* IP Blacklist */
+    (r.origin_ip_blacklist && typeof r.origin_ip_blacklist === 'object' && Object.keys(r.origin_ip_blacklist).length
+      ? '<div class="ha-result-card">' +
+          '<div class="ha-result-head"><span>&#128683;</span><h3>IP Blacklist</h3></div>' +
+          '<div class="ha-result-body">' + haBlList(r.origin_ip_blacklist, 'ipBlList') + '</div>' +
+        '</div>'
+      : '') +
+
+    /* Domain Blacklist */
+    '<div class="ha-result-card">' +
+      '<div class="ha-result-head"><span>&#128269;</span><h3>Domain Blacklist</h3></div>' +
+      '<div class="ha-result-body">' + haBlList(r.domain_blacklist, 'domainBlList') + '</div>' +
+    '</div>' +
+
+    '</div>';
+}
+
+document.getElementById('ha-result-area').addEventListener('click', async function(e) {
+  var btn = e.target.closest('.ha-monitor-btn');
+  if (!btn) return;
+
+  var type  = btn.dataset.type;   // 'domain' or 'ip'
+  var value = btn.dataset.value;
+  var msg   = btn.previousElementSibling; // the <span class="ha-monitor-msg">
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Adding...';
+  msg.style.display = 'none';
+
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', '{{ csrf_token }}');
+  if (type === 'domain') fd.append('domain', value);
+  if (type === 'ip')     fd.append('ip', value);
+
+  try {
+    var res  = await fetch('{% url "add_to_monitors" %}', { method: 'POST', body: fd });
+    var data = await res.json();
+
+    var result = type === 'domain' ? data.domain : data.ip;
+    var icon, color, label;
+    if (result && result.status === 'added') {
+      icon = 'fa-check-circle'; color = '#007A5E'; label = 'Added';
+      btn.innerHTML = '<i class="fas fa-check"></i> Added';
+    } else if (result && result.status === 'duplicate') {
+      icon = 'fa-info-circle'; color = '#9A6800'; label = 'Already monitored';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-plus"></i> Add to Monitor';
+    } else {
+      icon = 'fa-times-circle'; color = '#C94A1D'; label = (result && result.message) || 'Error';
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-plus"></i> Add to Monitor';
+    }
+    msg.innerHTML = '<i class="fas ' + icon + '" style="color:' + color + ';margin-right:4px;"></i><span style="color:' + color + ';">' + label + '</span>';
+    msg.style.display = 'inline-flex';
+    msg.style.alignItems = 'center';
+
+    if (data.ac_current_credits !== undefined) updateHacBar(data.ac_current_credits, _hacTotal);
+  } catch (err) {
+    msg.innerHTML = '<i class="fas fa-times-circle" style="color:#C94A1D;margin-right:4px;"></i><span style="color:#C94A1D;">Error</span>';
+    msg.style.display = 'inline-flex';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-plus"></i> Add to Monitor';
+  }
+});
+
+function toggleShowMore(listId, btn) {
+  var isExpanded = btn.dataset.expanded === 'true';
+  var items = document.querySelectorAll('#' + listId + ' .ha-bl-row--collapsible, #' + listId + ' .ha-link-item');
+  if (isExpanded) {
+    items.forEach(function(r, i) { if (i >= 5) r.classList.add('ha-bl-hidden'); });
+    btn.textContent = btn.dataset.original;
+    btn.dataset.expanded = 'false';
+  } else {
+    if (!btn.dataset.original) btn.dataset.original = btn.textContent;
+    items.forEach(function(r) { r.classList.remove('ha-bl-hidden'); });
+    btn.textContent = 'Show less &#9650;';
+    btn.dataset.expanded = 'true';
+  }
+}
+</script>
+
+{% endblock %}

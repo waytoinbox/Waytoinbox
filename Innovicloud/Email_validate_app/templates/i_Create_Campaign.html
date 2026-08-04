@@ -1,0 +1,1050 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/create_campaign.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="crc-page">
+
+  <div class="crc-header">
+    <a href="{% url 'campaigns' %}" class="crc-back">
+      <i class="fas fa-arrow-left" style="font-size:11px;"></i> Back to Campaigns
+    </a>
+    <h2>{% if editing_campaign %}Edit Campaign{% else %}Create Campaign{% endif %}</h2>
+    <p>{% if editing_campaign %}Update this campaign's details, template, or schedule.{% else %}Compose and send a bulk email campaign to one of your contact lists.{% endif %}</p>
+  </div>
+
+  <!-- Section 1: Campaign Information -->
+  <div class="crc-card">
+    <h3>Campaign Information</h3>
+    <div class="crc-form-row">
+      <div class="crc-form-group">
+        <label for="campaignName">Campaign Name <span class="req">*</span></label>
+        <input type="text" id="campaignName" maxlength="255" placeholder="e.g. June Newsletter">
+        <p class="crc-error" id="err-campaignName"></p>
+      </div>
+      <div class="crc-form-group">
+        <label>Recipients <span class="req">*</span></label>
+        <div class="crc-recipient-toggle">
+          <label class="crc-recipient-option">
+            <input type="radio" name="recipientType" value="list" id="rtList" checked> Contact List
+          </label>
+          <label class="crc-recipient-option">
+            <input type="radio" name="recipientType" value="segment" id="rtSegment"> Segment
+          </label>
+        </div>
+        <div id="recipientListWrap">
+          <select id="campaignList">
+            <option value="">-- Select a list --</option>
+            {% for lst in campaign_lists %}
+              <option value="{{ lst.id }}">{{ lst.list_name }} ({{ lst.total_count }} contacts)</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div id="recipientSegmentWrap" style="display:none;">
+          <select id="campaignSegment">
+            <option value="">-- Select a segment --</option>
+            {% for seg in active_segments %}
+              <option value="{{ seg.id }}">{{ seg.name }}</option>
+            {% endfor %}
+          </select>
+          {% if not active_segments %}
+          <p style="font-size:12.5px;color:var(--ink-3);margin-top:6px;">No active segments yet. <a href="{% url 'segment_builder' %}" style="color:var(--teal);">Create a segment</a></p>
+          {% endif %}
+        </div>
+        <p class="crc-error" id="err-campaignList"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Section 2: Email Template -->
+  <div class="crc-card">
+    <h3>Email Template</h3>
+
+    <div class="crc-tabs">
+      <div class="crc-tab active" data-tab="mine">My Templates</div>
+      <div class="crc-tab" data-tab="library">Template Library</div>
+      <div class="crc-tab" data-tab="new">Create New</div>
+    </div>
+
+    <!-- My Templates -->
+    <div class="crc-tab-panel active" id="tabMine">
+      <div class="crc-template-grid" id="myTemplatesGrid"></div>
+      <div class="crc-empty-tab" id="myTemplatesEmpty" style="display:none;">
+        You don't have any templates yet. Create one or use the Template Library.
+      </div>
+      <div class="crc-see-more" id="myTemplatesSeeMore" style="display:none;">
+        <button class="crc-see-more-btn" id="myTemplatesSeeMoreBtn">
+          <i class="fas fa-chevron-down"></i> See more
+        </button>
+      </div>
+    </div>
+
+    <!-- Template Library -->
+    <div class="crc-tab-panel" id="tabLibrary">
+      <div class="crc-template-grid" id="libraryGrid"></div>
+      <div class="crc-empty-tab" id="libraryEmpty" style="display:none;">No library templates available.</div>
+      <div class="crc-see-more" id="librarySeeMore" style="display:none;">
+        <button class="crc-see-more-btn" id="librarySeeMoreBtn">
+          <i class="fas fa-chevron-down"></i> See more
+        </button>
+      </div>
+    </div>
+
+    <!-- Create New -->
+    <div class="crc-tab-panel" id="tabNew">
+      <div class="crc-empty-tab" style="padding:50px 16px;">
+        <p style="margin-bottom:16px;">Build a brand-new email template from scratch.</p>
+        <button class="crc-btn primary" id="openCreateNewBtn" style="padding:9px 18px;font-size:13px;">
+          <i class="fas fa-plus"></i> Create New Template
+        </button>
+      </div>
+    </div>
+
+    <div class="crc-selected-bar" id="selectedTemplateBar">
+      <div class="info">Selected template: <strong id="selectedTemplateName">—</strong></div>
+      <div style="display:flex;gap:8px;">
+        <button class="crc-btn" id="previewSelectedTemplateBtn"><i class="fas fa-eye"></i> Preview</button>
+        <button class="crc-btn" id="editSelectedTemplateBtn"><i class="fas fa-pen"></i> Edit</button>
+      </div>
+    </div>
+    <p class="crc-error" id="err-template"></p>
+  </div>
+
+  <!-- Section 3: Sender Settings -->
+  <div class="crc-card">
+    <h3>Sender Settings</h3>
+    <div class="crc-form-row">
+      <div class="crc-form-group">
+        <label for="senderName">Sender Name <span class="req">*</span></label>
+        <input type="text" id="senderName" maxlength="255" placeholder="e.g. Innovicloud Team">
+        <p class="crc-error" id="err-senderName"></p>
+      </div>
+      <div class="crc-form-group">
+        <label for="fromEmail">From Email <span class="req">*</span></label>
+        {% include 'partials/_sender_selector.html' %}
+      </div>
+      <div class="crc-form-group">
+        <label for="replyEmail">Reply-To Email <span class="req">*</span></label>
+        <input type="email" id="replyEmail" maxlength="255" placeholder="e.g. support@yourcompany.com">
+        <p class="crc-error" id="err-replyEmail"></p>
+      </div>
+    </div>
+    <div class="crc-form-group" style="margin-top:4px;">
+      <label for="emailSubject">Email Subject</label>
+      <input type="text" id="emailSubject" maxlength="500" placeholder="e.g. Your June update is here">
+    </div>
+
+    <div style="display:flex;justify-content:flex-end;margin-top:16px;">
+      <button class="btn btn-primary" id="saveSection3Btn"><i class="fas fa-save"></i> Save</button>
+    </div>
+  </div>
+
+  <!-- Section 4: Campaign Test Send -->
+  <div class="crc-card">
+    <h3>Campaign Test Send</h3>
+    <p style="font-size:13.5px;color:var(--ink-3);margin:0 0 18px;">
+      Send a test email using this campaign's settings before launching. Maximum 5 recipients. Always sent immediately.
+    </p>
+
+    <!-- No template selected yet -->
+    <div id="testStateNoTemplate">
+      <div class="crc-test-notice">
+        <i class="fas fa-info-circle"></i>
+        <span>Select an email template in <strong>Section 2</strong> to enable test sending.</span>
+      </div>
+    </div>
+
+    <!-- Ready to send -->
+    <div id="testStateReady" style="display:none;">
+      <div class="crc-test-recipients" id="testRecipients"></div>
+      <div class="crc-test-footer">
+        <button class="crc-test-add" id="testAddRecipient" type="button">
+          <i class="fas fa-plus"></i> Add recipient
+        </button>
+        <button class="crc-test-send-btn" id="testSendBtn" type="button">
+          <i class="fas fa-paper-plane"></i> Send Test Email
+        </button>
+      </div>
+      <p style="font-size:12px;color:var(--ink-3);margin:10px 0 0;">1–5 recipients · Uses Sender Name, From Email &amp; Reply-To from Section 3</p>
+      <div class="crc-test-result" id="testResult"></div>
+    </div>
+  </div>
+
+  <!-- Section 5: Send Option -->
+  <div class="crc-card">
+    <h3>Send Option</h3>
+
+    <div class="crc-form-group">
+      <div class="crc-radio-group">
+        <label><input type="radio" name="sendOption" value="now" checked> Send Immediately</label>
+        <label><input type="radio" name="sendOption" value="schedule"> Schedule for Later</label>
+      </div>
+    </div>
+
+    <div class="crc-form-group" id="scheduleGroup" style="display:none;">
+      <label>Schedule Date &amp; Time <span class="req">*</span></label>
+      <div class="crc-sch-panel">
+
+        <!-- Date block -->
+        <div class="crc-sch-block">
+          <div class="crc-sch-block-label"><i class="fas fa-calendar-alt"></i> Date</div>
+          <input type="date" id="scheduleDate" class="crc-sch-date">
+        </div>
+
+        <!-- Time block -->
+        <div class="crc-sch-block">
+          <div class="crc-sch-block-label"><i class="fas fa-clock"></i> Time</div>
+          <div class="crc-sch-time">
+            <div class="crc-sch-seg">
+              <span class="crc-sch-seg-lbl">Hour</span>
+              <select id="scheduleHour" class="crc-sch-sel"></select>
+            </div>
+            <div class="crc-sch-colon">:</div>
+            <div class="crc-sch-seg">
+              <span class="crc-sch-seg-lbl">Min</span>
+              <select id="scheduleMinute" class="crc-sch-sel"></select>
+            </div>
+            <div class="crc-sch-seg" style="flex:0 0 64px;">
+              <span class="crc-sch-seg-lbl">AM/PM</span>
+              <select id="scheduleAmPm" class="crc-sch-sel">
+                <option value="AM">AM</option>
+                <option value="PM">PM</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- Timezone block -->
+        <div class="crc-sch-block" style="position:relative;">
+          <div class="crc-sch-block-label"><i class="fas fa-globe"></i> Timezone</div>
+          <div class="crc-sch-tz-wrap" id="tzWrap">
+            <div class="crc-sch-tz-trigger" id="tzTrigger">
+              <span id="tzLabelText">Asia/Kolkata</span>
+              <i class="fas fa-chevron-down crc-sch-tz-chevron"></i>
+            </div>
+            <div class="crc-sch-tz-dropdown" id="tzDropdown" style="display:none;">
+              <input type="text" id="tzSearch" class="crc-sch-tz-search" placeholder="Search timezone…" autocomplete="off">
+              <div class="crc-sch-tz-list" id="tzList"></div>
+            </div>
+            <input type="hidden" id="campaignTz" value="Asia/Kolkata">
+          </div>
+        </div>
+
+      </div>
+      <p class="crc-error" id="err-scheduleAt"></p>
+    </div>
+  </div>
+
+  <div class="crc-actions">
+    <button class="btn btn-outline" id="saveDraftBtn"><i class="fas fa-save"></i> Save Draft</button>
+    <button class="btn btn-primary" id="sendCampaignBtn"><i class="fas fa-paper-plane"></i> Send Campaign</button>
+  </div>
+
+</div>
+
+<!-- Preview Modal -->
+<div class="crc-modal-overlay" id="previewModal">
+  <div class="crc-modal preview">
+    <button class="crc-modal-close" id="closePreviewModal">&times;</button>
+    <h3 id="previewModalTitle">Preview Template</h3>
+    <iframe class="crc-preview-frame" id="previewModalFrame" sandbox="allow-same-origin"></iframe>
+    <div class="crc-actions" style="padding-top:18px;">
+      <button class="btn btn-outline" id="previewCancelBtn">Close</button>
+      <button class="btn btn-primary" id="previewUseBtn"><i class="fas fa-check"></i> Use Template</button>
+    </div>
+  </div>
+</div>
+
+{{ user_templates_data|json_script:"userTemplatesData" }}
+{{ library_templates_data|json_script:"libraryTemplatesData" }}
+{{ editing_campaign|json_script:"editingCampaignData" }}
+
+<script>
+const CSRF = '{{ csrf_token }}';
+const SAVE_TEMPLATE_URL      = '{% url "save_user_template" %}';
+const SAVE_CAMPAIGN_URL      = '{% url "save_campaign" %}';
+const USE_LIBRARY_URL_BASE   = '/Email_Campaigns/template-library/';
+const DUPLICATE_TEMPLATE_URL = '/Email_Campaigns/templates/';
+
+let userTemplates    = JSON.parse(document.getElementById('userTemplatesData').textContent);
+let libraryTemplates = JSON.parse(document.getElementById('libraryTemplatesData').textContent);
+let editingCampaign  = JSON.parse(document.getElementById('editingCampaignData').textContent);
+let selectedTemplate = null;     // { id, name, subject, html_content }
+
+/* ── Tabs ───────────────────────────────────────────────── */
+document.querySelectorAll('.crc-tab').forEach(function(tab) {
+  tab.addEventListener('click', function() {
+    document.querySelectorAll('.crc-tab').forEach(function(t) { t.classList.remove('active'); });
+    document.querySelectorAll('.crc-tab-panel').forEach(function(p) { p.classList.remove('active'); });
+    tab.classList.add('active');
+    document.getElementById('tab' + tab.dataset.tab.charAt(0).toUpperCase() + tab.dataset.tab.slice(1)).classList.add('active');
+  });
+});
+
+var TEMPLATES_PER_PAGE = 6;
+var myTemplatesShown = TEMPLATES_PER_PAGE;
+var libraryShown = TEMPLATES_PER_PAGE;
+
+/* ── Render My Templates ────────────────────────────────── */
+function renderMyTemplates() {
+  var grid  = document.getElementById('myTemplatesGrid');
+  var empty = document.getElementById('myTemplatesEmpty');
+  var more  = document.getElementById('myTemplatesSeeMore');
+  var btn   = document.getElementById('myTemplatesSeeMoreBtn');
+  grid.innerHTML = '';
+  empty.style.display = userTemplates.length ? 'none' : 'block';
+
+  var visible = userTemplates.slice(0, myTemplatesShown);
+  visible.forEach(function(t) {
+    var card = document.createElement('div');
+    card.className = 'crc-template-card' + (selectedTemplate && selectedTemplate.id === t.id ? ' selected' : '');
+    card.innerHTML =
+      '<div class="name">' + escHtml(t.name) + '</div>' +
+      '<div class="subject">' + escHtml(t.subject || 'No subject') + '</div>' +
+      '<div class="actions">' +
+        '<button class="crc-btn select-btn" type="button">Select</button>' +
+        '<button class="crc-btn preview-btn" type="button"><i class="fas fa-eye"></i> Preview</button>' +
+        '<button class="crc-btn edit-btn" type="button"><i class="fas fa-pen"></i> Edit</button>' +
+      '</div>';
+    card.querySelector('.select-btn').addEventListener('click', function() { selectTemplate(t); });
+    card.querySelector('.preview-btn').addEventListener('click', function(e) { e.stopPropagation(); openPreview(t, 'mine'); });
+    card.querySelector('.edit-btn').addEventListener('click', function(e) { e.stopPropagation(); duplicateAndEdit(t, this); });
+    grid.appendChild(card);
+  });
+
+  var remaining = userTemplates.length - myTemplatesShown;
+  if (remaining > 0) {
+    more.style.display = 'block';
+    btn.innerHTML = '<i class="fas fa-chevron-down"></i> See more (' + remaining + ')';
+  } else {
+    more.style.display = 'none';
+  }
+}
+
+/* ── Render Template Library ───────────────────────────── */
+function renderLibrary() {
+  var grid  = document.getElementById('libraryGrid');
+  var empty = document.getElementById('libraryEmpty');
+  var more  = document.getElementById('librarySeeMore');
+  var btn   = document.getElementById('librarySeeMoreBtn');
+  grid.innerHTML = '';
+  empty.style.display = libraryTemplates.length ? 'none' : 'block';
+
+  var visible = libraryTemplates.slice(0, libraryShown);
+  visible.forEach(function(t) {
+    var card = document.createElement('div');
+    card.className = 'crc-template-card';
+    card.innerHTML =
+      '<div class="cat-badge">' + escHtml(t.category) + '</div>' +
+      '<div class="name">' + escHtml(t.name) + '</div>' +
+      '<div class="subject">' + escHtml(t.subject || 'No subject') + '</div>' +
+      '<div class="actions">' +
+        '<button class="crc-btn preview-btn" type="button"><i class="fas fa-eye"></i> Preview</button>' +
+        '<button class="crc-btn primary use-btn" type="button">Use Template</button>' +
+      '</div>';
+    card.querySelector('.preview-btn').addEventListener('click', function() { openPreview(t, 'library'); });
+    card.querySelector('.use-btn').addEventListener('click', function() { useLibraryTemplate(t.id, this); });
+    grid.appendChild(card);
+  });
+
+  var remaining = libraryTemplates.length - libraryShown;
+  if (remaining > 0) {
+    more.style.display = 'block';
+    btn.innerHTML = '<i class="fas fa-chevron-down"></i> See more (' + remaining + ')';
+  } else {
+    more.style.display = 'none';
+  }
+}
+
+document.getElementById('myTemplatesSeeMoreBtn').addEventListener('click', function() {
+  myTemplatesShown += TEMPLATES_PER_PAGE;
+  renderMyTemplates();
+});
+document.getElementById('librarySeeMoreBtn').addEventListener('click', function() {
+  libraryShown += TEMPLATES_PER_PAGE;
+  renderLibrary();
+});
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Lock template picker for scheduled/sending/sent campaigns ── */
+function lockTemplatePicker() {
+  /* Hide the tab bar and all tab panels */
+  var tabs = document.querySelector('.crc-tabs');
+  if (tabs) tabs.style.display = 'none';
+  document.querySelectorAll('.crc-tab-panel').forEach(function(p) { p.style.display = 'none'; });
+
+  /* Insert a locked notice below the heading */
+  var card = document.querySelector('.crc-card:nth-of-type(2)');
+  if (card && !document.getElementById('tplLockedNotice')) {
+    var notice = document.createElement('div');
+    notice.id = 'tplLockedNotice';
+    notice.style.cssText = 'display:flex;align-items:center;gap:10px;background:rgba(234,179,8,.08);border:1.5px solid rgba(234,179,8,.3);border-radius:8px;padding:10px 14px;font-size:13px;color:var(--ink-2);margin-bottom:12px;';
+    notice.innerHTML = '<i class="fas fa-lock" style="color:#d97706;flex-shrink:0;"></i><span><strong>Template Locked</strong> — This campaign is currently scheduled. To edit the template, Save as Draft or Unschedule the campaign first.</span>';
+    var h3 = card.querySelector('h3');
+    if (h3) h3.insertAdjacentElement('afterend', notice);
+    else card.prepend(notice);
+  }
+
+  /* Hide Edit button, keep Preview */
+  var editBtn = document.getElementById('editSelectedTemplateBtn');
+  if (editBtn) editBtn.style.display = 'none';
+}
+
+/* ── Selecting a template for the campaign ─────────────── */
+function selectTemplate(t) {
+  selectedTemplate = t;
+  document.getElementById('selectedTemplateBar').classList.add('show');
+  document.getElementById('selectedTemplateName').textContent = t.name;
+  document.getElementById('err-template').style.display = 'none';
+  document.getElementById('emailSubject').value = t.subject || '';
+  renderMyTemplates();
+}
+
+
+document.getElementById('previewSelectedTemplateBtn').addEventListener('click', function() {
+  if (selectedTemplate) openPreview(selectedTemplate, 'mine');
+});
+document.getElementById('editSelectedTemplateBtn').addEventListener('click', function() {
+  if (selectedTemplate) duplicateAndEdit(selectedTemplate, this);
+});
+
+/* ── Preview Modal ──────────────────────────────────────── */
+var previewModal = document.getElementById('previewModal');
+var previewingTemplate = null;
+var previewSource = null;   // 'mine' | 'library'
+
+function openPreview(t, source) {
+  previewingTemplate = t;
+  previewSource = source || 'library';
+  document.getElementById('previewModalTitle').textContent = t.name;
+  var frame = document.getElementById('previewModalFrame');
+  frame.srcdoc = t.html_content || '<p style="padding:24px;color:#666;">No preview available.</p>';
+  var useBtn = document.getElementById('previewUseBtn');
+  if (previewSource === 'mine') {
+    useBtn.innerHTML = '<i class="fas fa-check"></i> Select';
+  } else {
+    useBtn.innerHTML = '<i class="fas fa-check"></i> Use Template';
+  }
+  previewModal.classList.add('open');
+}
+function closePreview() { previewModal.classList.remove('open'); previewingTemplate = null; previewSource = null; }
+
+document.getElementById('closePreviewModal').addEventListener('click', closePreview);
+document.getElementById('previewCancelBtn').addEventListener('click', closePreview);
+document.getElementById('previewUseBtn').addEventListener('click', function() {
+  if (previewingTemplate) {
+    if (previewSource === 'mine') {
+      selectTemplate(previewingTemplate);
+    } else {
+      useLibraryTemplate(previewingTemplate.id, this);
+    }
+  }
+  closePreview();
+});
+
+/* ── Duplicate a template then open editor with the copy ── */
+function duplicateAndEdit(t, btn) {
+  var orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spinner"></span>'; }
+  fetch(DUPLICATE_TEMPLATE_URL + t.id + '/duplicate/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    if (d.status !== 'ok') { WTI.toast(d.message || 'Could not copy template.', 'error'); return; }
+    var copy = { id: d.template_id, name: t.name, subject: t.subject, html_content: t.html_content, design_json: t.design_json };
+    userTemplates.unshift(copy);
+    selectTemplate(copy);   // campaign now points to the private copy
+    goToBuilder(copy.id);   // open editor with the copy
+  })
+  .catch(function(e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    WTI.handleFetchError(e);
+  });
+}
+
+/* ── Use Library Template → copy into UserTemplate ─────── */
+var _libraryUsedMap = {};  // libraryId -> copied UserTemplate object (session cache)
+
+function useLibraryTemplate(libraryId, btn) {
+  // If already copied this session, just re-select the existing copy
+  if (_libraryUsedMap[libraryId]) {
+    selectTemplate(_libraryUsedMap[libraryId]);
+    return;
+  }
+  var orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="btn-spinner"></span>'; }
+  fetch(USE_LIBRARY_URL_BASE + libraryId + '/use/', {
+    method: 'POST',
+    headers: { 'X-CSRFToken': CSRF },
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    if (d.status !== 'ok') { WTI.toast(d.message || 'Could not use this template.', 'error'); return; }
+    _libraryUsedMap[libraryId] = d.template;
+    userTemplates.unshift(d.template);
+    selectTemplate(d.template);
+  })
+  .catch(function(e) {
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+    WTI.handleFetchError(e);
+  });
+}
+
+/* ── Recipient type toggle (List vs Segment) ──────────── */
+document.querySelectorAll('input[name="recipientType"]').forEach(function(r){
+  r.addEventListener('change', function(){
+    var isSegment = this.value === 'segment';
+    document.getElementById('recipientListWrap').style.display    = isSegment ? 'none'  : '';
+    document.getElementById('recipientSegmentWrap').style.display = isSegment ? ''     : 'none';
+  });
+});
+
+/* ── Navigate to the standalone Template Builder page ──── */
+document.getElementById('openCreateNewBtn').addEventListener('click', function() { goToBuilder(null); });
+
+function stashFormState() {
+  sessionStorage.setItem('crcDraftState', JSON.stringify({
+    campaignName:       document.getElementById('campaignName').value,
+    campaignList:       document.getElementById('campaignList').value,
+    senderName:         document.getElementById('senderName').value,
+    fromEmail:          document.getElementById('fromEmail').value,
+    replyEmail:         document.getElementById('replyEmail').value,
+    emailSubject:       document.getElementById('emailSubject').value,
+    sendOption:         document.querySelector('input[name="sendOption"]:checked').value,
+    scheduleDate:       document.getElementById('scheduleDate').value,
+    scheduleHour:       document.getElementById('scheduleHour').value,
+    scheduleMinute:     document.getElementById('scheduleMinute').value,
+    scheduleAmPm:       document.getElementById('scheduleAmPm').value,
+    campaignTz:         document.getElementById('campaignTz').value,
+    selectedTemplateId: selectedTemplate ? selectedTemplate.id : null,
+  }));
+}
+
+function goToBuilder(templateId) {
+  stashFormState();
+  var params = ['from=campaign'];
+  if (templateId) params.push('template_id=' + templateId);
+  if (editingCampaign) params.push('return_campaign_id=' + editingCampaign.id);
+  var url = '{% url "template_builder" %}';
+  window.location.href = url + '?' + params.join('&');
+}
+
+/* ── Schedule time helpers ───────────────────────────────── */
+function populateScheduleControls() {
+  /* Hours 1–12 */
+  var hrSel = document.getElementById('scheduleHour');
+  hrSel.innerHTML = '';
+  for (var h = 1; h <= 12; h++) {
+    var o = document.createElement('option');
+    o.value = h; o.textContent = h;
+    hrSel.appendChild(o);
+  }
+  hrSel.value = '12';
+
+  /* Minutes 00–55 in steps of 5 */
+  var minSel = document.getElementById('scheduleMinute');
+  minSel.innerHTML = '';
+  for (var m = 0; m < 60; m += 5) {
+    var o = document.createElement('option');
+    var ms = String(m).padStart(2, '0');
+    o.value = ms; o.textContent = ms;
+    minSel.appendChild(o);
+  }
+  minSel.value = '00';
+}
+
+/* Returns 'HH:MM' in 24-hr from the AM/PM selects */
+function get24hrTime() {
+  var hour = parseInt(document.getElementById('scheduleHour').value);
+  var min  = document.getElementById('scheduleMinute').value;
+  var ampm = document.getElementById('scheduleAmPm').value;
+  var h24  = hour;
+  if (ampm === 'PM' && hour !== 12) h24 = hour + 12;
+  if (ampm === 'AM' && hour === 12) h24 = 0;
+  return String(h24).padStart(2, '0') + ':' + min;
+}
+
+/* Restore date/time controls from a stored UTC ISO string + campaign timezone */
+function restoreScheduleFromUTC(utcStr, campTz) {
+  if (!utcStr) return;
+  var tz = campTz || document.getElementById('campaignTz').value || 'Asia/Kolkata';
+  try {
+    var d   = new Date(utcStr);
+    var fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year:'numeric', month:'2-digit', day:'2-digit',
+      hour:'2-digit', minute:'2-digit', hour12: false
+    });
+    var pts = {};
+    fmt.formatToParts(d).forEach(function(x){ pts[x.type] = x.value; });
+    document.getElementById('scheduleDate').value = pts.year + '-' + pts.month + '-' + pts.day;
+    var h24   = parseInt(pts.hour);
+    var ampm  = h24 >= 12 ? 'PM' : 'AM';
+    var h12   = h24 % 12 || 12;
+    document.getElementById('scheduleHour').value   = h12;
+    var minRound = Math.round(parseInt(pts.minute) / 5) * 5;
+    if (minRound >= 60) minRound = 55;
+    document.getElementById('scheduleMinute').value = String(minRound).padStart(2, '0');
+    document.getElementById('scheduleAmPm').value   = ampm;
+  } catch (e) { /* ignore */ }
+}
+
+/* ── Timezone dropdown ───────────────────────────────────── */
+var TZ_LIST = [
+  'UTC',
+  'Africa/Cairo','Africa/Johannesburg','Africa/Lagos','Africa/Nairobi',
+  'America/Anchorage','America/Bogota','America/Chicago','America/Denver',
+  'America/Los_Angeles','America/Mexico_City','America/New_York','America/Phoenix',
+  'America/Santiago','America/Sao_Paulo','America/Toronto',
+  'Asia/Bangkok','Asia/Colombo','Asia/Dhaka','Asia/Dubai','Asia/Hong_Kong',
+  'Asia/Jakarta','Asia/Karachi','Asia/Kathmandu','Asia/Kolkata','Asia/Kuala_Lumpur',
+  'Asia/Manila','Asia/Riyadh','Asia/Seoul','Asia/Shanghai','Asia/Singapore',
+  'Asia/Taipei','Asia/Tashkent','Asia/Tehran','Asia/Tokyo',
+  'Atlantic/Azores','Atlantic/Reykjavik',
+  'Australia/Adelaide','Australia/Brisbane','Australia/Melbourne','Australia/Perth','Australia/Sydney',
+  'Europe/Amsterdam','Europe/Athens','Europe/Berlin','Europe/Brussels',
+  'Europe/Bucharest','Europe/Dublin','Europe/Helsinki','Europe/Istanbul',
+  'Europe/Kyiv','Europe/Lisbon','Europe/London','Europe/Madrid',
+  'Europe/Moscow','Europe/Oslo','Europe/Paris','Europe/Prague',
+  'Europe/Rome','Europe/Stockholm','Europe/Vienna','Europe/Warsaw','Europe/Zurich',
+  'Pacific/Auckland','Pacific/Fiji','Pacific/Guam','Pacific/Honolulu','Pacific/Midway',
+];
+
+function initTzDropdown() {
+  var trigger  = document.getElementById('tzTrigger');
+  var dropdown = document.getElementById('tzDropdown');
+  var search   = document.getElementById('tzSearch');
+  var list     = document.getElementById('tzList');
+  var hidden   = document.getElementById('campaignTz');
+  var label    = document.getElementById('tzLabelText');
+
+  function renderList(q) {
+    var f = q ? TZ_LIST.filter(function(tz){ return tz.toLowerCase().indexOf(q) >= 0; }) : TZ_LIST;
+    list.innerHTML = '';
+    f.forEach(function(tz) {
+      var el = document.createElement('div');
+      el.className = 'crc-sch-tz-opt' + (hidden.value === tz ? ' tz-selected' : '');
+      el.textContent = tz;
+      el.addEventListener('mousedown', function(e) {
+        e.preventDefault();
+        hidden.value = tz;
+        label.textContent = tz;
+        dropdown.style.display = 'none';
+        renderList('');
+      });
+      list.appendChild(el);
+    });
+  }
+
+  trigger.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var open = dropdown.style.display !== 'none';
+    dropdown.style.display = open ? 'none' : 'block';
+    if (!open) { search.value = ''; renderList(''); search.focus(); }
+  });
+
+  search.addEventListener('input', function() { renderList(this.value.trim().toLowerCase()); });
+  search.addEventListener('click', function(e) { e.stopPropagation(); });
+
+  document.addEventListener('click', function() { dropdown.style.display = 'none'; });
+
+  renderList('');
+}
+
+/* ── Send option toggle ─────────────────────────────────── */
+function updateSendOptionUI() {
+  var isSchedule = document.querySelector('input[name="sendOption"]:checked').value === 'schedule';
+  document.getElementById('scheduleGroup').style.display = isSchedule ? 'block' : 'none';
+  document.getElementById('sendCampaignBtn').innerHTML = isSchedule
+    ? '<i class="fas fa-clock"></i> Schedule Campaign'
+    : '<i class="fas fa-paper-plane"></i> Send Campaign';
+
+  if (isSchedule) {
+    /* Set minimum selectable date to today */
+    document.getElementById('scheduleDate').min = new Date().toISOString().split('T')[0];
+  }
+}
+
+document.querySelectorAll('input[name="sendOption"]').forEach(function(radio) {
+  radio.addEventListener('change', updateSendOptionUI);
+});
+
+/* ── Validation + Save/Send ─────────────────────────────── */
+function clearErrors() {
+  document.querySelectorAll('.crc-error').forEach(function(e) { e.style.display = 'none'; });
+}
+function showFieldError(field, msg) {
+  var el = document.getElementById('err-' + field);
+  if (el) { el.textContent = msg; el.style.display = 'block'; }
+}
+
+function submitCampaign(action, btn, noRedirect) {
+  clearErrors();
+
+  var campaignName    = document.getElementById('campaignName').value.trim();
+  var recipientType   = document.querySelector('input[name="recipientType"]:checked')?.value || 'list';
+  var campaignList    = recipientType === 'list'    ? document.getElementById('campaignList').value    : '';
+  var campaignSegment = recipientType === 'segment' ? document.getElementById('campaignSegment')?.value || '' : '';
+  var senderName   = document.getElementById('senderName').value.trim();
+  var fromEmail    = document.getElementById('fromEmail').value.trim();
+  var replyEmail   = document.getElementById('replyEmail').value.trim();
+  var sendOption   = document.querySelector('input[name="sendOption"]:checked').value;
+  var emailRe      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  var hasError = false;
+  if (!campaignName) { showFieldError('campaignName', 'Campaign name is required.'); hasError = true; }
+  if (recipientType === 'list' && !campaignList)       { showFieldError('campaignList', 'Recipient list is required.'); hasError = true; }
+  if (recipientType === 'segment' && !campaignSegment) { showFieldError('campaignList', 'Select a segment.'); hasError = true; }
+  if (!senderName)   { showFieldError('senderName', 'Sender name is required.'); hasError = true; }
+  if (!fromEmail || !emailRe.test(fromEmail)) { showFieldError('fromEmail', 'A valid From email is required.'); hasError = true; }
+  if (!replyEmail || !emailRe.test(replyEmail)) { showFieldError('replyEmail', 'A valid Reply-To email is required.'); hasError = true; }
+  if (action === 'send' && !selectedTemplate) { showFieldError('template', 'Select an email template before sending.'); hasError = true; }
+
+  if (sendOption === 'schedule') {
+    if (!document.getElementById('scheduleDate').value) {
+      showFieldError('scheduleAt', 'Choose a date and time to schedule this campaign.');
+      hasError = true;
+    }
+  }
+
+  if (hasError) return;
+
+  var originalHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> ' + (action === 'draft' ? 'Saving…' : sendOption === 'schedule' ? 'Scheduling…' : 'Sending…');
+
+  fetch(SAVE_CAMPAIGN_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+    body: new URLSearchParams({
+      campaign_id:       editingCampaign ? editingCampaign.id : '',
+      action:            action,
+      campaign_name:     campaignName,
+      recipient_type:    recipientType,
+      campaign_list_id:  campaignList,
+      segment_id:        campaignSegment,
+      template_id:       selectedTemplate ? selectedTemplate.id : '',
+      sender_name:       senderName,
+      from_email:        fromEmail,
+      reply_email:       replyEmail,
+      email_subject:     document.getElementById('emailSubject').value.trim(),
+      send_option:       sendOption,
+      schedule_date:     document.getElementById('scheduleDate').value,
+      schedule_time:     get24hrTime(),
+      campaign_tz:       document.getElementById('campaignTz').value || 'Asia/Kolkata',
+    }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status !== 'ok') {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      if (d.errors) {
+        Object.keys(d.errors).forEach(function(field) {
+          var mapped = field === 'campaign_list_id' ? 'campaignList'
+                     : field === 'template_id'       ? 'template'
+                     : field === 'sender_name'        ? 'senderName'
+                     : field === 'from_email'         ? 'fromEmail'
+                     : field === 'reply_email'        ? 'replyEmail'
+                     : field === 'schedule_at'        ? 'scheduleAt'
+                     : field === 'campaign_name'       ? 'campaignName'
+                     : field;
+          showFieldError(mapped, d.errors[field]);
+        });
+      } else {
+        WTI.toast(d.message || 'Something went wrong.', 'error');
+      }
+      return;
+    }
+
+    if (d.campaign_status === 'failed') {
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      var reasons = (d.errors && d.errors.length) ? d.errors.join(' ') : 'Unknown error.';
+      WTI.toast('The campaign could not be sent: ' + reasons, 'error');
+      return;
+    }
+
+    if (noRedirect) {
+      if (d.campaign_id) {
+        if (!editingCampaign) editingCampaign = { id: d.campaign_id, status: 'draft' };
+        else editingCampaign.id = d.campaign_id;
+      }
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+      WTI.toast('Campaign saved!', 'success');
+    } else if (d.redirect_url) {
+      window.location.href = d.redirect_url;
+    }
+  })
+  .catch(function(e) {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+    WTI.handleFetchError(e);
+  });
+}
+
+document.getElementById('saveSection3Btn').addEventListener('click', function() { submitCampaign('draft', this, true); });
+document.getElementById('saveDraftBtn').addEventListener('click', function() { submitCampaign('draft', this); });
+document.getElementById('sendCampaignBtn').addEventListener('click', function() { submitCampaign('send', this); });
+
+
+/* ── Init ───────────────────────────────────────────────── */
+populateScheduleControls();
+initTzDropdown();
+renderMyTemplates();
+renderLibrary();
+
+if (editingCampaign) {
+  document.getElementById('campaignName').value = editingCampaign.campaign_name;
+  document.getElementById('senderName').value   = editingCampaign.sender_name;
+  document.getElementById('fromEmail').value    = editingCampaign.from_email;
+  document.getElementById('replyEmail').value   = editingCampaign.reply_email;
+
+  if (editingCampaign.campaign_segment_id) {
+    document.getElementById('rtSegment').checked = true;
+    document.getElementById('recipientListWrap').style.display    = 'none';
+    document.getElementById('recipientSegmentWrap').style.display = '';
+    var segSel = document.getElementById('campaignSegment');
+    if (segSel) segSel.value = String(editingCampaign.campaign_segment_id);
+  } else {
+    document.getElementById('campaignList').value = String(editingCampaign.campaign_list_id || '');
+  }
+
+  var campTz = editingCampaign.schedule_timezone || 'Asia/Kolkata';
+  document.getElementById('campaignTz').value = campTz;
+  document.getElementById('tzLabelText').textContent = campTz;
+
+  document.querySelector('input[name="sendOption"][value="' + (editingCampaign.send_option || 'now') + '"]').checked = true;
+  if (editingCampaign.schedule_at) {
+    restoreScheduleFromUTC(editingCampaign.schedule_at, campTz);
+  }
+  updateSendOptionUI();
+
+  if (editingCampaign.template) {
+    var existing = userTemplates.find(function(t) { return t.id === editingCampaign.template.id; });
+    selectTemplate(existing || editingCampaign.template);
+  }
+
+  if (['scheduled', 'sending', 'sent'].indexOf(editingCampaign.status) !== -1) {
+    lockTemplatePicker();
+  }
+}
+
+/* Restore form state stashed before navigating to the Template Builder page */
+var stashedState = sessionStorage.getItem('crcDraftState');
+if (stashedState) {
+  sessionStorage.removeItem('crcDraftState');
+  try {
+    var state = JSON.parse(stashedState);
+    document.getElementById('campaignName').value = state.campaignName || '';
+    document.getElementById('campaignList').value = state.campaignList || '';
+    document.getElementById('senderName').value   = state.senderName || '';
+    document.getElementById('fromEmail').value    = state.fromEmail || '';
+    document.getElementById('replyEmail').value   = state.replyEmail || '';
+    document.getElementById('emailSubject').value = state.emailSubject || '';
+    document.querySelector('input[name="sendOption"][value="' + (state.sendOption || 'now') + '"]').checked = true;
+    if (state.scheduleDate) {
+      document.getElementById('scheduleDate').value   = state.scheduleDate;
+      document.getElementById('scheduleHour').value   = state.scheduleHour   || '12';
+      document.getElementById('scheduleMinute').value = state.scheduleMinute || '00';
+      document.getElementById('scheduleAmPm').value   = state.scheduleAmPm   || 'AM';
+    }
+    if (state.campaignTz) {
+      document.getElementById('campaignTz').value    = state.campaignTz;
+      document.getElementById('tzLabelText').textContent = state.campaignTz;
+    }
+    updateSendOptionUI();
+    if (state.selectedTemplateId) {
+      var prevSelected = userTemplates.find(function(t) { return t.id === state.selectedTemplateId; });
+      if (prevSelected) selectTemplate(prevSelected);
+    }
+  } catch (e) { /* ignore malformed stash */ }
+}
+
+/* ── Section 4: Campaign Test Send ──────────────────────── */
+(function () {
+  var TEST_SEND_URL  = '{% url "send_test_email_create" %}';
+  var testCampaignId = {% if editing_campaign %}{{ editing_campaign.id }}{% else %}null{% endif %};
+  var testRows       = [];
+
+  function syncTestState() {
+    var hasTemplate = !!selectedTemplate;
+    document.getElementById('testStateNoTemplate').style.display = hasTemplate ? 'none' : 'block';
+    document.getElementById('testStateReady').style.display      = hasTemplate ? 'block' : 'none';
+  }
+
+  function makeRow() {
+    var row = document.createElement('div');
+    row.className = 'crc-test-row';
+    var inp = document.createElement('input');
+    inp.type = 'email'; inp.placeholder = 'recipient@example.com'; inp.maxLength = 255;
+    row.appendChild(inp);
+    var rm = document.createElement('button');
+    rm.type = 'button'; rm.className = 'crc-test-remove'; rm.title = 'Remove';
+    rm.innerHTML = '<i class="fas fa-times"></i>';
+    rm.addEventListener('click', function () {
+      if (testRows.length <= 1) return;
+      testRows.splice(testRows.indexOf(inp), 1);
+      row.remove(); syncRowControls();
+    });
+    row.appendChild(rm);
+    testRows.push(inp);
+    return row;
+  }
+
+  function syncRowControls() {
+    document.getElementById('testAddRecipient').disabled = testRows.length >= 5;
+    document.querySelectorAll('.crc-test-remove').forEach(function (b) {
+      b.style.visibility = testRows.length <= 1 ? 'hidden' : 'visible';
+    });
+  }
+
+  var container = document.getElementById('testRecipients');
+  container.appendChild(makeRow());
+  syncRowControls();
+
+  document.getElementById('testAddRecipient').addEventListener('click', function () {
+    if (testRows.length >= 5) return;
+    container.appendChild(makeRow());
+    syncRowControls();
+    testRows[testRows.length - 1].focus();
+  });
+
+  document.getElementById('testSendBtn').addEventListener('click', function () {
+    var resultEl = document.getElementById('testResult');
+    resultEl.style.display = 'none';
+    resultEl.className = 'crc-test-result';
+
+    var campaignName = document.getElementById('campaignName').value.trim();
+    var campaignList = document.getElementById('campaignList').value;
+    var templateId   = selectedTemplate ? selectedTemplate.id : '';
+    var senderName   = document.getElementById('senderName').value.trim();
+    var fromEmail    = document.getElementById('fromEmail').value.trim();
+    var replyEmail   = document.getElementById('replyEmail').value.trim();
+    var emailRe      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    /* Frontend validation — mirrors backend so users get instant feedback */
+    if (!campaignName) {
+      resultEl.textContent = 'Enter a Campaign Name (Section 1) before sending a test.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    /* Recipient list is not required for a test send */
+    if (!templateId) {
+      resultEl.textContent = 'Select a template (Section 2) before sending a test.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    if (!senderName) {
+      resultEl.textContent = 'Enter a Sender Name (Section 3) before sending a test.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    if (!fromEmail || !emailRe.test(fromEmail)) {
+      resultEl.textContent = 'Enter a valid From Email (Section 3) before sending a test.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    if (!replyEmail || !emailRe.test(replyEmail)) {
+      resultEl.textContent = 'Enter a valid Reply-To Email (Section 3) before sending a test.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    var emails = testRows.map(function (i) { return i.value.trim(); }).filter(Boolean);
+    if (!emails.length) {
+      resultEl.textContent = 'Enter at least 1 recipient email address.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    if (emails.length > 5) {
+      resultEl.textContent = 'Maximum 5 recipient addresses allowed.';
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+    var bad = emails.filter(function (e) { return !emailRe.test(e); });
+    if (bad.length) {
+      resultEl.textContent = 'Invalid address(es): ' + bad.join(', ');
+      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
+    }
+
+    var btn = this;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Sending…';
+
+    fetch(TEST_SEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+      body: new URLSearchParams({
+        campaign_id:      testCampaignId || '',
+        campaign_name:    campaignName,
+        campaign_list_id: campaignList,
+        template_id:      templateId,
+        sender_name:      senderName,
+        from_email:       fromEmail,
+        reply_email:      replyEmail,
+        test_emails:      JSON.stringify(emails),
+      }),
+    })
+    .then(function (r) {
+      var ct = r.headers.get('content-type') || '';
+      if (ct.indexOf('application/json') !== -1) return r.json();
+      /* Non-JSON response (server error page) — extract status code */
+      return r.text().then(function () {
+        return { status: 'error', message: 'Server error (' + r.status + '). Check server logs.' };
+      });
+    })
+    .then(function (d) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Test Email';
+
+      /* Always capture campaign_id if the server returns one */
+      if (d.campaign_id) {
+        testCampaignId = d.campaign_id;
+        /* Sync editingCampaign so Save Draft / Send Campaign update
+           the auto-saved draft rather than creating a duplicate. */
+        if (!editingCampaign) editingCampaign = { id: d.campaign_id };
+        else editingCampaign.id = d.campaign_id;
+      }
+
+      if (d.status === 'ok') {
+        resultEl.textContent = d.message || 'Test email sent successfully.';
+        resultEl.className = 'crc-test-result ok';
+        resultEl.style.display = 'block';
+      } else {
+        resultEl.textContent = d.message || 'Something went wrong.';
+        resultEl.className = 'crc-test-result error';
+        resultEl.style.display = 'block';
+      }
+    })
+    .catch(function () {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-paper-plane"></i> Send Test Email';
+      resultEl.textContent = 'Network error. Please try again.';
+      resultEl.className = 'crc-test-result error';
+      resultEl.style.display = 'block';
+    });
+  });
+
+  var _orig = selectTemplate;
+  selectTemplate = function (t) { _orig(t); syncTestState(); };
+  syncTestState();
+}());
+/* ── End Section 4 ─────────────────────────────────────── */
+
+/* Returning from the builder with a freshly saved template — select it,
+   then strip the param so a manual refresh doesn't reapply it. */
+var urlParams = new URLSearchParams(window.location.search);
+var newTemplateId = urlParams.get('selected_template_id');
+if (newTemplateId) {
+  var newTemplate = userTemplates.find(function(t) { return String(t.id) === newTemplateId; });
+  if (newTemplate) selectTemplate(newTemplate);
+  urlParams.delete('selected_template_id');
+  var cleanQuery = urlParams.toString();
+  window.history.replaceState({}, '', window.location.pathname + (cleanQuery ? '?' + cleanQuery : ''));
+}
+</script>
+
+{% endblock %}

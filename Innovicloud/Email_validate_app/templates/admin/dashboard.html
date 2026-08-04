@@ -1,0 +1,394 @@
+{% extends 'admin/base.html' %}
+{% block title %}Dashboard{% endblock %}
+{% block breadcrumb %}<span class="current">Dashboard</span>{% endblock %}
+
+{% block extra_css %}
+<style>
+.charts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+.charts-grid .admin-chart-wrap { height: 260px; }
+.charts-grid .admin-chart-wrap canvas { height: 200px !important; }
+.activity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; margin-bottom: 20px; }
+.activity-list { list-style: none; margin: 0; padding: 0; }
+.activity-list li { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.activity-list li:last-child { border-bottom: none; }
+.activity-avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--teal-lt); color: var(--teal); display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
+.activity-avatar.warn { background: #fff3ee; color: var(--warn); }
+.activity-avatar.red  { background: #fef2f2; color: #ef4444; }
+.activity-avatar.mint { background: var(--mint-lt); color: var(--mint); }
+.activity-info { flex: 1; min-width: 0; }
+.activity-name { font-size: 13px; font-weight: 600; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.activity-sub  { font-size: 11.5px; color: var(--ink-3); }
+.activity-time { font-size: 11px; color: var(--ink-3); white-space: nowrap; flex-shrink: 0; }
+.delivery-bar-wrap { margin-bottom: 10px; }
+.delivery-bar-label { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-2); margin-bottom: 4px; }
+.delivery-bar-track { height: 6px; background: var(--bg-3); border-radius: 3px; overflow: hidden; }
+.delivery-bar-fill  { height: 100%; border-radius: 3px; transition: width .6s ease; }
+@media (max-width: 900px) { .charts-grid { grid-template-columns: 1fr; } }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page header -->
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Dashboard</h1>
+    <p class="admin-page-subtitle">Platform overview — real-time statistics</p>
+  </div>
+</div>
+
+<!-- ── Stat Cards ────────────────────────────────────────────────────── -->
+<div class="stat-grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr));margin-bottom:20px;">
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Total Users</span>
+      <span class="stat-card-icon teal"><i class="fas fa-users"></i></span>
+    </div>
+    <div class="stat-card-value">{{ total_users }}</div>
+    <div class="stat-card-sub">{{ active_users }} active</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">New Today</span>
+      <span class="stat-card-icon mint"><i class="fas fa-user-plus"></i></span>
+    </div>
+    <div class="stat-card-value">{{ new_today }}</div>
+    <div class="stat-card-sub">
+      {% if new_today > new_yesterday %}<span class="up"><i class="fas fa-arrow-up"></i> vs {{ new_yesterday }} yesterday</span>
+      {% elif new_today < new_yesterday %}<span class="down"><i class="fas fa-arrow-down"></i> vs {{ new_yesterday }} yesterday</span>
+      {% else %}Same as yesterday{% endif %}
+    </div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Campaigns</span>
+      <span class="stat-card-icon blue"><i class="fas fa-paper-plane"></i></span>
+    </div>
+    <div class="stat-card-value">{{ total_campaigns }}</div>
+    <div class="stat-card-sub">{{ sending_campaigns }} active/scheduled</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Emails Sent</span>
+      <span class="stat-card-icon teal"><i class="fas fa-envelope"></i></span>
+    </div>
+    <div class="stat-card-value">{{ emails_sent|default:0 }}</div>
+    <div class="stat-card-sub">All campaigns combined</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Validation Jobs</span>
+      <span class="stat-card-icon purple"><i class="fas fa-check-double"></i></span>
+    </div>
+    <div class="stat-card-value">{{ val_total }}</div>
+    <div class="stat-card-sub">{{ val_pending }} running &middot; {{ val_failed }} failed</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Emails Validated</span>
+      <span class="stat-card-icon mint"><i class="fas fa-at"></i></span>
+    </div>
+    <div class="stat-card-value">{{ emails_validated|default:0 }}</div>
+    <div class="stat-card-sub">Total across all jobs</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Credits Used Today</span>
+      <span class="stat-card-icon warn"><i class="fas fa-coins"></i></span>
+    </div>
+    <div class="stat-card-value">{{ credits_today|default:0 }}</div>
+    <div class="stat-card-sub">Email validation credits</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Revenue</span>
+      <span class="stat-card-icon mint"><i class="fas fa-indian-rupee-sign"></i></span>
+    </div>
+    <div class="stat-card-value">&#8377;{{ total_revenue|default:0 }}</div>
+    <div class="stat-card-sub">All payments combined</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Active Subscriptions</span>
+      <span class="stat-card-icon blue"><i class="fas fa-repeat"></i></span>
+    </div>
+    <div class="stat-card-value">{{ active_subs }}</div>
+    <div class="stat-card-sub">Currently active plans</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Pending Jobs</span>
+      <span class="stat-card-icon warn"><i class="fas fa-clock"></i></span>
+    </div>
+    <div class="stat-card-value">{{ val_pending }}</div>
+    <div class="stat-card-sub">In queue / processing</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Failed Jobs</span>
+      <span class="stat-card-icon red"><i class="fas fa-circle-exclamation"></i></span>
+    </div>
+    <div class="stat-card-value">{{ val_failed }}</div>
+    <div class="stat-card-sub">Require attention</div>
+  </div>
+
+  <div class="stat-card">
+    <div class="stat-card-header">
+      <span class="stat-card-label">Admin Actions</span>
+      <span class="stat-card-icon grey"><i class="fas fa-clipboard-list"></i></span>
+    </div>
+    <div class="stat-card-value">{{ recent_audit|length }}</div>
+    <div class="stat-card-sub">Recent audit entries</div>
+  </div>
+
+</div>
+
+<!-- ── Charts Row 1 ──────────────────────────────────────────────────── -->
+<div class="charts-grid">
+  <div class="admin-chart-wrap">
+    <div class="admin-chart-title">User Registrations — Last 30 Days</div>
+    <canvas id="chartUsers"></canvas>
+  </div>
+  <div class="admin-chart-wrap">
+    <div class="admin-chart-title">Campaign Sends — Last 30 Days</div>
+    <canvas id="chartCampaigns"></canvas>
+  </div>
+</div>
+
+<!-- ── Charts Row 2 ──────────────────────────────────────────────────── -->
+<div class="charts-grid">
+  <div class="admin-chart-wrap">
+    <div class="admin-chart-title">Validation Jobs — Last 14 Days</div>
+    <canvas id="chartValidations"></canvas>
+  </div>
+  <div class="admin-chart-wrap">
+    <div class="admin-chart-title">Credits Used — Last 14 Days</div>
+    <canvas id="chartCredits"></canvas>
+  </div>
+</div>
+
+<!-- ── Delivery Breakdown ────────────────────────────────────────────── -->
+{% if delivery.sent > 0 %}
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title">Email Delivery Breakdown (All Time)</span>
+  </div>
+  <div style="padding:20px;display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;">
+    <div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Delivered</span><span>{{ delivery.delivered|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.delivered delivery.sent 100 %}%;background:var(--mint);"></div></div>
+      </div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Opened</span><span>{{ delivery.opened|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.opened delivery.sent 100 %}%;background:var(--teal);"></div></div>
+      </div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Clicked</span><span>{{ delivery.clicked|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.clicked delivery.sent 100 %}%;background:#7c3aed;"></div></div>
+      </div>
+    </div>
+    <div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Bounced</span><span>{{ delivery.bounced|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.bounced delivery.sent 100 %}%;background:var(--warn);"></div></div>
+      </div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Complaints</span><span>{{ delivery.complaints|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.complaints delivery.sent 100 %}%;background:#ef4444;"></div></div>
+      </div>
+      <div class="delivery-bar-wrap">
+        <div class="delivery-bar-label"><span>Unsubscribed</span><span>{{ delivery.unsubscribed|default:0 }}</span></div>
+        <div class="delivery-bar-track"><div class="delivery-bar-fill" style="width:{% widthratio delivery.unsubscribed delivery.sent 100 %}%;background:#64748b;"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- ── Recent Activity ───────────────────────────────────────────────── -->
+<div class="activity-grid">
+
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Recent Users</span>
+      <a href="{% url 'admin_users' %}" class="btn-admin btn-admin-outline btn-admin-sm">View all</a>
+    </div>
+    <div style="padding:0 16px;">
+      <ul class="activity-list">
+        {% for u in recent_users %}
+        <li>
+          <div class="activity-avatar">{{ u.user_email|first|upper }}</div>
+          <div class="activity-info">
+            <div class="activity-name">{{ u.user_email }}</div>
+            <div class="activity-sub">{{ u.company|default:"—" }} &middot; {% if u.is_active %}<span style="color:var(--mint);">Active</span>{% else %}<span style="color:#ef4444;">Inactive</span>{% endif %}</div>
+          </div>
+          <span class="activity-time">{{ u.created_date|date:"M j" }}</span>
+        </li>
+        {% empty %}
+        <li style="justify-content:center;color:var(--ink-3);font-size:13px;padding:16px 0;">No users yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Recent Payments</span>
+      <a href="{% url 'admin_payments' %}" class="btn-admin btn-admin-outline btn-admin-sm">View all</a>
+    </div>
+    <div style="padding:0 16px;">
+      <ul class="activity-list">
+        {% for p in recent_payments %}
+        <li>
+          <div class="activity-avatar mint"><i class="fas fa-indian-rupee-sign" style="font-size:11px;"></i></div>
+          <div class="activity-info">
+            <div class="activity-name">{{ p.payer_email|default:p.user.user_email }}</div>
+            <div class="activity-sub">&#8377;{{ p.amount|default:"—" }} &middot; {{ p.credits|default:"—" }} credits</div>
+          </div>
+          <span class="activity-time">{{ p.payment_time|date:"M j" }}</span>
+        </li>
+        {% empty %}
+        <li style="justify-content:center;color:var(--ink-3);font-size:13px;padding:16px 0;">No payments yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Recent Campaigns</span>
+      <a href="{% url 'admin_campaigns' %}" class="btn-admin btn-admin-outline btn-admin-sm">View all</a>
+    </div>
+    <div style="padding:0 16px;">
+      <ul class="activity-list">
+        {% for c in recent_campaigns %}
+        <li>
+          <div class="activity-avatar {% if c.status == 'failed' %}red{% elif c.status == 'sent' %}mint{% else %}teal{% endif %}">
+            <i class="fas fa-paper-plane" style="font-size:11px;"></i>
+          </div>
+          <div class="activity-info">
+            <div class="activity-name">{{ c.campaign_name }}</div>
+            <div class="activity-sub">
+              {{ c.user.user_email }} &middot;
+              <span class="badge badge-{% if c.status == 'sent' %}success{% elif c.status == 'failed' %}danger{% elif c.status == 'sending' %}info{% elif c.status == 'scheduled' %}warning{% else %}grey{% endif %}" style="font-size:10px;padding:1px 6px;">{{ c.status }}</span>
+            </div>
+          </div>
+          <span class="activity-time">{{ c.created_at|date:"M j" }}</span>
+        </li>
+        {% empty %}
+        <li style="justify-content:center;color:var(--ink-3);font-size:13px;padding:16px 0;">No campaigns yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Failed Validation Jobs</span>
+      <a href="{% url 'admin_validations' %}?status=Error" class="btn-admin btn-admin-outline btn-admin-sm">View all</a>
+    </div>
+    <div style="padding:0 16px;">
+      <ul class="activity-list">
+        {% for j in failed_jobs %}
+        <li>
+          <div class="activity-avatar red"><i class="fas fa-circle-xmark" style="font-size:11px;"></i></div>
+          <div class="activity-info">
+            <div class="activity-name">{{ j.file_name|default:"Unnamed job" }}</div>
+            <div class="activity-sub">{{ j.user.user_email|default:"—" }} &middot; {{ j.total_count|default:0 }} emails</div>
+          </div>
+          <span class="activity-time">{{ j.insert_date|date:"M j" }}</span>
+        </li>
+        {% empty %}
+        <li style="justify-content:center;color:var(--ink-3);font-size:13px;padding:16px 0;">No failed jobs.</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Audit Log ─────────────────────────────────────────────────────── -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title">Recent Admin Activity</span>
+    <a href="{% url 'admin_audit' %}" class="btn-admin btn-admin-outline btn-admin-sm">Full audit log</a>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Administrator</th>
+          <th>Action</th>
+          <th>Module</th>
+          <th>Target</th>
+          <th>Status</th>
+          <th>Time</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in recent_audit %}
+        <tr>
+          <td class="td-strong">{{ entry.admin.user_email|default:"—" }}</td>
+          <td><code style="font-size:12px;background:var(--bg-2);padding:2px 6px;border-radius:4px;">{{ entry.action }}</code></td>
+          <td>{{ entry.module }}</td>
+          <td class="td-mono">{{ entry.target_repr|default:"—"|truncatechars:40 }}</td>
+          <td>
+            <span class="badge badge-{% if entry.status == 'success' %}success{% else %}danger{% endif %}">
+              <span class="badge-dot"></span>{{ entry.status }}
+            </span>
+          </td>
+          <td>{{ entry.created_at|date:"M j, H:i" }}</td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6">
+            <div class="admin-empty" style="padding:24px;">No admin actions recorded yet.</div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  var userChart       = {{ user_chart|safe }};
+  var campaignChart   = {{ campaign_chart|safe }};
+  var validationChart = {{ validation_chart|safe }};
+  var creditsChart    = {{ credits_chart|safe }};
+
+  Admin.Chart.create('chartUsers', 'line',
+    userChart.labels,
+    [{ label: 'New Users', data: userChart.data }]
+  );
+  Admin.Chart.create('chartCampaigns', 'bar',
+    campaignChart.labels,
+    [{ label: 'Campaigns Sent', data: campaignChart.data }]
+  );
+  Admin.Chart.create('chartValidations', 'bar',
+    validationChart.labels,
+    [{ label: 'Validation Jobs', data: validationChart.data }]
+  );
+  Admin.Chart.create('chartCredits', 'line',
+    creditsChart.labels,
+    [{ label: 'Credits Used', data: creditsChart.data }]
+  );
+})();
+</script>
+{% endblock %}

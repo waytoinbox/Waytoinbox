@@ -1,0 +1,126 @@
+{% extends 'admin/base.html' %}
+{% block title %}Sender Domains{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Sender Domains / DMARC</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Sender Domains & DMARC</h1>
+    <p class="admin-page-subtitle">{{ domain_total }} domain{{ domain_total|pluralize }} · {{ email_total }} sender email{{ email_total|pluralize }}</p>
+  </div>
+</div>
+
+<!-- Status summary -->
+<div class="stat-grid" style="grid-template-columns:repeat(3,1fr);max-width:500px;margin-bottom:20px;">
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Verified</span><div class="stat-card-icon mint"><i class="fas fa-check-circle"></i></div></div>
+    <div class="stat-card-value">{{ domain_counts.verified|default:0 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Pending</span><div class="stat-card-icon warn"><i class="fas fa-clock"></i></div></div>
+    <div class="stat-card-value">{{ domain_counts.pending|default:0 }}</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-card-header"><span class="stat-card-label">Failed</span><div class="stat-card-icon red"><i class="fas fa-times-circle"></i></div></div>
+    <div class="stat-card-value">{{ domain_counts.failed|default:0 }}</div>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search domain or user…"/>
+      </div>
+      <select name="status" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not status_filter %}selected{% endif %}>All Status</option>
+        <option value="verified" {% if status_filter == 'verified' %}selected{% endif %}>Verified</option>
+        <option value="pending" {% if status_filter == 'pending' %}selected{% endif %}>Pending</option>
+        <option value="failed" {% if status_filter == 'failed' %}selected{% endif %}>Failed</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q or status_filter %}<a href="{% url 'admin_dmarc' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<!-- Sender Domains -->
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-globe" style="color:var(--teal);margin-right:6px;"></i>Sender Domains</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ domain_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Owner</th>
+          <th>Status</th>
+          <th>DKIM</th>
+          <th>Verified At</th>
+          <th>Added</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for domain in domain_page %}
+        <tr>
+          <td class="td-strong">{{ domain.domain }}</td>
+          <td style="font-size:12.5px;">
+            {% if domain.user %}<a href="{% url 'admin_user_detail' domain.user.pk %}" style="color:var(--teal);">{{ domain.user.user_email }}</a>{% else %}—{% endif %}
+          </td>
+          <td>
+            {% if domain.status == 'verified' %}<span class="badge badge-success"><span class="badge-dot"></span>Verified</span>
+            {% elif domain.status == 'pending' %}<span class="badge badge-warning"><span class="badge-dot"></span>Pending</span>
+            {% elif domain.status == 'failed' %}<span class="badge badge-danger"><span class="badge-dot"></span>Failed</span>
+            {% else %}<span class="badge badge-grey">{{ domain.status }}</span>{% endif %}
+          </td>
+          <td>
+            {% if domain.dkim_status == 'SUCCESS' %}<span class="badge badge-success">DKIM OK</span>
+            {% elif domain.dkim_status == 'PENDING' %}<span class="badge badge-warning">Pending</span>
+            {% elif domain.dkim_status == 'FAILED' %}<span class="badge badge-danger">Failed</span>
+            {% elif domain.dkim_status == 'NOT_STARTED' %}<span class="badge badge-grey">Not Started</span>
+            {% else %}<span class="badge badge-grey">{{ domain.dkim_status }}</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ domain.verified_at|date:"M j, Y"|default:"—" }}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ domain.added_at|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6"><div class="admin-empty"><i class="fas fa-globe"></i><div class="admin-empty-title">No sender domains</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Sender Emails -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-envelope" style="color:var(--teal);margin-right:6px;"></i>Sender Emails</span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ email_total }} total</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead><tr><th>Email</th><th>Owner</th><th>Confirmed</th><th>Added</th></tr></thead>
+      <tbody>
+        {% for sender in email_page %}
+        <tr>
+          <td class="td-strong">{{ sender.email }}</td>
+          <td style="font-size:12.5px;">{% if sender.user %}<a href="{% url 'admin_user_detail' sender.user.pk %}" style="color:var(--teal);">{{ sender.user.user_email }}</a>{% else %}—{% endif %}</td>
+          <td>{% if sender.confirmed %}<span class="badge badge-success"><span class="badge-dot"></span>Confirmed</span>{% else %}<span class="badge badge-warning">Pending</span>{% endif %}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ sender.created_at|date:"M j, Y" }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="4"><div class="admin-empty"><i class="fas fa-envelope"></i><div class="admin-empty-title">No sender emails</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,208 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Sign Up - Waytoinbox</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <link rel="icon" href="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" type="image/png"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/components.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+
+<div class="signup-card">
+
+  <!-- LEFT -->
+  <div class="signup-left">
+    <div class="signup-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" alt="Waytoinbox" style="width:36px;height:36px;object-fit:contain;"/>
+      <span class="signup-logo-name">Wayto<span>inbox</span></span>
+    </div>
+
+    <div class="signup-hero">
+      <h2>Start verifying emails for free</h2>
+      <p>Join thousands of marketers and developers who trust Waytoinbox to keep their lists clean and their inboxes happy.</p>
+      <a href="{% url 'login' %}" class="signup-login-link">
+        Already have an account? Sign in &rarr;
+      </a>
+    </div>
+
+    <div class="signup-perks">
+      <div class="signup-perk"><div class="signup-perk-dot">&#10003;</div>100 free email verifications on signup</div>
+      <div class="signup-perk"><div class="signup-perk-dot">&#10003;</div>No credit card required</div>
+      <div class="signup-perk"><div class="signup-perk-dot">&#10003;</div>DMARC, SPF &amp; DKIM checker included</div>
+      <div class="signup-perk"><div class="signup-perk-dot">&#10003;</div>IP &amp; domain blocklist monitoring</div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="signup-right">
+    <div class="signup-right-head">
+      <h1>Create your account</h1>
+      <p>Fill in your details to get started - it's free.</p>
+    </div>
+
+    <div id="signupAlert"></div>
+
+    <form id="signupForm" novalidate>
+      {% csrf_token %}
+
+      <!-- Username -->
+      <div class="signup-field">
+        <label class="signup-label" for="username">Username</label>
+        <input class="signup-input" type="text" name="user_name" id="username" placeholder="johndoe" autocomplete="off" required/>
+        <div class="signup-error" id="username-error"></div>
+      </div>
+
+      <!-- Email -->
+      <div class="signup-field">
+        <label class="signup-label" for="email">Email address</label>
+        <input class="signup-input" type="email" name="user_email" id="email" placeholder="you@company.com" autocomplete="off" required/>
+        <div class="signup-error" id="email-error"></div>
+      </div>
+
+      <!-- Password -->
+      <div class="signup-field">
+        <label class="signup-label" for="password">Password</label>
+        <div class="signup-input-wrap">
+          <input class="signup-input" type="password" name="password" id="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="off" required style="padding-right:42px"/>
+          <i class="fa-solid fa-eye-slash signup-toggle-pw" id="togglePassword"></i>
+        </div>
+        <div class="signup-error" id="password-error"></div>
+      </div>
+
+      <!-- Confirm Password -->
+      <div class="signup-field">
+        <label class="signup-label" for="confirm-password">Confirm password</label>
+        <div class="signup-input-wrap">
+          <input class="signup-input" type="password" name="confirm_password" id="confirm-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="off" required style="padding-right:42px"/>
+          <i class="fa-solid fa-eye-slash signup-toggle-pw" id="toggleConfirm"></i>
+        </div>
+        <div class="signup-error" id="confirm-password-error"></div>
+      </div>
+
+      <button type="submit" class="signup-btn" id="signupBtn">
+        <i class="fas fa-user-plus"></i> Create account
+      </button>
+    </form>
+
+    <a href="{% url 'home' %}" class="signup-home-link">
+      <i class="fas fa-arrow-left"></i> Back to home
+    </a>
+  </div>
+
+</div>
+
+<script>
+/* Password toggles */
+document.getElementById('togglePassword').addEventListener('click', function () {
+  var pw = document.getElementById('password');
+  var isHidden = pw.type === 'password';
+  pw.type = isHidden ? 'text' : 'password';
+  this.classList.toggle('fa-eye-slash', !isHidden);
+  this.classList.toggle('fa-eye', isHidden);
+});
+
+document.getElementById('toggleConfirm').addEventListener('click', function () {
+  var pw = document.getElementById('confirm-password');
+  var isHidden = pw.type === 'password';
+  pw.type = isHidden ? 'text' : 'password';
+  this.classList.toggle('fa-eye-slash', !isHidden);
+  this.classList.toggle('fa-eye', isHidden);
+});
+
+/* Inline validation helpers */
+function showError(id, msg) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = msg;
+  el.style.display = msg ? 'block' : 'none';
+}
+
+function validateUsername() {
+  var val = document.getElementById('username').value.trim();
+  var ok = val.length >= 3;
+  showError('username-error', ok ? '' : 'Username must be at least 3 characters.');
+  document.getElementById('username').classList.toggle('error', !ok);
+  return ok;
+}
+
+function validateEmail() {
+  var val = document.getElementById('email').value.trim();
+  var ok = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val);
+  showError('email-error', ok ? '' : 'Please enter a valid email address.');
+  document.getElementById('email').classList.toggle('error', !ok);
+  return ok;
+}
+
+function validatePassword() {
+  var val = document.getElementById('password').value;
+  var ok = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/.test(val);
+  showError('password-error', ok ? '' : 'Min 8 chars: uppercase, lowercase, number and special character.');
+  document.getElementById('password').classList.toggle('error', !ok);
+  return ok;
+}
+
+function validateConfirm() {
+  var pw  = document.getElementById('password').value;
+  var cpw = document.getElementById('confirm-password').value;
+  var ok  = cpw.length > 0 && pw === cpw;
+  showError('confirm-password-error', ok ? '' : 'Passwords do not match.');
+  document.getElementById('confirm-password').classList.toggle('error', !ok);
+  return ok;
+}
+
+document.getElementById('username').addEventListener('blur', validateUsername);
+document.getElementById('email').addEventListener('blur', validateEmail);
+document.getElementById('password').addEventListener('blur', validatePassword);
+document.getElementById('confirm-password').addEventListener('blur', validateConfirm);
+document.getElementById('password').addEventListener('input', function () {
+  if (document.getElementById('confirm-password').value) validateConfirm();
+});
+
+/* Form submit */
+document.getElementById('signupForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var u = validateUsername();
+  var em = validateEmail();
+  var pw = validatePassword();
+  var cf = validateConfirm();
+  if (!u || !em || !pw || !cf) return;
+
+  var alertEl = document.getElementById('signupAlert');
+  var btn     = document.getElementById('signupBtn');
+  alertEl.innerHTML = '';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="signup-btn-spinner"></span> Creating account...';
+
+  try {
+    var res  = await fetch("{% url 'signup' %}", { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+    var cls  = data.status === 'ok' ? 'success' : data.status === 'info' ? 'info' : 'error';
+    alertEl.innerHTML = '<div class="signup-alert signup-alert--' + cls + '">' + data.message + '</div>';
+    if (data.status === 'ok') this.reset();
+  } catch (err) {
+    alertEl.innerHTML = '<div class="signup-alert signup-alert--error">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-user-plus"></i> Create account';
+  }
+});
+</script>
+
+</body>
+</html>

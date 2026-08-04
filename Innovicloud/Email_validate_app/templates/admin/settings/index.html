@@ -1,0 +1,115 @@
+{% extends 'admin/base.html' %}
+{% block title %}Settings{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Settings</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Application Settings</h1>
+    <p class="admin-page-subtitle">{{ total }} setting{{ total|pluralize }} across {{ groups|length }} group{{ groups|length|pluralize }}</p>
+  </div>
+</div>
+
+{% if not groups %}
+<div class="admin-card">
+  <div class="admin-empty">
+    <i class="fas fa-cog"></i>
+    <div class="admin-empty-title">No settings configured</div>
+    <div class="admin-empty-sub">Add AppSetting records via the Django shell or seed command.</div>
+  </div>
+</div>
+{% endif %}
+
+{% for group in groups %}
+<div class="admin-card" style="margin-bottom:20px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title">
+      <i class="fas fa-folder-open" style="color:var(--teal);margin-right:6px;"></i>
+      {{ group.label }} Settings
+    </span>
+    <span style="font-size:12px;color:var(--ink-3);">{{ group.settings|length }} key{{ group.settings|length|pluralize }}</span>
+  </div>
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th style="width:220px;">Key</th>
+          <th>Label</th>
+          <th>Value</th>
+          <th>Type</th>
+          <th>Updated</th>
+          <th style="width:80px;">Save</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in group.settings %}
+        <tr id="setting-row-{{ s.pk }}">
+          <td class="td-mono" style="font-size:12px;">{{ s.key }}</td>
+          <td>
+            <div style="font-weight:500;font-size:13px;">{{ s.label }}</div>
+            {% if s.description %}<div style="font-size:11px;color:var(--ink-3);">{{ s.description }}</div>{% endif %}
+          </td>
+          <td>
+            {% if s.setting_type == 'boolean' %}
+            <select class="admin-filter-select" id="val-{{ s.pk }}" style="font-size:13px;padding:6px 8px;" data-key="{{ s.key }}">
+              <option value="true" {% if s.value == 'true' %}selected{% endif %}>True</option>
+              <option value="false" {% if s.value == 'false' %}selected{% endif %}>False</option>
+            </select>
+            {% elif s.setting_type == 'json' %}
+            <textarea class="admin-input" id="val-{{ s.pk }}" data-key="{{ s.key }}"
+                      rows="2" style="font-size:12px;font-family:monospace;min-width:200px;">{{ s.value }}</textarea>
+            {% else %}
+            <input type="{% if s.setting_type == 'number' %}number{% else %}text{% endif %}"
+                   class="admin-input" id="val-{{ s.pk }}" data-key="{{ s.key }}"
+                   value="{{ s.value }}" style="min-width:160px;">
+            {% endif %}
+          </td>
+          <td><span class="badge badge-grey">{{ s.setting_type }}</span></td>
+          <td style="font-size:11px;color:var(--ink-3);">
+            {{ s.updated_at|date:"M j, Y" }}<br>
+            {% if s.updated_by %}{{ s.updated_by.user_email }}{% endif %}
+          </td>
+          <td>
+            <button class="btn-admin btn-admin-sm btn-admin-primary"
+                    onclick="saveSetting('{{ s.pk }}', '{{ s.key }}')" title="Save">
+              <i class="fas fa-save"></i>
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+
+<script>
+function saveSetting(pk, key) {
+  const el = document.getElementById(`val-${pk}`);
+  const value = el.value;
+  const data = new FormData();
+  data.append('key', key);
+  data.append('value', value);
+
+  WTI.apiFetch('{% url "admin_settings_update" %}', {method:'POST', body: data})
+    .then(r => r.json())
+    .then(res => {
+      if (res.status === 'ok') {
+        WTI.toast(res.message || 'Saved.', 'success');
+        const row = document.getElementById(`setting-row-${pk}`);
+        if (row) {
+          const dateCells = row.querySelectorAll('td:nth-child(5)');
+          if (dateCells.length) dateCells[0].innerHTML = 'Just now';
+        }
+      } else {
+        WTI.toast(res.message || 'Error saving setting.', 'error');
+      }
+    })
+    .catch(() => WTI.toast('Network error.', 'error'));
+}
+</script>
+{% endblock %}

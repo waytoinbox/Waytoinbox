@@ -1,0 +1,130 @@
+﻿<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Waytoinbox Invoice</title>
+
+<style>
+body{
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    color: #0B1E3D;
+    margin: 0;
+    padding: 0;
+}
+</style>
+
+</head>
+<body>
+
+<!-- Header -->
+<table cellpadding="15" cellspacing="0" style="width: 100%; background-color: #0B1E3D; margin-bottom: 15px;">
+<tr>
+<td style="width: 50%; color: #ffffff;">
+<div style="font-size: 20px; font-weight: bold;">Wayto<span style="color: #0099CC;">inbox</span></div>
+</td>
+<td style="width: 50%; text-align: right; color: #ffffff;">
+<div style="font-size: 18px; font-weight: bold;">INVOICE</div>
+<div style="font-size: 11px;">#{{ payment.order_id }}</div>
+</td>
+</tr>
+</table>
+
+<!-- Content -->
+<div class="content">
+
+<!-- Bill Section -->
+<table cellpadding="0" cellspacing="0" style="width: 100%; margin-bottom: 15px;">
+<tr>
+<td style="width: 48%; border: 1px solid #D8E4EF; background-color: #F5F8FC; padding: 10px; vertical-align: top;">
+<div style="font-size: 9px; color: #7B93AD; font-weight: bold; margin-bottom: 5px;">ISSUED BY</div>
+<div style="font-size: 12px; font-weight: bold;">Waytoinbox</div>
+<div>Waytoinbox.com</div>
+<div>support@Waytoinbox.com</div>
+</td>
+<td style="width: 4%;">
+</td>
+<td style="width: 48%; border: 1px solid #D8E4EF; background-color: #F5F8FC; padding: 10px; vertical-align: top;">
+<div style="font-size: 9px; color: #7B93AD; font-weight: bold; margin-bottom: 5px;">BILL TO</div>
+<div style="font-size: 12px; font-weight: bold;">{{ payment.payer_name }}</div>
+<div>{{ payment.payer_email }}</div>
+<div>{{ payment.payer_address }}</div>
+</td>
+</tr>
+</table>
+
+<!-- Meta -->
+<table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+<tr>
+<td style="width: 33%; border: 1px solid #D8E4EF; background-color: #F5F8FC; text-align: center; padding: 8px;">
+<div style="font-size: 9px; color: #7B93AD; font-weight: bold;">DATE</div>
+<div style="font-size: 11px; font-weight: bold; margin-top: 4px;">{{ payment.payment_time }}</div>
+</td>
+<td style="width: 33%; border: 1px solid #D8E4EF; background-color: #F5F8FC; text-align: center; padding: 8px;">
+<div style="font-size: 9px; color: #7B93AD; font-weight: bold;">METHOD</div>
+<div style="font-size: 11px; font-weight: bold; margin-top: 4px;">Razorpay</div>
+</td>
+<td style="width: 34%; border: 1px solid #D8E4EF; background-color: #F5F8FC; text-align: center; padding: 8px;">
+<div style="font-size: 9px; color: #7B93AD; font-weight: bold;">STATUS</div>
+<div style="font-size: 11px; font-weight: bold; margin-top: 4px;">Paid</div>
+</td>
+</tr>
+</table>
+
+<!-- Items -->
+<table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-bottom: 15px;">
+<tr>
+<th style="width: 60%; background-color: #0B1E3D; color: #ffffff; border: 1px solid #0B1E3D; padding: 7px; font-size: 10px; text-align: left;">Description</th>
+<th style="width: 13%; background-color: #0B1E3D; color: #ffffff; border: 1px solid #0B1E3D; padding: 7px; font-size: 10px; text-align: right;">Qty</th>
+<th style="width: 13%; background-color: #0B1E3D; color: #ffffff; border: 1px solid #0B1E3D; padding: 7px; font-size: 10px; text-align: right;">{% if invoice_type == 'subscription' %}Plan{% else %}Unit Price{% endif %}</th>
+<th style="width: 14%; background-color: #0B1E3D; color: #ffffff; border: 1px solid #0B1E3D; padding: 7px; font-size: 10px; text-align: right;">Total</th>
+</tr>
+<tr>
+<td style="border: 1px solid #D8E4EF; padding: 7px;">{{ payment.description }}</td>
+<td style="border: 1px solid #D8E4EF; padding: 7px; text-align: right;">{{ payment.credits }}</td>
+<td style="border: 1px solid #D8E4EF; padding: 7px; text-align: right;">{% if invoice_type == 'subscription' %}{{ payment.unit_price }}{% else %}${{ payment.unit_price }}{% endif %}</td>
+<td style="border: 1px solid #D8E4EF; padding: 7px; text-align: right;">${{ payment.amount }}</td>
+</tr>
+</table>
+
+<!-- Total -->
+<table cellpadding="0" cellspacing="0" style="width: 40%; margin-left: 60%; border-collapse: collapse; margin-bottom: 15px;">
+<tr>
+<td style="background-color: #F5F8FC; border: 1px solid #D8E4EF; padding: 7px;">Subtotal</td>
+<td style="background-color: #F5F8FC; border: 1px solid #D8E4EF; padding: 7px; text-align: right;">${{ payment.amount }}</td>
+</tr>
+<tr>
+<td style="background-color: #F5F8FC; border: 1px solid #D8E4EF; padding: 7px;">Tax</td>
+<td style="background-color: #F5F8FC; border: 1px solid #D8E4EF; padding: 7px; text-align: right;">$0.00</td>
+</tr>
+<tr>
+<td style="background-color: #E6F6FB; border: 1px solid #D8E4EF; padding: 7px; font-weight: bold;">Total</td>
+<td style="background-color: #E6F6FB; border: 1px solid #D8E4EF; padding: 7px; text-align: right; font-weight: bold;">${{ payment.amount }}</td>
+</tr>
+</table>
+
+<!-- Paid -->
+<div style="color: #007A5E; font-weight: bold; margin-bottom: 15px;">
+✓ Payment Received
+</div>
+
+<!-- Notes -->
+<div style="border: 1px solid #D8E4EF; background-color: #F5F8FC; padding: 10px; font-size: 10px; line-height: 16px; margin-bottom: 15px;">
+<strong>Thank you for your business.</strong><br>
+If you have any questions, please contact support@Waytoinbox.com
+</div>
+
+</div>
+
+<!-- Footer -->
+<div style="border-top: 1px solid #D8E4EF; background-color: #F5F8FC; padding: 10px 15px; font-size: 10px; color: #7B93AD; margin-top: 20px;">
+<table cellpadding="0" cellspacing="0" style="width: 100%;">
+<tr>
+<td style="width: 50%;">© 2026 Waytoinbox. All Rights Reserved.</td>
+<td style="width: 50%; text-align: right;">Waytoinbox.com</td>
+</tr>
+</table>
+</div>
+
+</body>
+</html>

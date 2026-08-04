@@ -1,0 +1,21 @@
+/* ══════════════════════════════════════════════════════
+   email_campaigns.css — Email Campaigns coming-soon page
+   ══════════════════════════════════════════════════════ */
+
+.ec-page { display: flex; flex-direction: column; gap: 24px; }
+
+.ec-coming-soon {
+  background: #fff;
+  border: 1.5px solid var(--border);
+  border-radius: 12px;
+  padding: 80px 24px;
+  text-align: center;
+}
+.ec-coming-soon i  { font-size: 56px; color: var(--teal); margin-bottom: 20px; display: block; }
+.ec-coming-soon h2 { font-family: var(--font-head); font-size: 24px; font-weight: 700; color: var(--ink); margin: 0 0 10px; }
+.ec-coming-soon p  { font-size: 15px; color: var(--ink-3); margin: 0; }
+
+/* ══════════════════════════════════════════════════════
+   DARK MODE
+   ══════════════════════════════════════════════════════ */
+[data-theme="dark"] .ec-coming-soon { background: var(--bg-2); }

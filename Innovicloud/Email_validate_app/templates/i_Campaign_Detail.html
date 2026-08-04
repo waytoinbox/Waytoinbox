@@ -1,0 +1,388 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaign_detail.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+<style>
+.cp-pag{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;}
+.cp-pag-info{color:var(--ink-3);}
+.cp-pag-btns{display:flex;align-items:center;gap:10px;}
+.cp-pag-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink-2);font-size:13px;cursor:pointer;transition:background .15s;}
+.cp-pag-btn:hover:not(.disabled){background:var(--bg-2);color:var(--ink);}
+.cp-pag-btn.disabled{opacity:.45;cursor:default;pointer-events:none;}
+.cp-pag-cur{font-size:13px;color:var(--ink-3);min-width:48px;text-align:center;}
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="cd-page">
+
+  <!-- Breadcrumb -->
+  <div class="cd-breadcrumb">
+    <a href="{% url 'campaigns' %}"><i class="fas fa-arrow-left"></i> Campaigns</a>
+    <span class="sep">/</span>
+    <span class="cur">{{ campaign.campaign_name }}</span>
+  </div>
+
+  <!-- ── Summary Stats ──────────────────────────────────── -->
+  {% with total=campaign.total_recipients sent=stats.total_sent|default:0 delivered=stats.total_delivered|default:0 opened=stats.total_opened|default:0 clicked=stats.total_clicked|default:0 bounced=stats.total_bounced|default:0 unsubscribed=stats.total_unsubscribed|default:0 %}
+  <div class="cd-summary-grid">
+    <div class="cd-stat recipients">
+      <div class="cd-stat-label">Recipients</div>
+      <div class="cd-stat-value">{{ total|default:"0" }}</div>
+      <div class="cd-stat-pct">100%</div>
+      <div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:100%"></div></div>
+    </div>
+    <div class="cd-stat stat-sent">
+      <div class="cd-stat-label">Sent</div>
+      <div class="cd-stat-value">{{ sent }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.sent is not None %}{{ stat_pct.sent }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio sent total 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="cd-stat delivered">
+      <div class="cd-stat-label">Delivered</div>
+      <div class="cd-stat-value">{{ delivered }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.delivered is not None %}{{ stat_pct.delivered }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio delivered total 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="cd-stat opened">
+      <div class="cd-stat-label">Opened</div>
+      <div class="cd-stat-value">{{ opened }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.opened is not None %}{{ stat_pct.opened }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio opened total 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="cd-stat clicked">
+      <div class="cd-stat-label">Clicked</div>
+      <div class="cd-stat-value">{{ clicked }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.clicked is not None %}{{ stat_pct.clicked }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio clicked total 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="cd-stat bounced">
+      <div class="cd-stat-label">Bounced</div>
+      <div class="cd-stat-value">{{ bounced }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.bounced is not None %}{{ stat_pct.bounced }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio bounced total 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="cd-stat unsubscribed">
+      <div class="cd-stat-label">Unsubscribed</div>
+      <div class="cd-stat-value">{{ unsubscribed }}</div>
+      <div class="cd-stat-pct">{% if stat_pct.unsubscribed is not None %}{{ stat_pct.unsubscribed }}%{% else %}—{% endif %}</div>
+      {% if total %}<div class="cd-stat-bar"><div class="cd-stat-bar-fill" style="width:{% widthratio unsubscribed total 100 %}%"></div></div>{% endif %}
+    </div>
+  </div>
+  {% endwith %}
+
+  <!-- ── Recipient Events Table ─────────────────────────── -->
+  <div class="cd-card">
+
+    <div class="cd-rec-bar">
+      <span class="cd-rec-title"><i class="fas fa-envelope"></i> Recipient Events</span>
+      <span class="cd-rec-count">{{ recipient_rows|length }} Recipient{{ recipient_rows|length|pluralize }}</span>
+    </div>
+
+    {% include "includes/filter_bar.html" with pf_show_status=pf_show_status pf_statuses=pf_statuses pf_search_placeholder="Search email…" pf_show_date=False %}
+
+    {% if recipient_rows %}
+    <div class="cd-table-wrap">
+      <table class="cd-table">
+        <thead>
+          <tr>
+            <th class="cd-th-num">#</th>
+            <th class="cd-th-email">Email</th>
+            <th class="cd-th-journey">
+              <div class="ev-track-legend">
+                <span>Send</span>
+                <span>Delivery</span>
+                <span>Open</span>
+                <span>Click</span>
+                <span>Bounce</span>
+                <span>Complaint</span>
+                <span>Unsubscribe</span>
+              </div>
+            </th>
+            <th class="cd-th-last">Last Event</th>
+          </tr>
+        </thead>
+        <tbody id="recipientBody">
+          {% for row in recipient_rows %}
+          <tr data-search="{{ row.email }}" data-status="{{ row.last_event|default:'' }}">
+            <td class="cd-td-num">{{ forloop.counter }}</td>
+            <td class="cd-td-email" title="{{ row.email }}">{{ row.email }}</td>
+            <td class="cd-td-journey">
+              <div class="ev-track">
+                <div class="ev-track-rail"></div>
+                <span class="ev-track-node {% if row.send %}ev-send{% else %}ev-inactive{% endif %}" title="Send"></span>
+                <span class="ev-track-node {% if row.delivery %}ev-delivery{% else %}ev-inactive{% endif %}" title="Delivery"></span>
+                <span class="ev-track-node {% if row.open %}ev-open{% else %}ev-inactive{% endif %}" title="Open"></span>
+                <span class="ev-track-node {% if row.click %}ev-click{% else %}ev-inactive{% endif %}" title="Click"></span>
+                <span class="ev-track-node {% if row.bounce %}ev-bounce{% else %}ev-inactive{% endif %}" title="Bounce"></span>
+                <span class="ev-track-node {% if row.complaint %}ev-complaint{% else %}ev-inactive{% endif %}" title="Complaint"></span>
+                <span class="ev-track-node {% if row.unsubscribe %}ev-unsub{% else %}ev-inactive{% endif %}" title="Unsubscribe"></span>
+              </div>
+            </td>
+            <td class="cd-td-last">
+              {% if row.last_event %}
+              <span class="ev-badge {{ row.last_event }}">
+                {% if row.last_event == 'send' %}Send
+                {% elif row.last_event == 'delivery' %}Delivered
+                {% elif row.last_event == 'open' %}Opened
+                {% elif row.last_event == 'click' %}Clicked
+                {% elif row.last_event == 'bounce' %}Bounced
+                {% elif row.last_event == 'complaint' %}Complaint
+                {% elif row.last_event == 'reject' %}Rejected
+                {% elif row.last_event == 'unsubscribe' %}Unsubscribed
+                {% endif %}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="cp-pag" id="recipientPagBar">
+      <span class="cp-pag-info" id="recipientPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="recipientPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="recipientPagNum"></span>
+        <button class="cp-pag-btn" id="recipientNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% else %}
+    <div class="cd-empty">
+      <i class="fas fa-inbox"></i>
+      <p>No tracking events yet. Events appear after the campaign is sent and CloudWatch syncs.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Bottom Row: Details + Template Preview ─────────── -->
+  <div class="cd-bottom-row">
+
+    <!-- Campaign Details -->
+    <div class="cd-card" style="flex:1;min-width:0;">
+      <div class="cd-card-head"><i class="fas fa-info-circle"></i> Campaign Details</div>
+      <dl class="cd-details-grid">
+        <dt>Campaign Name</dt>
+        <dd>{{ campaign.campaign_name }}</dd>
+
+        <dt>Status</dt>
+        <dd>
+          <span class="cd-status {{ campaign.status }}">{{ campaign.get_status_display }}</span>
+          {% if campaign.status == 'sent' and campaign.sent_at %}
+            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· <span class="ltime" data-utc="{{ campaign.sent_at|date:'c' }}">{{ campaign.sent_at|date:"M d, Y · H:i" }}</span></span>
+          {% elif campaign.status == 'scheduled' and campaign.schedule_at %}
+            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· <span class="ltime" data-utc="{{ campaign.schedule_at|date:'c' }}">{{ campaign.schedule_at|date:"M d, Y · H:i" }}</span></span>
+          {% endif %}
+        </dd>
+
+        {% if campaign.template %}
+        <dt>Template</dt>
+        <dd>{{ campaign.template.name }}</dd>
+        <dt>Subject</dt>
+        <dd>{{ campaign.template.subject|default:"—" }}</dd>
+        {% endif %}
+
+        <dt>Sender Name</dt>
+        <dd>{{ campaign.sender_name }}</dd>
+        <dt>From Email</dt>
+        <dd>{{ campaign.from_email }}</dd>
+        <dt>Reply-To</dt>
+        <dd>{{ campaign.reply_email }}</dd>
+        <dt>List</dt>
+        <dd>{{ campaign.campaign_list.list_name }}</dd>
+        <dt>Recipients</dt>
+        <dd>{{ campaign.total_recipients|default:"0" }}</dd>
+        <dt>Created</dt>
+        <dd><span class="ltime" data-utc="{{ campaign.created_at|date:'c' }}">{{ campaign.created_at|date:"M d, Y · H:i" }}</span></dd>
+      </dl>
+    </div>
+
+    <!-- Template Preview -->
+    <div class="cd-card" style="flex:1;min-width:0;">
+      <div class="cd-card-head">
+        <i class="fas fa-envelope-open-text"></i>
+        {% if campaign.template %}{{ campaign.template.name }}{% else %}Template Used{% endif %}
+      </div>
+      {% if campaign.template %}
+        <div class="cd-tpl-preview-wrap" id="tpl-preview-wrap">
+          <iframe id="tpl-preview-frame" sandbox="allow-same-origin" scrolling="no" class="cd-tpl-preview-frame"></iframe>
+        </div>
+        {{ campaign.template.html_content|json_script:"tpl-html-content" }}
+        <script>
+        (function () {
+          var dataEl = document.getElementById('tpl-html-content');
+          var frame  = document.getElementById('tpl-preview-frame');
+          var wrap   = document.getElementById('tpl-preview-wrap');
+          if (!dataEl || !frame || !wrap) return;
+
+          var html = JSON.parse(dataEl.textContent);
+          frame.srcdoc = html;
+
+          var RENDER_W = 600;
+
+          function scaleFrame() {
+            var wrapW = wrap.clientWidth;
+            var scale = wrapW / RENDER_W;
+            frame.style.width = RENDER_W + 'px';
+            frame.style.transform = 'scale(' + scale + ')';
+            frame.style.transformOrigin = 'top left';
+            var renderH = Math.round(frame.scrollHeight || 500);
+            frame.style.height = renderH + 'px';
+            wrap.style.height = Math.round(renderH * scale) + 'px';
+          }
+
+          frame.addEventListener('load', function () {
+            try {
+              var body = frame.contentDocument.body;
+              var h = body ? body.scrollHeight : 500;
+              frame.style.height = h + 'px';
+              var scale = wrap.clientWidth / RENDER_W;
+              wrap.style.height = Math.round(h * scale) + 'px';
+            } catch(e) {}
+          });
+
+          scaleFrame();
+          window.addEventListener('resize', scaleFrame);
+          if (window.ResizeObserver) {
+            new ResizeObserver(scaleFrame).observe(wrap);
+          }
+        })();
+        </script>
+      {% else %}
+        <div class="cd-empty" style="padding:40px 24px;">
+          <i class="fas fa-file-alt" style="font-size:32px;"></i>
+          <p style="margin-top:10px;">No template attached to this campaign.</p>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+</div>
+
+{% if campaign.status == 'sending' %}
+<script>
+(function () {
+  var _cdCampaignId = {{ campaign.Campaign_ID }};
+  var _cdStatus     = '{{ campaign.status }}';
+  var _cdStatsUrl   = '{% url "campaign_stats_json" campaign.Campaign_ID %}';
+  var _cdPollTimer  = null;
+
+  var _cdStatMap = {
+    sent:         '.cd-stat.stat-sent .cd-stat-value',
+    delivered:    '.cd-stat.delivered .cd-stat-value',
+    opened:       '.cd-stat.opened .cd-stat-value',
+    clicked:      '.cd-stat.clicked .cd-stat-value',
+    bounced:      '.cd-stat.bounced .cd-stat-value',
+    unsubscribed: '.cd-stat.unsubscribed .cd-stat-value',
+  };
+
+  function _pollDetail() {
+    fetch(_cdStatsUrl, { credentials: 'same-origin' })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        Object.keys(_cdStatMap).forEach(function(key) {
+          var el = document.querySelector(_cdStatMap[key]);
+          if (el && data[key] !== undefined) el.textContent = Number(data[key]).toLocaleString();
+        });
+        _cdStatus = data.status;
+        var statusEl = document.querySelector('.cd-status');
+        if (statusEl) {
+          statusEl.className = 'cd-status ' + data.status;
+          statusEl.textContent = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+        }
+        if (data.status !== 'sending') {
+          clearInterval(_cdPollTimer);
+          _cdPollTimer = null;
+        }
+      })
+      .catch(function() {});
+  }
+
+  _cdPollTimer = setInterval(_pollDetail, 30000);
+})();
+</script>
+{% endif %}
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+(function () {
+  var _tz = window.USER_TZ || undefined;
+  function fmtLocal(d) {
+    try {
+      var p = {};
+      new Intl.DateTimeFormat('en-US', {
+        month:'short', day:'numeric', year:'numeric',
+        hour:'numeric', minute:'2-digit', hour12:true, timeZoneName:'short', timeZone: _tz
+      }).formatToParts(d).forEach(function(x){ p[x.type] = x.value; });
+      return p.month+' '+p.day+', '+p.year+' · '+p.hour+':'+p.minute+' '+p.dayPeriod+' '+p.timeZoneName;
+    } catch(e) { return null; }
+  }
+  document.querySelectorAll('.ltime').forEach(function(el) {
+    var d = new Date(el.dataset.utc);
+    if (isNaN(d)) return;
+    var text = fmtLocal(d);
+    if (text) el.textContent = text;
+  });
+})();
+
+(function () {
+  var PAGE = 15;
+
+  function svPaginate(tbodyId, prevId, nextId, infoId, numId, barId) {
+    var tbody = document.getElementById(tbodyId);
+    if (!tbody) return null;
+    var bar = document.getElementById(barId);
+    var prevBtn = document.getElementById(prevId);
+    var nextBtn = document.getElementById(nextId);
+    var infoEl  = document.getElementById(infoId);
+    var numEl   = document.getElementById(numId);
+    var cur = 1;
+
+    function visibleRows() {
+      return Array.prototype.filter.call(tbody.querySelectorAll('tr'), function(tr) {
+        return tr.dataset.filtered !== 'true';
+      });
+    }
+    function render() {
+      var all = visibleRows(), total = all.length;
+      var pages = Math.ceil(total / PAGE) || 1;
+      if (cur > pages) cur = pages;
+      var start = (cur - 1) * PAGE, end = Math.min(start + PAGE, total);
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) { tr.style.display = 'none'; });
+      all.forEach(function(tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+      if (infoEl) infoEl.textContent = total ? 'Showing ' + (start+1) + '–' + end + ' of ' + total : 'No results';
+      if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+      if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+      if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+      if (bar) bar.style.display = total <= PAGE ? 'none' : '';
+    }
+    if (prevBtn) prevBtn.addEventListener('click', function() { if (cur > 1) { cur--; render(); } });
+    if (nextBtn) nextBtn.addEventListener('click', function() {
+      if (cur < Math.ceil(visibleRows().length / PAGE)) { cur++; render(); }
+    });
+    render();
+    return { refresh: function() { cur = 1; render(); } };
+  }
+
+  var _pag = svPaginate('recipientBody', 'recipientPrevBtn', 'recipientNextBtn', 'recipientPagInfo', 'recipientPagNum', 'recipientPagBar');
+
+  PF.init({ debounce: 250, urlSync: false });
+  PF.wire(function () {
+    var f     = PF.getFilters();
+    var tbody = document.getElementById('recipientBody');
+    if (!tbody) return;
+    var total = 0;
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+      var match = PF.matchesSearch(tr.dataset.search || '', f.search)
+                && PF.matchesStatus(tr.dataset.status || '', f.status);
+      tr.dataset.filtered = match ? 'false' : 'true';
+      if (match) total++;
+    });
+    if (_pag) _pag.refresh();
+    PF.setCount(total, {{ recipient_rows|length }});
+  });
+})();
+</script>
+
+{% endblock %}

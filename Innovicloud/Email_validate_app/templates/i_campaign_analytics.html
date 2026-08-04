@@ -1,0 +1,508 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="eca-page">
+
+  <a href="{% url 'analytics_overview' %}" class="analytics-back-btn"><i class="fas fa-arrow-left"></i> Back to Insights</a>
+
+  <!-- ── PAGE HEADER + FILTERS ─────────────────────────────────────────── -->
+  <div class="eca-page-head">
+    <div>
+      <h1 class="eca-page-title">Campaign Analytics</h1>
+      <p class="eca-page-sub">Delivery, engagement, and performance across all campaigns.</p>
+    </div>
+
+    <div class="eca-filter-bar">
+      <!-- Row 1: date presets -->
+      <div class="eca-filter-row" id="filterPills">
+        <button class="eca-pill {% if preset == 'today' %}eca-pill--active{% endif %}" onclick="applyPreset('today')">Today</button>
+        <button class="eca-pill {% if preset == '7d' %}eca-pill--active{% endif %}"    onclick="applyPreset('7d')">Last 7 Days</button>
+        <button class="eca-pill {% if preset == '30d' %}eca-pill--active{% endif %}"   onclick="applyPreset('30d')">Last 30 Days</button>
+        <button class="eca-pill {% if preset == 'month' %}eca-pill--active{% endif %}" onclick="applyPreset('month')">This Month</button>
+        <button class="eca-pill {% if preset == 'custom' %}eca-pill--active{% endif %}" onclick="applyPreset('custom')">Custom</button>
+      </div>
+      <!-- Custom date inputs -->
+      <div class="eca-custom-dates {% if preset == 'custom' %}visible{% endif %}" id="customDates">
+        <input type="date" id="cfrom" class="eca-date-input" value="{{ date_from }}"/>
+        <span style="color:var(--muted);font-size:12px;">to</span>
+        <input type="date" id="cto"   class="eca-date-input" value="{{ date_to }}"/>
+        <button class="eca-date-apply" onclick="applyCustom()">Apply</button>
+      </div>
+      <!-- Row 2: status + campaign selects -->
+      <div class="eca-filter-row">
+        <select class="eca-select" id="statusSelect" onchange="fetchData()">
+          <option value="all"       {% if status_filter == 'all'       %}selected{% endif %}>All Statuses</option>
+          <option value="draft"     {% if status_filter == 'draft'     %}selected{% endif %}>Draft</option>
+          <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Scheduled</option>
+          <option value="sending"   {% if status_filter == 'sending'   %}selected{% endif %}>Sending</option>
+          <option value="sent"      {% if status_filter == 'sent'      %}selected{% endif %}>Sent</option>
+          <option value="failed"    {% if status_filter == 'failed'    %}selected{% endif %}>Failed</option>
+          <option value="cancelled" {% if status_filter == 'cancelled' %}selected{% endif %}>Cancelled</option>
+        </select>
+        <select class="eca-select" id="campaignSelect" onchange="fetchData()">
+          <option value="">All Campaigns</option>
+          {% for c in all_campaigns %}
+          <option value="{{ c.Campaign_ID }}" {% if campaign_id == c.Campaign_ID|stringformat:"s" %}selected{% endif %}>{{ c.campaign_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY CARDS ─────────────────────────────────────────────────── -->
+  <div class="eca-cards-grid">
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--campaigns"><i class="fas fa-bullhorn"></i></div>
+      <div class="eca-card-val" id="s-campaigns">{{ campaigns|intcomma }}</div>
+      <div class="eca-card-label">Total Campaigns</div>
+    </div>
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--sent"><i class="fas fa-paper-plane"></i></div>
+      <div class="eca-card-val" id="s-sent">{{ sent|intcomma }}</div>
+      <div class="eca-card-label">Emails Sent</div>
+    </div>
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--delivered"><i class="fas fa-inbox"></i></div>
+      <div class="eca-card-val" id="s-delivered">{{ delivered|intcomma }}</div>
+      <div class="eca-card-label">Delivered</div>
+      <span class="eca-card-pct eca-pct--delivered" id="s-delivery-rate">{{ delivery_rate }}%</span>
+    </div>
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--opened"><i class="fas fa-envelope-open"></i></div>
+      <div class="eca-card-val" id="s-opened">{{ opened|intcomma }}</div>
+      <div class="eca-card-label">Opened</div>
+      <span class="eca-card-pct eca-pct--opened" id="s-open-rate">{{ open_rate }}%</span>
+    </div>
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--clicked"><i class="fas fa-mouse-pointer"></i></div>
+      <div class="eca-card-val" id="s-clicked">{{ clicked|intcomma }}</div>
+      <div class="eca-card-label">Clicked</div>
+      <span class="eca-card-pct eca-pct--clicked" id="s-click-rate">{{ click_rate }}%</span>
+    </div>
+    <div class="eca-card">
+      <div class="eca-card-icon eca-icon--bounced"><i class="fas fa-exclamation-circle"></i></div>
+      <div class="eca-card-val" id="s-bounced">{{ bounced|intcomma }}</div>
+      <div class="eca-card-label">Bounced</div>
+      <span class="eca-card-pct eca-pct--bounced" id="s-bounce-rate">{{ bounce_rate }}%</span>
+    </div>
+  </div>
+
+  <!-- ── COMPLAINT & UNSUBSCRIBE ──────────────────────────────────────── -->
+  <div class="eca-extra-row">
+    <div class="eca-extra-card">
+      <div class="eca-extra-icon eca-extra-icon--complaint"><i class="fas fa-flag"></i></div>
+      <div class="eca-extra-body">
+        <div class="eca-extra-val" id="s-complaints">{{ complaints|intcomma }}</div>
+        <div class="eca-extra-label">Complaints</div>
+        <div class="eca-extra-pct eca-pct--bounced" id="s-complaint-rate">{{ complaint_rate }}% of delivered</div>
+      </div>
+    </div>
+    <div class="eca-extra-card">
+      <div class="eca-extra-icon eca-extra-icon--unsub"><i class="fas fa-user-minus"></i></div>
+      <div class="eca-extra-body">
+        <div class="eca-extra-val" id="s-unsubscribed">{{ unsubscribed|intcomma }}</div>
+        <div class="eca-extra-label">Unsubscribes</div>
+        <div class="eca-extra-pct eca-pct--bounced" id="s-unsub-rate">{{ unsubscribe_rate }}% of delivered</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 1 ───────────────────────────────────────────────────── -->
+  <div class="eca-charts-row">
+
+    <!-- Chart 1: Doughnut — Campaign Performance -->
+    <div class="eca-chart-box">
+      <div class="eca-loading" id="load-perf"><div class="eca-spinner"></div></div>
+      <div class="eca-chart-head">
+        <div>
+          <h3 class="eca-chart-title">Campaign Performance Distribution</h3>
+          <p class="eca-chart-sub">Delivered · Opened · Clicked · Bounced · Complaints</p>
+        </div>
+      </div>
+      <div class="eca-chart-canvas-wrap eca-chart-canvas-wrap--donut">
+        <canvas id="chartPerf"></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 2: Line — Sending Trend -->
+    <div class="eca-chart-box">
+      <div class="eca-loading" id="load-trend"><div class="eca-spinner"></div></div>
+      <div class="eca-chart-head">
+        <div>
+          <h3 class="eca-chart-title">Email Sending Trend</h3>
+          <p class="eca-chart-sub">Daily emails sent</p>
+        </div>
+      </div>
+      <div class="eca-chart-canvas-wrap">
+        <canvas id="chartTrend"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── CHARTS ROW 2 ───────────────────────────────────────────────────── -->
+  <div class="eca-charts-row">
+
+    <!-- Chart 3: Bar — Campaign Status -->
+    <div class="eca-chart-box">
+      <div class="eca-loading" id="load-status"><div class="eca-spinner"></div></div>
+      <div class="eca-chart-head">
+        <div>
+          <h3 class="eca-chart-title">Campaign Status Overview</h3>
+          <p class="eca-chart-sub">Campaigns by current status</p>
+        </div>
+      </div>
+      <div class="eca-chart-canvas-wrap">
+        <canvas id="chartStatus"></canvas>
+      </div>
+    </div>
+
+    <!-- Chart 4: Stacked Bar — Engagement Trend -->
+    <div class="eca-chart-box">
+      <div class="eca-loading" id="load-engage"><div class="eca-spinner"></div></div>
+      <div class="eca-chart-head">
+        <div>
+          <h3 class="eca-chart-title">Engagement Trend</h3>
+          <p class="eca-chart-sub">Daily delivered · opened · clicked · bounced</p>
+        </div>
+      </div>
+      <div class="eca-chart-canvas-wrap">
+        <canvas id="chartEngage"></canvas>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── PERFORMANCE TABLE ─────────────────────────────────────────────── -->
+  <div class="eca-table-section">
+    <div class="eca-table-head">
+      <h3 class="eca-chart-title">Top Campaigns by Opens</h3>
+    </div>
+
+    {% if table_rows %}
+    <div class="eca-table-wrap">
+      <table class="eca-table">
+        <thead>
+          <tr>
+            <th>Campaign Name</th>
+            <th>Status</th>
+            <th>Recipients</th>
+            <th>Sent</th>
+            <th>Delivered</th>
+            <th>Open Rate</th>
+            <th>Click Rate</th>
+            <th>Bounce Rate</th>
+            <th>Created</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_rows %}
+          <tr>
+            <td><strong>{{ row.name }}</strong></td>
+            <td><span class="eca-status-badge eca-s-{{ row.status }}">{{ row.status }}</span></td>
+            <td>{{ row.recipients|intcomma }}</td>
+            <td>{{ row.sent|intcomma }}</td>
+            <td>{{ row.delivered|intcomma }}</td>
+            <td>{{ row.open_rate }}%</td>
+            <td>{{ row.click_rate }}%</td>
+            <td>{{ row.bounce_rate }}%</td>
+            <td style="color:var(--muted);white-space:nowrap;">{{ row.created }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="eca-empty">
+      <i class="fas fa-chart-bar eca-empty-icon"></i>
+      <p>No campaign data found for the selected period.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div><!-- /.eca-page -->
+{% endblock %}
+
+
+{% block extra_js %}
+<script>
+const ANALYTICS_URL = "{% url 'campaign_analytics' %}";
+const CHART_DATA    = {{ chart_data_json|safe }};
+
+const C_DELIVERED  = '#10B981';
+const C_OPENED     = '#3B82F6';
+const C_CLICKED    = '#8B5CF6';
+const C_BOUNCED    = '#EF4444';
+const C_COMPLAINTS = '#F97316';
+const C_TEAL       = '#0EA5E9';
+
+const STATUS_COLORS = {
+  draft:     '#9CA3AF',
+  scheduled: '#F59E0B',
+  sending:   '#3B82F6',
+  sent:      '#10B981',
+  failed:    '#EF4444',
+  cancelled: '#6B7280',
+};
+
+function fmtDate(d) {
+  if (!d) return d;
+  const p = d.split('-');
+  if (p.length !== 3) return d;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+}
+function fmtNum(n) { return Number(n).toLocaleString(); }
+
+function loading(show) {
+  ['perf','trend','status','engage'].forEach(id => {
+    document.getElementById('load-' + id).classList.toggle('active', show);
+  });
+}
+
+// ── Chart 1: Doughnut — Performance ──────────────────────────────────────
+const perfCtx = document.getElementById('chartPerf').getContext('2d');
+const perfChart = new Chart(perfCtx, {
+  type: 'doughnut',
+  data: {
+    labels: ['Delivered','Opened','Clicked','Bounced','Complaints'],
+    datasets: [{
+      data: [
+        CHART_DATA.performance.delivered,
+        CHART_DATA.performance.opened,
+        CHART_DATA.performance.clicked,
+        CHART_DATA.performance.bounced,
+        CHART_DATA.performance.complaints,
+      ],
+      backgroundColor: [C_DELIVERED, C_OPENED, C_CLICKED, C_BOUNCED, C_COMPLAINTS],
+      borderWidth: 2, borderColor: '#fff', hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: { position: 'bottom', labels: { usePointStyle: true, padding: 16, font: { size: 11 } } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) } },
+    },
+  },
+});
+
+// ── Chart 2: Line — Sending Trend ────────────────────────────────────────
+const trendCtx = document.getElementById('chartTrend').getContext('2d');
+const trendChart = new Chart(trendCtx, {
+  type: 'line',
+  data: {
+    labels: CHART_DATA.sending_trend.labels.map(fmtDate),
+    datasets: [{
+      label: 'Emails Sent',
+      data: CHART_DATA.sending_trend.data,
+      borderColor: C_TEAL,
+      backgroundColor: 'rgba(14,165,233,.08)',
+      borderWidth: 2, tension: 0.4, pointRadius: 3,
+      pointBackgroundColor: C_TEAL, fill: true,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' sent' } },
+    },
+    scales: {
+      x: { ticks: { maxTicksLimit: 10, font: { size: 11 } }, grid: { display: false } },
+      y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+    },
+  },
+});
+
+// ── Chart 3: Bar — Status Overview ───────────────────────────────────────
+const statusCtx = document.getElementById('chartStatus').getContext('2d');
+const statusLabels = ['Draft','Scheduled','Sending','Sent','Failed','Cancelled'];
+const statusKeys   = ['draft','scheduled','sending','sent','failed','cancelled'];
+const statusChart = new Chart(statusCtx, {
+  type: 'bar',
+  data: {
+    labels: statusLabels,
+    datasets: [{
+      label: 'Campaigns',
+      data: statusKeys.map(k => CHART_DATA.status[k] || 0),
+      backgroundColor: statusKeys.map(k => STATUS_COLORS[k]),
+      borderRadius: 6, borderSkipped: false,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' campaigns' } },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { font: { size: 11 } } },
+      y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } },
+    },
+  },
+});
+
+// ── Chart 4: Stacked Bar — Engagement Trend ───────────────────────────────
+const engageCtx = document.getElementById('chartEngage').getContext('2d');
+const engageChart = new Chart(engageCtx, {
+  type: 'bar',
+  data: {
+    labels: CHART_DATA.engagement.labels.map(fmtDate),
+    datasets: [
+      { label:'Delivered', data: CHART_DATA.engagement.delivered, backgroundColor: C_DELIVERED, stack:'e' },
+      { label:'Opened',    data: CHART_DATA.engagement.opened,    backgroundColor: C_OPENED,    stack:'e' },
+      { label:'Clicked',   data: CHART_DATA.engagement.clicked,   backgroundColor: C_CLICKED,   stack:'e' },
+      { label:'Bounced',   data: CHART_DATA.engagement.bounced,   backgroundColor: C_BOUNCED,   stack:'e' },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: {
+      legend: { position:'bottom', labels:{ usePointStyle:true, padding:14, font:{size:11} } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y) } },
+    },
+    scales: {
+      x: { stacked:true, ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { stacked:true, beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// ── Filters ───────────────────────────────────────────────────────────────
+let activePreset = '{{ preset }}';
+
+function applyPreset(preset) {
+  if (preset === 'custom') {
+    document.querySelectorAll('.eca-pill').forEach(b => b.classList.remove('eca-pill--active'));
+    document.querySelector('[onclick="applyPreset(\'custom\')"]').classList.add('eca-pill--active');
+    document.getElementById('customDates').classList.add('visible');
+    activePreset = 'custom';
+    return;
+  }
+  document.getElementById('customDates').classList.remove('visible');
+  activePreset = preset;
+  localStorage.setItem('analytics_preset', preset);
+  fetchData();
+}
+
+function applyCustom() {
+  const from = document.getElementById('cfrom').value;
+  const to   = document.getElementById('cto').value;
+  if (!from || !to)  { alert('Please select both dates.'); return; }
+  if (from > to)     { alert('From date must be before To date.'); return; }
+  localStorage.setItem('analytics_preset',    'custom');
+  localStorage.setItem('analytics_date_from', from);
+  localStorage.setItem('analytics_date_to',   to);
+  fetchData();
+}
+
+async function fetchData() {
+  const preset     = activePreset;
+  const status     = document.getElementById('statusSelect').value;
+  const campaignId = document.getElementById('campaignSelect').value;
+
+  loading(true);
+
+  // Update pill active state
+  document.querySelectorAll('.eca-pill').forEach(b => b.classList.remove('eca-pill--active'));
+  const presetMap = {today:0,'7d':1,'30d':2,month:3,custom:4};
+  const pills = document.querySelectorAll('.eca-pill');
+  if (presetMap[preset] !== undefined) pills[presetMap[preset]].classList.add('eca-pill--active');
+
+  let url = ANALYTICS_URL + '?preset=' + preset + '&status=' + status +
+            '&campaign_id=' + campaignId + '&format=json';
+  if (preset === 'custom') {
+    const from = document.getElementById('cfrom').value;
+    const to   = document.getElementById('cto').value;
+    if (from && to) url += '&date_from=' + from + '&date_to=' + to;
+  }
+
+  try {
+    const res  = await fetch(url, { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+    const data = await res.json();
+    updateCards(data.summary);
+    updateCharts(data.charts);
+  } catch(e) {
+    console.error('Campaign analytics fetch error:', e);
+  } finally {
+    loading(false);
+  }
+}
+
+function updateCards(s) {
+  document.getElementById('s-campaigns').textContent      = fmtNum(s.campaigns);
+  document.getElementById('s-sent').textContent           = fmtNum(s.sent);
+  document.getElementById('s-delivered').textContent      = fmtNum(s.delivered);
+  document.getElementById('s-opened').textContent         = fmtNum(s.opened);
+  document.getElementById('s-clicked').textContent        = fmtNum(s.clicked);
+  document.getElementById('s-bounced').textContent        = fmtNum(s.bounced);
+  document.getElementById('s-delivery-rate').textContent  = s.delivery_rate + '%';
+  document.getElementById('s-open-rate').textContent      = s.open_rate     + '%';
+  document.getElementById('s-click-rate').textContent     = s.click_rate    + '%';
+  document.getElementById('s-bounce-rate').textContent    = s.bounce_rate   + '%';
+  document.getElementById('s-complaints').textContent     = fmtNum(s.complaints);
+  document.getElementById('s-complaint-rate').textContent = s.complaint_rate   + '% of delivered';
+  document.getElementById('s-unsubscribed').textContent   = fmtNum(s.unsubscribed);
+  document.getElementById('s-unsub-rate').textContent     = s.unsubscribe_rate + '% of delivered';
+}
+
+function updateCharts(c) {
+  // Doughnut
+  perfChart.data.datasets[0].data = [
+    c.performance.delivered, c.performance.opened,
+    c.performance.clicked, c.performance.bounced, c.performance.complaints,
+  ];
+  perfChart.update();
+
+  // Line trend
+  trendChart.data.labels           = c.sending_trend.labels.map(fmtDate);
+  trendChart.data.datasets[0].data = c.sending_trend.data;
+  trendChart.update();
+
+  // Status bar
+  statusChart.data.datasets[0].data = statusKeys.map(k => c.status[k] || 0);
+  statusChart.update();
+
+  // Engagement stacked
+  engageChart.data.labels              = c.engagement.labels.map(fmtDate);
+  engageChart.data.datasets[0].data    = c.engagement.delivered;
+  engageChart.data.datasets[1].data    = c.engagement.opened;
+  engageChart.data.datasets[2].data    = c.engagement.clicked;
+  engageChart.data.datasets[3].data    = c.engagement.bounced;
+  engageChart.update();
+}
+
+// ── Sync filter with localStorage ────────────────────────────────────────
+(function () {
+  const PKEY = 'analytics_preset', FKEY = 'analytics_date_from', TKEY = 'analytics_date_to';
+  const urlP = new URLSearchParams(location.search).get('preset');
+  if (urlP) {
+    localStorage.setItem(PKEY, urlP);
+    if (urlP === 'custom') {
+      const p = new URLSearchParams(location.search);
+      localStorage.setItem(FKEY, p.get('date_from') || '');
+      localStorage.setItem(TKEY, p.get('date_to')   || '');
+    }
+  } else {
+    const saved = localStorage.getItem(PKEY);
+    if (saved && saved !== '{{ preset }}') {
+      const from = localStorage.getItem(FKEY) || '';
+      const to   = localStorage.getItem(TKEY) || '';
+      if (saved === 'custom' && from) {
+        document.getElementById('cfrom').value = from;
+        document.getElementById('cto').value   = to;
+        activePreset = 'custom';
+        document.getElementById('customDates').classList.add('visible');
+      } else { activePreset = saved; }
+      fetchData();
+    }
+  }
+})();
+</script>
+{% endblock %}

@@ -1,0 +1,819 @@
+{% extends "i_index.html" %}
+{% load static humanize %}
+
+{% block title %}Analytics Overview{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}">
+{% endblock %}
+
+{% block content %}
+<div class="ao-page">
+
+  <!-- Page header -->
+  <div class="ao-page-head">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--lg">📊</div>
+      <div>
+        <h1 class="ao-page-title">Insights</h1>
+        <p class="ao-page-sub">Unified view across all analytics modules</p>
+      </div>
+    </div>
+    <div class="ao-filter-wrap">
+      <div class="ao-filter-pills">
+        <button class="ao-pill" data-preset="today">Today</button>
+        <button class="ao-pill ao-pill--active" data-preset="7d">Last 7 Days</button>
+        <button class="ao-pill" data-preset="30d">Last 30 Days</button>
+        <button class="ao-pill" data-preset="month">This Month</button>
+        <button class="ao-pill" data-preset="custom">Custom</button>
+      </div>
+      <div class="ao-custom-dates" id="aoCustomDates">
+        <input type="date" class="ao-date-input" id="aoDateFrom" value="{{ date_from }}">
+        <span style="color:var(--ink-3);font-size:12px;">to</span>
+        <input type="date" class="ao-date-input" id="aoDateTo" value="{{ date_to }}">
+        <button class="ao-date-apply" id="aoDateApply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tab navigation -->
+  <div class="ao-tabs" id="aoTabs">
+    <button class="ao-tab" data-section="validation">
+      <i class="fas fa-envelope-open-text"></i><span>Validation</span>
+    </button>
+    <button class="ao-tab" data-section="campaign">
+      <i class="fas fa-bullhorn"></i><span>Campaign</span>
+    </button>
+    <button class="ao-tab" data-section="blocklist">
+      <i class="fas fa-shield-alt"></i><span>Blocklist</span>
+    </button>
+    <button class="ao-tab" data-section="reputation">
+      <i class="fas fa-star-half-alt"></i><span>Reputation</span>
+    </button>
+    <button class="ao-tab" data-section="dmarc">
+      <i class="fas fa-lock"></i><span>DMARC</span>
+    </button>
+    <button class="ao-tab" data-section="header">
+      <i class="fas fa-code"></i><span>Header</span>
+    </button>
+  </div>
+
+  <!-- ════════════════  VALIDATION  ════════════════ -->
+  <div class="ao-section ao-section--active" id="ao-section-validation">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-validation">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading Validation Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-envelope-open-text" style="color:var(--primary);margin-right:8px;"></i>Email Validation Analytics</h2>
+        <a href="{% url 'email_analytics' %}" data-base="{% url 'email_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+      <div class="ao-cards-grid" id="ao-cards-validation">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-list-alt"></i></div><div class="ao-card-val" id="val-total">—</div><div class="ao-card-label">Total Emails</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-check-circle"></i></div><div class="ao-card-val" id="val-valid">—</div><div class="ao-card-label">Valid</div><span class="ao-card-sub ao-sub-green" id="val-valid-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-times-circle"></i></div><div class="ao-card-val" id="val-invalid">—</div><div class="ao-card-label">Invalid</div><span class="ao-card-sub ao-sub-red" id="val-invalid-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-amber"><i class="fas fa-question-circle"></i></div><div class="ao-card-val" id="val-risky">—</div><div class="ao-card-label">Risky</div><span class="ao-card-sub ao-sub-amber" id="val-risky-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-gray"><i class="fas fa-circle"></i></div><div class="ao-card-val" id="val-others">—</div><div class="ao-card-label">Others</div><span class="ao-card-sub" id="val-others-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-purple"><i class="fas fa-coins"></i></div><div class="ao-card-val" id="val-credits">—</div><div class="ao-card-label">Credits Used</div></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Result Distribution</p>
+          <p class="ao-chart-sub">Breakdown of validation outcomes</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-val-dist"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Validation Trend</p>
+          <p class="ao-chart-sub">Daily email validation volume</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-val-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Validation Method</p>
+          <p class="ao-chart-sub">Single vs bulk jobs</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-val-method"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Risk Category Breakdown</p>
+          <p class="ao-chart-sub">Safe / risky / invalid over time</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-val-risk"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════  CAMPAIGN  ════════════════ -->
+  <div class="ao-section" id="ao-section-campaign">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-campaign">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading Campaign Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-bullhorn" style="color:var(--primary);margin-right:8px;"></i>Campaign Analytics</h2>
+        <a href="{% url 'campaign_analytics' %}" data-base="{% url 'campaign_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+      <div class="ao-cards-grid" id="ao-cards-campaign">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-paper-plane"></i></div><div class="ao-card-val" id="cam-total">—</div><div class="ao-card-label">Total Campaigns</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-blue"><i class="fas fa-envelope"></i></div><div class="ao-card-val" id="cam-sent">—</div><div class="ao-card-label">Emails Sent</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-inbox"></i></div><div class="ao-card-val" id="cam-delivered">—</div><div class="ao-card-label">Delivered</div><span class="ao-card-sub ao-sub-green" id="cam-del-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-purple"><i class="fas fa-envelope-open"></i></div><div class="ao-card-val" id="cam-opened">—</div><div class="ao-card-label">Opened</div><span class="ao-card-sub ao-sub-blue" id="cam-open-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-teal"><i class="fas fa-mouse-pointer"></i></div><div class="ao-card-val" id="cam-clicked">—</div><div class="ao-card-label">Clicked</div><span class="ao-card-sub ao-sub-blue" id="cam-click-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-ban"></i></div><div class="ao-card-val" id="cam-bounced">—</div><div class="ao-card-label">Bounced</div><span class="ao-card-sub ao-sub-red" id="cam-bounce-pct">—</span></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Campaign Performance</p>
+          <p class="ao-chart-sub">Delivered / Opened / Clicked / Bounced</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-cam-perf"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Sending Trend</p>
+          <p class="ao-chart-sub">Daily email volume</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-cam-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Campaign Status</p>
+          <p class="ao-chart-sub">Count by status</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-cam-status"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Engagement Trend</p>
+          <p class="ao-chart-sub">Opens / Clicks / Bounces over time</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-cam-engage"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════  BLOCKLIST  ════════════════ -->
+  <div class="ao-section" id="ao-section-blocklist">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-blocklist">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading Blocklist Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-shield-alt" style="color:var(--primary);margin-right:8px;"></i>IP &amp; Domain Blocklist Analytics</h2>
+        <a href="{% url 'blocklist_analytics' %}" data-base="{% url 'blocklist_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+      <div class="ao-cards-grid" id="ao-cards-blocklist">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-search"></i></div><div class="ao-card-val" id="bca-total">—</div><div class="ao-card-label">Total Scans</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-check-circle"></i></div><div class="ao-card-val" id="bca-clean">—</div><div class="ao-card-label">Clean</div><span class="ao-card-sub ao-sub-green" id="bca-clean-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-exclamation-triangle"></i></div><div class="ao-card-val" id="bca-listed">—</div><div class="ao-card-label">Listed</div><span class="ao-card-sub ao-sub-red" id="bca-listed-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-gray"><i class="fas fa-times"></i></div><div class="ao-card-val" id="bca-failed">—</div><div class="ao-card-label">Failed</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-blue"><i class="fas fa-network-wired"></i></div><div class="ao-card-val" id="bca-ip">—</div><div class="ao-card-label">IP Scans</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-purple"><i class="fas fa-globe"></i></div><div class="ao-card-val" id="bca-domain">—</div><div class="ao-card-label">Domain Scans</div></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Scan Distribution</p>
+          <p class="ao-chart-sub">Clean vs Listed</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-bca-dist"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Scan Trend</p>
+          <p class="ao-chart-sub">Daily blocklist checks</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-bca-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">IP vs Domain Checks</p>
+          <p class="ao-chart-sub">Daily split by type</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-bca-type"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Clean vs Listed Over Time</p>
+          <p class="ao-chart-sub">Stacked view</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-bca-stack"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════  REPUTATION  ════════════════ -->
+  <div class="ao-section" id="ao-section-reputation">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-reputation">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading Reputation Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-star-half-alt" style="color:var(--primary);margin-right:8px;"></i>Reputation Analytics</h2>
+        <a href="{% url 'reputation_analytics' %}" data-base="{% url 'reputation_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+      <div class="ao-cards-grid" id="ao-cards-reputation">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-globe"></i></div><div class="ao-card-val" id="ra-total">—</div><div class="ao-card-label">Domains Checked</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-blue"><i class="fas fa-tachometer-alt"></i></div><div class="ao-card-val" id="ra-avg">—</div><div class="ao-card-label">Avg Score</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-thumbs-up"></i></div><div class="ao-card-val" id="ra-good">—</div><div class="ao-card-label">Good</div><span class="ao-card-sub ao-sub-green" id="ra-good-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-amber"><i class="fas fa-minus-circle"></i></div><div class="ao-card-val" id="ra-medium">—</div><div class="ao-card-label">Medium</div><span class="ao-card-sub ao-sub-amber" id="ra-med-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-exclamation-circle"></i></div><div class="ao-card-val" id="ra-poor">—</div><div class="ao-card-label">Poor</div><span class="ao-card-sub ao-sub-red" id="ra-poor-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-darkred"><i class="fas fa-skull-crossbones"></i></div><div class="ao-card-val" id="ra-critical">—</div><div class="ao-card-label">Critical</div><span class="ao-card-sub ao-sub-red" id="ra-crit-pct">—</span></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Reputation Distribution</p>
+          <p class="ao-chart-sub">Good / Medium / Poor / Critical</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-ra-dist"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Avg Reputation Score Trend</p>
+          <p class="ao-chart-sub">Daily average score (0–100)</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-ra-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Domain vs IP Reputation</p>
+          <p class="ao-chart-sub">Score comparison by type</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-ra-type"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Risk Level Trend</p>
+          <p class="ao-chart-sub">Stacked risk categories over time</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-ra-risk"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════  DMARC  ════════════════ -->
+  <div class="ao-section" id="ao-section-dmarc">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-dmarc">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading DMARC Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-lock" style="color:var(--primary);margin-right:8px;"></i>DMARC Analytics</h2>
+        <a href="{% url 'dmarc_analytics' %}" data-base="{% url 'dmarc_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+      <div class="ao-cards-grid" id="ao-cards-dmarc">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-search"></i></div><div class="ao-card-val" id="dma-total">—</div><div class="ao-card-label">Total Checks</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-percentage"></i></div><div class="ao-card-val" id="dma-rate">—</div><div class="ao-card-label">Pass Rate</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-blue"><i class="fas fa-envelope-open-text"></i></div><div class="ao-card-val" id="dma-spf">—</div><div class="ao-card-label">SPF Pass</div><span class="ao-card-sub ao-sub-green" id="dma-spf-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-purple"><i class="fas fa-key"></i></div><div class="ao-card-val" id="dma-dkim">—</div><div class="ao-card-label">DKIM Pass</div><span class="ao-card-sub ao-sub-green" id="dma-dkim-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-teal"><i class="fas fa-shield-alt"></i></div><div class="ao-card-val" id="dma-dmarc">—</div><div class="ao-card-label">DMARC Pass</div><span class="ao-card-sub ao-sub-green" id="dma-dmarc-pct">—</span></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-times-circle"></i></div><div class="ao-card-val" id="dma-failed">—</div><div class="ao-card-label">Failed</div><span class="ao-card-sub ao-sub-red" id="dma-fail-pct">—</span></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">DMARC Pass / Fail</p>
+          <p class="ao-chart-sub">Overall result distribution</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-dma-dist"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Daily DMARC Checks</p>
+          <p class="ao-chart-sub">Volume over time</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-dma-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">SPF / DKIM / DMARC Counts</p>
+          <p class="ao-chart-sub">Pass counts per protocol</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-dma-proto"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Policy Distribution</p>
+          <p class="ao-chart-sub">None / Quarantine / Reject</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-dma-policy"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════  HEADER  ════════════════ -->
+  <div class="ao-section" id="ao-section-header">
+    <div class="ao-section-wrap">
+      <div class="ao-loading" id="ao-loading-header">
+        <div class="ao-spinner"></div>
+        <span class="ao-loading-text">Loading Header Analytics…</span>
+      </div>
+
+      <div class="ao-sec-head">
+        <h2 class="ao-sec-title"><i class="fas fa-code" style="color:var(--primary);margin-right:8px;"></i>Header Analysis Analytics</h2>
+        <a href="{% url 'header_analysis_analytics' %}" data-base="{% url 'header_analysis_analytics' %}" class="ao-full-link"><i class="fas fa-external-link-alt"></i>Full Page</a>
+      </div>
+
+
+
+      <div class="ao-cards-grid" id="ao-cards-header">
+        <div class="ao-card"><div class="ao-card-icon ao-i-indigo"><i class="fas fa-list-alt"></i></div><div class="ao-card-val" id="haa-total">—</div><div class="ao-card-label">Total</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-green"><i class="fas fa-check-circle"></i></div><div class="ao-card-val" id="haa-clean">—</div><div class="ao-card-label">Clean</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-red"><i class="fas fa-exclamation-triangle"></i></div><div class="ao-card-val" id="haa-issues">—</div><div class="ao-card-label">Issues Found</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-amber"><i class="fas fa-radiation-alt"></i></div><div class="ao-card-val" id="haa-spam">—</div><div class="ao-card-label">Spam Risk</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-blue"><i class="fas fa-envelope-open-text"></i></div><div class="ao-card-val" id="haa-spf">—</div><div class="ao-card-label">SPF Pass</div></div>
+        <div class="ao-card"><div class="ao-card-icon ao-i-purple"><i class="fas fa-key"></i></div><div class="ao-card-val" id="haa-dkim">—</div><div class="ao-card-label">DKIM Pass</div></div>
+      </div>
+
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Header Result Distribution</p>
+          <p class="ao-chart-sub">Clean / Issues / Spam Risk</p>
+          <div class="ao-canvas-wrap ao-canvas-wrap--donut"><canvas id="ao-chart-haa-dist"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Analysis Trend</p>
+          <p class="ao-chart-sub">Daily header analyses</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-haa-trend"></canvas></div>
+        </div>
+      </div>
+      <div class="ao-charts-row">
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Authentication Results</p>
+          <p class="ao-chart-sub">SPF / DKIM / DMARC pass counts</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-haa-auth"></canvas></div>
+        </div>
+        <div class="ao-chart-box">
+          <p class="ao-chart-title">Risk Category Trend</p>
+          <p class="ao-chart-sub">Stacked view over time</p>
+          <div class="ao-canvas-wrap"><canvas id="ao-chart-haa-risk"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function () {
+  /* ── State ─────────────────────────────────────────────────────── */
+  let activeSection  = 'validation';
+  let activePreset   = '{{ preset }}';
+  let customFrom     = '{{ date_from }}';
+  let customTo       = '{{ date_to }}';
+  const sectionData  = {};       // key → raw JSON response
+  const chartObjs    = {};       // key → {chartId: Chart instance}
+  const initialized  = new Set();
+
+  /* ── Endpoint map ───────────────────────────────────────────────── */
+  const ENDPOINTS = {
+    validation : "{% url 'email_analytics' %}",
+    campaign   : "{% url 'campaign_analytics' %}",
+    blocklist  : "{% url 'blocklist_analytics' %}",
+    reputation : "{% url 'reputation_analytics' %}",
+    dmarc      : "{% url 'dmarc_analytics' %}",
+    header     : "{% url 'header_analysis_analytics' %}",
+  };
+
+  /* ── Utility ────────────────────────────────────────────────────── */
+  function fmt(n) {
+    if (n == null || n === '') return '—';
+    const num = parseFloat(n);
+    if (isNaN(num)) return n;
+    if (num >= 1_000_000) return (num / 1_000_000).toFixed(1) + 'M';
+    if (num >= 1_000)     return (num / 1_000).toFixed(1) + 'K';
+    return num % 1 === 0 ? num.toLocaleString() : num.toFixed(1);
+  }
+  function pct(n) { return n != null ? parseFloat(n).toFixed(1) + '%' : '—'; }
+  function setText(id, val) { const el = document.getElementById(id); if (el) el.textContent = val; }
+  function destroyChart(inst) { if (inst) { try { inst.destroy(); } catch(_) {} } }
+
+  /* ── Loading overlay ────────────────────────────────────────────── */
+  function showLoading(section) {
+    const el = document.getElementById('ao-loading-' + section);
+    if (el) el.classList.add('active');
+  }
+  function hideLoading(section) {
+    const el = document.getElementById('ao-loading-' + section);
+    if (el) el.classList.remove('active');
+  }
+
+  /* ── Fetch section data ─────────────────────────────────────────── */
+  async function fetchSection(section) {
+    showLoading(section);
+    const url = new URL(ENDPOINTS[section], window.location.origin);
+    url.searchParams.set('format', 'json');
+    if (activePreset === 'custom') {
+      url.searchParams.set('preset', 'custom');
+      url.searchParams.set('date_from', customFrom);
+      url.searchParams.set('date_to',   customTo);
+    } else {
+      url.searchParams.set('preset', activePreset);
+    }
+    try {
+      const res  = await fetch(url.toString(), { headers: { 'X-Requested-With': 'XMLHttpRequest' } });
+      const data = await res.json();
+      sectionData[section] = data;
+      renderSection(section, data);
+    } catch (e) {
+      console.error('Analytics fetch error for ' + section, e);
+    } finally {
+      hideLoading(section);
+    }
+  }
+
+  /* ── Chart helpers ──────────────────────────────────────────────── */
+  function mkDonut(id, labels, data, colors) {
+    destroyChart(chartObjs[id]);
+    const ctx = document.getElementById(id);
+    if (!ctx) return null;
+    chartObjs[id] = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels, datasets: [{ data, backgroundColor: colors, borderWidth: 2, borderColor: '#fff', hoverOffset: 6 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '62%' },
+    });
+    return chartObjs[id];
+  }
+  function mkLine(id, labels, datasets) {
+    destroyChart(chartObjs[id]);
+    const ctx = document.getElementById(id);
+    if (!ctx) return null;
+    chartObjs[id] = new Chart(ctx, {
+      type: 'line',
+      data: { labels, datasets: datasets.map(d => Object.assign({ tension: 0.4, fill: false, pointRadius: 3, borderWidth: 2 }, d)) },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' } } } },
+    });
+    return chartObjs[id];
+  }
+  function mkBar(id, labels, datasets, stacked) {
+    destroyChart(chartObjs[id]);
+    const ctx = document.getElementById(id);
+    if (!ctx) return null;
+    chartObjs[id] = new Chart(ctx, {
+      type: 'bar',
+      data: { labels, datasets: datasets.map(d => Object.assign({ borderRadius: 4, borderSkipped: false }, d)) },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } } }, scales: { x: { stacked: !!stacked, grid: { display: false } }, y: { stacked: !!stacked, beginAtZero: true, grid: { color: 'rgba(0,0,0,.05)' } } } },
+    });
+    return chartObjs[id];
+  }
+
+  /* ════════════════ RENDER FUNCTIONS ════════════════════════════════ */
+
+  function renderValidation(d) {
+    const s = d.summary || {};
+    setText('val-total',       fmt(s.total));
+    setText('val-valid',       fmt(s.valid));
+    setText('val-invalid',     fmt(s.invalid));
+    setText('val-risky',       fmt(s.risky));
+    setText('val-others',      fmt(s.others));
+    setText('val-bulk',        fmt(s.bulk_jobs));
+    setText('val-credits',     fmt(s.credits_used));
+    setText('val-valid-pct',   pct(s.valid_pct));
+    setText('val-invalid-pct', pct(s.invalid_pct));
+    setText('val-risky-pct',   pct(s.risky_pct));
+    setText('val-others-pct',  pct(s.others_pct));
+
+    const c = d.charts || {};
+    // Donut: valid/invalid/risky distribution
+    mkDonut('ao-chart-val-dist',
+      ['Valid', 'Invalid', 'Risky', 'Others'],
+      [s.valid||0, s.invalid||0, s.risky||0, s.others||0],
+      ['#10B981', '#EF4444', '#F59E0B', '#6B7280']
+    );
+    // Line: daily total trend  (c.trend = {labels, data})
+    const trend = c.trend || { labels: [], data: [] };
+    mkLine('ao-chart-val-trend', trend.labels, [
+      { label: 'Emails', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    // Donut: single vs bulk  (c.bar = {data: [single, bulk_total]})
+    const bar = c.bar || { data: [0, 0] };
+    mkDonut('ao-chart-val-method',
+      ['Single', 'Bulk'],
+      [bar.data[0] || 0, bar.data[1] || 0],
+      ['#6366F1', '#8B5CF6']
+    );
+    // Stacked bar: valid/invalid/risky/others  (c.stacked = {labels, valid, invalid, risky, others})
+    const st = c.stacked || { labels: [], valid: [], invalid: [], risky: [], others: [] };
+    mkBar('ao-chart-val-risk', st.labels, [
+      { label: 'Valid',   data: st.valid   || [], backgroundColor: '#10B981' },
+      { label: 'Risky',  data: st.risky   || [], backgroundColor: '#F59E0B' },
+      { label: 'Invalid', data: st.invalid || [], backgroundColor: '#EF4444' },
+    ], true);
+  }
+
+  function renderCampaign(d) {
+    const s = d.summary || {};
+    setText('cam-total',      fmt(s.campaigns));
+    setText('cam-sent',       fmt(s.sent));
+    setText('cam-delivered',  fmt(s.delivered));
+    setText('cam-opened',     fmt(s.opened));
+    setText('cam-clicked',    fmt(s.clicked));
+    setText('cam-bounced',    fmt(s.bounced));
+    setText('cam-del-pct',    pct(s.delivery_rate));
+    setText('cam-open-pct',   pct(s.open_rate));
+    setText('cam-click-pct',  pct(s.click_rate));
+    setText('cam-bounce-pct', pct(s.bounce_rate));
+
+    const c = d.charts || {};
+    const perf = c.performance || {};
+    mkDonut('ao-chart-cam-perf',
+      ['Delivered', 'Opened', 'Clicked', 'Bounced'],
+      [perf.delivered || 0, perf.opened || 0, perf.clicked || 0, perf.bounced || 0],
+      ['#10B981', '#3B82F6', '#8B5CF6', '#EF4444']
+    );
+    const trend = c.sending_trend || { labels: [], data: [] };
+    mkLine('ao-chart-cam-trend', trend.labels, [
+      { label: 'Sent', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    const st = c.status || {};
+    mkBar('ao-chart-cam-status',
+      ['Draft', 'Scheduled', 'Sending', 'Sent', 'Failed', 'Cancelled'],
+      [{ label: 'Campaigns', data: [st.draft||0, st.scheduled||0, st.sending||0, st.sent||0, st.failed||0, st.cancelled||0],
+         backgroundColor: ['#6B7280','#3B82F6','#F59E0B','#10B981','#EF4444','#9CA3AF'] }]
+    );
+    const eng = c.engagement || { labels: [], delivered: [], opened: [], clicked: [], bounced: [] };
+    mkBar('ao-chart-cam-engage', eng.labels, [
+      { label: 'Delivered', data: eng.delivered || [], backgroundColor: '#10B981' },
+      { label: 'Opened',    data: eng.opened    || [], backgroundColor: '#3B82F6' },
+      { label: 'Clicked',   data: eng.clicked   || [], backgroundColor: '#8B5CF6' },
+      { label: 'Bounced',   data: eng.bounced   || [], backgroundColor: '#EF4444' },
+    ], true);
+  }
+
+  function renderBlocklist(d) {
+    const s = d.summary || {};
+    // view key is total_scans
+    setText('bca-total',      fmt(s.total_scans));
+    setText('bca-clean',      fmt(s.clean));
+    setText('bca-listed',     fmt(s.listed));
+    setText('bca-failed',     fmt(s.failed));
+    setText('bca-ip',         fmt(s.ip_scans));
+    setText('bca-domain',     fmt(s.domain_scans));
+    setText('bca-clean-pct',  pct(s.clean_pct));
+    setText('bca-listed-pct', pct(s.listed_pct));
+
+    const c = d.charts || {};
+    mkDonut('ao-chart-bca-dist',
+      ['Clean', 'Listed'],
+      [s.clean || 0, s.listed || 0],
+      ['#10B981', '#EF4444']
+    );
+    // c.trend = {labels, data}
+    const trend = c.trend || { labels: [], data: [] };
+    mkLine('ao-chart-bca-trend', trend.labels, [
+      { label: 'Scans', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    // c.type = {ip: N, domain: N}  — single bar per type
+    const typeData = c.type || { ip: 0, domain: 0 };
+    mkBar('ao-chart-bca-type', ['IP', 'Domain'], [
+      { label: 'Scans', data: [typeData.ip || 0, typeData.domain || 0],
+        backgroundColor: ['#3B82F6', '#8B5CF6'] },
+    ]);
+    // c.detection = {labels, clean, listed, failed}
+    const det = c.detection || { labels: [], clean: [], listed: [] };
+    mkBar('ao-chart-bca-stack', det.labels, [
+      { label: 'Clean',  data: det.clean  || [], backgroundColor: '#10B981' },
+      { label: 'Listed', data: det.listed || [], backgroundColor: '#EF4444' },
+    ], true);
+  }
+
+  function renderReputation(d) {
+    const s = d.summary || {};
+    // view key is total_checks not total
+    const total = s.total_checks || 0;
+    setText('ra-total',    fmt(total));
+    setText('ra-avg',      s.avg_score != null ? parseFloat(s.avg_score).toFixed(0) : '—');
+    setText('ra-good',     fmt(s.good));
+    setText('ra-medium',   fmt(s.medium));
+    setText('ra-poor',     fmt(s.poor));
+    setText('ra-critical', fmt(s.critical));
+    const denom = total || 1;
+    setText('ra-good-pct',  pct((s.good     || 0) / denom * 100));
+    setText('ra-med-pct',   pct((s.medium   || 0) / denom * 100));
+    setText('ra-poor-pct',  pct((s.poor     || 0) / denom * 100));
+    setText('ra-crit-pct',  pct((s.critical || 0) / denom * 100));
+
+    const c = d.charts || {};
+    // c.distribution = {good, medium, poor, critical}
+    const dist = c.distribution || {};
+    mkDonut('ao-chart-ra-dist',
+      ['Good', 'Medium', 'Poor', 'Critical'],
+      [dist.good||s.good||0, dist.medium||s.medium||0, dist.poor||s.poor||0, dist.critical||s.critical||0],
+      ['#10B981', '#F59E0B', '#EF4444', '#B91C1C']
+    );
+    // c.trend = {labels, data}
+    const trend = c.trend || { labels: [], data: [] };
+    mkLine('ao-chart-ra-trend', trend.labels, [
+      { label: 'Avg Score', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    // c.type = {domain: N, ip: N}  — single counts
+    const typeData = c.type || { domain: 0, ip: 0 };
+    mkBar('ao-chart-ra-type', ['Domain', 'IP'], [
+      { label: 'Data Points', data: [typeData.domain || 0, typeData.ip || 0],
+        backgroundColor: ['#3B82F6', '#8B5CF6'] },
+    ]);
+    // c.risk = {labels, good, medium, poor, critical}
+    const risk = c.risk || { labels: [], good: [], medium: [], poor: [], critical: [] };
+    mkBar('ao-chart-ra-risk', risk.labels, [
+      { label: 'Good',     data: risk.good     || [], backgroundColor: '#10B981' },
+      { label: 'Medium',   data: risk.medium   || [], backgroundColor: '#F59E0B' },
+      { label: 'Poor',     data: risk.poor     || [], backgroundColor: '#EF4444' },
+      { label: 'Critical', data: risk.critical || [], backgroundColor: '#B91C1C' },
+    ], true);
+  }
+
+  function renderDmarc(d) {
+    const s = d.summary || {};
+    setText('dma-total',     fmt(s.total));
+    setText('dma-rate',      pct(s.pass_rate));
+    setText('dma-spf',       fmt(s.spf_pass));
+    setText('dma-dkim',      fmt(s.dkim_pass));
+    setText('dma-dmarc',     fmt(s.dmarc_pass));
+    setText('dma-failed',    fmt(s.failed));
+    const total = s.total || 1;
+    setText('dma-spf-pct',   pct((s.spf_pass  || 0) / total * 100));
+    setText('dma-dkim-pct',  pct((s.dkim_pass || 0) / total * 100));
+    setText('dma-dmarc-pct', pct((s.dmarc_pass|| 0) / total * 100));
+    setText('dma-fail-pct',  pct((s.failed    || 0) / total * 100));
+
+    const c = d.charts || {};
+    // c.distribution = {pass, fail}
+    const dist = c.distribution || {};
+    mkDonut('ao-chart-dma-dist',
+      ['Pass', 'Fail'],
+      [dist.pass||s.dmarc_pass||0, dist.fail||s.failed||0],
+      ['#10B981', '#EF4444']
+    );
+    // c.trend = {labels, data}
+    const trend = c.trend || { labels: [], data: [] };
+    mkLine('ao-chart-dma-trend', trend.labels, [
+      { label: 'Checks', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    // c.auth = {spf, dkim, dmarc}
+    const auth = c.auth || {};
+    mkBar('ao-chart-dma-proto',
+      ['SPF Pass', 'DKIM Pass', 'DMARC Pass'],
+      [{ label: 'Count', data: [auth.spf||s.spf_pass||0, auth.dkim||s.dkim_pass||0, auth.dmarc||s.dmarc_pass||0],
+         backgroundColor: ['#3B82F6','#8B5CF6','#10B981'] }]
+    );
+    // c.policy = {none, quarantine, reject, unknown}
+    const pol = c.policy || {};
+    mkDonut('ao-chart-dma-policy',
+      ['None', 'Quarantine', 'Reject', 'Unknown'],
+      [pol.none||0, pol.quarantine||0, pol.reject||0, pol.unknown||0],
+      ['#6B7280', '#F59E0B', '#EF4444', '#9CA3AF']
+    );
+  }
+
+  function renderHeader(d) {
+    const s = d.summary || {};
+    setText('haa-total',  fmt(s.total));
+    setText('haa-clean',  fmt(s.clean));
+    setText('haa-issues', fmt(s.issues_found));
+    setText('haa-spam',   fmt(s.spam_risk));
+    setText('haa-spf',    fmt(s.spf_pass));
+    setText('haa-dkim',   fmt(s.dkim_pass));
+
+    const c = d.charts || {};
+    // c.distribution = {clean, warning, failed}
+    const dist = c.distribution || {};
+    mkDonut('ao-chart-haa-dist',
+      ['Clean', 'Issues', 'Spam Risk'],
+      [dist.clean||0, dist.warning||s.issues_found||0, dist.failed||s.spam_risk||0],
+      ['#10B981', '#F59E0B', '#EF4444']
+    );
+    // c.trend = {labels, data}
+    const trend = c.trend || { labels: [], data: [] };
+    mkLine('ao-chart-haa-trend', trend.labels, [
+      { label: 'Analyses', data: trend.data, borderColor: '#6366F1', backgroundColor: 'rgba(99,102,241,.1)' },
+    ]);
+    // c.auth = {spf, dkim, dmarc}
+    const auth = c.auth || {};
+    mkBar('ao-chart-haa-auth',
+      ['SPF Pass', 'DKIM Pass'],
+      [{ label: 'Count', data: [auth.spf||s.spf_pass||0, auth.dkim||s.dkim_pass||0],
+         backgroundColor: ['#3B82F6','#8B5CF6'] }]
+    );
+    // c.issues = {labels, spam, auth, format, security}
+    const issues = c.issues || { labels: [], spam: [], auth: [] };
+    mkBar('ao-chart-haa-risk', issues.labels, [
+      { label: 'Spam',   data: issues.spam   || [], backgroundColor: '#EF4444' },
+      { label: 'Auth',   data: issues.auth   || [], backgroundColor: '#F59E0B' },
+      { label: 'Format', data: issues.format || [], backgroundColor: '#6B7280' },
+    ], true);
+  }
+
+  const RENDERERS = {
+    validation: renderValidation,
+    campaign:   renderCampaign,
+    blocklist:  renderBlocklist,
+    reputation: renderReputation,
+    dmarc:      renderDmarc,
+    header:     renderHeader,
+  };
+
+  function renderSection(section, data) {
+    const fn = RENDERERS[section];
+    if (fn) fn(data);
+    initialized.add(section);
+  }
+
+  /* ── Tab switching ──────────────────────────────────────────────── */
+  function activateSection(section) {
+    document.querySelectorAll('.ao-section').forEach(el => el.classList.remove('ao-section--active'));
+    document.querySelectorAll('.ao-tab').forEach(el => el.classList.remove('ao-tab--active'));
+    document.getElementById('ao-section-' + section).classList.add('ao-section--active');
+    document.querySelector('.ao-tab[data-section="' + section + '"]').classList.add('ao-tab--active');
+    activeSection = section;
+    localStorage.setItem('analytics_section', section);
+    if (!initialized.has(section)) {
+      fetchSection(section);
+    }
+  }
+
+  document.querySelectorAll('.ao-tab').forEach(btn => {
+    btn.addEventListener('click', () => activateSection(btn.dataset.section));
+  });
+
+  /* ── Full Page links — keep preset in sync ──────────────────────── */
+  function updateFullPageLinks() {
+    document.querySelectorAll('.ao-full-link[data-base]').forEach(a => {
+      const url = new URL(a.dataset.base, location.origin);
+      if (activePreset === 'custom') {
+        url.searchParams.set('preset', 'custom');
+        url.searchParams.set('date_from', customFrom);
+        url.searchParams.set('date_to',   customTo);
+      } else {
+        url.searchParams.set('preset', activePreset);
+      }
+      a.href = url.toString();
+      a.addEventListener('click', () => {
+        localStorage.setItem('analytics_section', activeSection);
+      }, { once: false });
+    });
+  }
+
+  /* ── Date pills ─────────────────────────────────────────────────── */
+  document.querySelectorAll('.ao-pill[data-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.ao-pill[data-preset]').forEach(b => b.classList.remove('ao-pill--active'));
+      btn.classList.add('ao-pill--active');
+      activePreset = btn.dataset.preset;
+      const custom = document.getElementById('aoCustomDates');
+      if (activePreset === 'custom') { custom.classList.add('visible'); return; }
+      custom.classList.remove('visible');
+      localStorage.setItem('analytics_preset', activePreset);
+      updateFullPageLinks();
+      refreshAll();
+    });
+  });
+
+  document.getElementById('aoDateApply').addEventListener('click', () => {
+    customFrom = document.getElementById('aoDateFrom').value;
+    customTo   = document.getElementById('aoDateTo').value;
+    if (customFrom && customTo) {
+      localStorage.setItem('analytics_preset',    'custom');
+      localStorage.setItem('analytics_date_from', customFrom);
+      localStorage.setItem('analytics_date_to',   customTo);
+      updateFullPageLinks();
+      refreshAll();
+    }
+  });
+
+  function refreshAll() {
+    initialized.clear();
+    sectionData[activeSection] = null;
+    fetchSection(activeSection);
+  }
+
+  /* ── Boot: apply saved filter from localStorage ──────────────────── */
+  (function () {
+    const saved = localStorage.getItem('analytics_preset');
+    if (saved) {
+      activePreset = saved;
+      if (saved === 'custom') {
+        const f = localStorage.getItem('analytics_date_from') || '';
+        const t = localStorage.getItem('analytics_date_to')   || '';
+        if (f && t) {
+          customFrom = f; customTo = t;
+          document.getElementById('aoDateFrom').value = f;
+          document.getElementById('aoDateTo').value   = t;
+          document.getElementById('aoCustomDates').classList.add('visible');
+        }
+      }
+      document.querySelectorAll('.ao-pill[data-preset]').forEach(b => {
+        b.classList.toggle('ao-pill--active', b.dataset.preset === saved);
+      });
+    }
+  })();
+
+  updateFullPageLinks();
+  const _startSection = localStorage.getItem('analytics_section') || 'validation';
+  activateSection(_startSection);
+})();
+</script>
+{% endblock %}

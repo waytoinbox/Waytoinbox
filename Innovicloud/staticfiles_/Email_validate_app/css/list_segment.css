@@ -1,0 +1,186 @@
+/* ══════════════════════════════════════════════════════
+   list_segment.css
+   Lists & Segments page — light + dark theme
+   ══════════════════════════════════════════════════════ */
+
+.ls-page { display: flex; flex-direction: column; gap: 24px; }
+
+/* ── HEADER ──────────────────────────────────────────── */
+.ls-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.ls-header h2 { font-family: var(--font-head); font-size: 20px; font-weight: 800; color: var(--ink); margin: 0; }
+.ls-header p  { font-size: 13.5px; color: var(--ink-3); margin: 4px 0 0; }
+
+/* ── TABLE CARD ──────────────────────────────────────── */
+.ls-card {
+  background: #fff; border: 1.5px solid var(--border);
+  border-radius: var(--radius-lg); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.ls-table-wrap { overflow-x: auto; }
+.ls-card table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.ls-card thead th {
+  padding: 11px 20px; text-align: left;
+  font-family: var(--font-head); font-size: 11px; font-weight: 700;
+  letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+  background: var(--bg-2); border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ls-card tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+.ls-card tbody tr:last-child { border-bottom: none; }
+.ls-card tbody tr:hover { background: var(--bg-2); }
+.ls-card tbody td { padding: 13px 20px; color: var(--ink-2); vertical-align: middle; }
+.ls-card tbody td:first-child { font-family: monospace; font-size: 12px; color: var(--ink-3); }
+.ls-card tbody td:last-child { width: 40px; padding: 0 12px; text-align: center; position: relative; }
+
+/* ── LIST NAME LINK ──────────────────────────────────── */
+.ls-name-link {
+  font-family: var(--font-head); font-weight: 700; color: var(--teal);
+  text-decoration: none; transition: color .18s;
+}
+.ls-name-link:hover { color: var(--teal-dk); text-decoration: underline; }
+
+/* ── TAG BADGE ───────────────────────────────────────── */
+.ls-tag {
+  display: inline-block; font-size: 12px;
+  color: var(--ink-3); margin-right: 4px;
+}
+
+/* ── EMPTY STATE ─────────────────────────────────────── */
+.ls-empty { text-align: center; padding: 60px 16px; color: var(--ink-3); }
+.ls-empty i { font-size: 36px; margin-bottom: 14px; display: block; color: var(--teal); opacity: .5; }
+.ls-empty strong { color: var(--ink); }
+
+/* ── DELETE INLINE CONFIRM ───────────────────────────── */
+.ls-view-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 13px; border-radius: var(--radius-sm);
+  border: 1px solid var(--teal); color: var(--teal);
+  background: none; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: background .18s, color .18s;
+  white-space: nowrap;
+}
+.ls-view-btn:hover { background: var(--teal); color: #fff; }
+
+[data-theme="dark"] .ls-view-btn:hover { background: var(--teal); color: #fff; }
+
+.sv-del-btn {
+  background: none; border: none; color: #C94A1D;
+  cursor: pointer; font-size: 14px; padding: 6px 10px;
+  border-radius: var(--radius-sm); transition: all .18s;
+}
+.sv-del-btn:hover { background: #FFF3EF; }
+.sv-confirm {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-2); white-space: nowrap;
+}
+.sv-confirm-yes, .sv-confirm-no {
+  border: none; border-radius: 5px; width: 22px; height: 22px;
+  cursor: pointer; font-size: 11px; font-weight: 700;
+}
+.sv-confirm-yes { background: #C94A1D; color: #fff; }
+.sv-confirm-yes:hover { background: #A83A18; }
+.sv-confirm-no  { background: var(--bg-2); color: var(--ink-2); border: 1px solid var(--border); }
+.sv-confirm-no:hover { background: var(--bg-3); }
+
+/* ── MODAL ───────────────────────────────────────────── */
+.ls-modal-overlay {
+  display: none; position: fixed; inset: 0;
+  background: rgba(11,30,61,.5); backdrop-filter: blur(4px);
+  z-index: 1000; align-items: center; justify-content: center; padding: 20px;
+}
+.ls-modal-overlay.open { display: flex; }
+.ls-modal {
+  background: #fff; border-radius: var(--radius-xl);
+  width: 100%; max-width: 460px;
+  padding: 30px 30px 26px; box-shadow: var(--shadow-lg);
+  position: relative; animation: evFadeIn .3s ease;
+}
+.ls-modal h3 {
+  font-family: var(--font-head); font-size: 18px; font-weight: 800;
+  color: var(--ink); margin: 0 0 20px;
+  display: flex; align-items: center;
+}
+.ls-modal-close {
+  position: absolute; top: 16px; right: 18px;
+  background: rgba(0,0,0,.06); border: none;
+  width: 28px; height: 28px; border-radius: 50%;
+  font-size: 16px; color: var(--ink-2); cursor: pointer; transition: background .15s;
+}
+.ls-modal-close:hover { background: rgba(0,0,0,.12); }
+
+/* ── FORM FIELDS ─────────────────────────────────────── */
+.ls-form-group { margin-bottom: 18px; }
+.ls-form-group label {
+  display: block; font-family: var(--font-head); font-size: 12px;
+  font-weight: 700; letter-spacing: .04em; color: var(--ink-2); margin-bottom: 7px;
+}
+.ls-form-group input {
+  width: 100%; box-sizing: border-box;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 11px 14px; font-size: 14px; color: var(--ink);
+  font-family: var(--font-body); background: var(--bg);
+  outline: none; transition: border-color .2s;
+}
+.ls-form-group input:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,153,204,.12); }
+.ls-form-group small { display: block; margin-top: 6px; font-size: 12px; color: var(--ink-3); }
+.ls-form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+
+.btn-cancel {
+  padding: 10px 18px; border-radius: var(--radius-sm);
+  border: 1.5px solid var(--border); background: #fff;
+  font-family: var(--font-head); font-size: 13.5px; font-weight: 600;
+  color: var(--ink-2); cursor: pointer; transition: all .18s;
+}
+.btn-cancel:hover { background: var(--bg-2); }
+.btn-submit {
+  padding: 10px 20px; border-radius: var(--radius-sm);
+  background: var(--teal); color: #fff; border: none;
+  font-family: var(--font-head); font-size: 13.5px; font-weight: 700;
+  cursor: pointer; transition: all .2s;
+  box-shadow: 0 4px 14px rgba(0,153,204,.3);
+  display: inline-flex; align-items: center; gap: 8px;
+}
+.btn-submit:hover { background: var(--teal-dk); transform: translateY(-1px); }
+.btn-submit:disabled { opacity: .7; cursor: not-allowed; transform: none; }
+
+.ls-error {
+  color: #C94A1D; font-size: 13px; margin-top: 10px;
+  display: none; background: #FFF3EF; border: 1px solid rgba(255,107,53,.25);
+  padding: 9px 12px; border-radius: var(--radius-sm);
+}
+
+/* ── NO-CONTACTS POPUP ───────────────────────────────── */
+.ls-empty-icon-wrap { margin-bottom: 16px; }
+.ls-empty-icon-wrap i { font-size: 40px; color: var(--teal); }
+
+/* ── CONSENT BOX ─────────────────────────────────────── */
+.ls-consent-box {
+  background: var(--bg-2); border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 18px;
+}
+.ls-consent-box label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
+.ls-consent-box input[type="checkbox"] {
+  width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; accent-color: var(--teal);
+}
+.ls-consent-box .consent-text { font-size: 13px; color: var(--ink-2); line-height: 1.55; }
+.ls-consent-box .consent-text strong { color: var(--ink); }
+.ls-consent-box .consent-text .sub { color: var(--ink-3); }
+
+.ls-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+
+/* ══════════════════════════════════════════════════════
+   DARK MODE OVERRIDES  [data-theme="dark"]
+   ══════════════════════════════════════════════════════ */
+
+[data-theme="dark"] .ls-card,
+[data-theme="dark"] .ls-modal { background: var(--bg-2); }
+
+[data-theme="dark"] .btn-cancel { background: var(--bg-3); }
+[data-theme="dark"] .btn-cancel:hover { background: var(--bg-2); }
+
+[data-theme="dark"] .ls-modal-close { background: rgba(255,255,255,.08); color: var(--ink-3); }
+[data-theme="dark"] .ls-modal-close:hover { background: rgba(255,255,255,.14); }
+
+[data-theme="dark"] .sv-del-btn:hover { background: rgba(201,74,29,.18); }
+
+[data-theme="dark"] .ls-error { background: rgba(201,74,29,.18); border-color: rgba(201,74,29,.3); color: #FF8060; }

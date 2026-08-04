@@ -1,0 +1,73 @@
+/* ══════════════════════════════════════════════════════
+   template_builder.css — Template Builder page
+   ══════════════════════════════════════════════════════ */
+
+.tb-page {
+  display: flex; flex-direction: column; gap: 16px; min-width: 0;
+  height: calc(100vh - var(--nav-h) - 80px);  /* 32px top + 48px bottom padding */
+}
+
+/* ── HEADER ──────────────────────────────────────────── */
+.tb-header {
+  display: flex; align-items: flex-end; gap: 16px; flex-wrap: wrap;
+  background: #fff; border: 1.5px solid var(--border); border-radius: var(--radius-lg);
+  padding: 16px 20px; box-shadow: var(--shadow-sm); flex-shrink: 0;
+}
+.tb-header h2 {
+  font-family: var(--font-head); font-size: 17px; font-weight: 800;
+  color: var(--ink); margin: 0 0 4px; flex: 0 0 100%;
+}
+.tb-form-group { flex: 1; min-width: 180px; }
+.tb-form-group label {
+  display: block; font-family: var(--font-head); font-size: 11.5px;
+  font-weight: 700; letter-spacing: .04em; color: var(--ink-2); margin-bottom: 6px;
+}
+.tb-form-group input {
+  width: 100%; box-sizing: border-box;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 12px; font-size: 13.5px; color: var(--ink);
+  font-family: var(--font-body); background: var(--bg); outline: none;
+  transition: border-color .2s;
+}
+.tb-form-group input:focus {
+  border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,153,204,.12);
+}
+.tb-actions { display: flex; gap: 10px; flex: 0 0 auto; align-self: flex-end; }
+.tb-error { color: #C94A1D; font-size: 12.5px; flex: 0 0 100%; margin: 0; display: none; }
+
+/* ── EDITOR WRAPPER ──────────────────────────────────── */
+.tb-editor-wrap {
+  flex: 1; min-height: 0;
+  border: 1.5px solid var(--border); border-radius: var(--radius-lg);
+  overflow: hidden; box-shadow: var(--shadow-sm);
+}
+#wtibEditor { height: 100%; }
+
+/* ── FULL-PAGE MODE ──────────────────────────────────── */
+body.tb-fullpage .topbar,
+body.tb-fullpage .sidebar,
+body.tb-fullpage .sidebar-overlay { display: none !important; }
+body.tb-fullpage .dash-main       { margin-left: 0 !important; }
+body.tb-fullpage .main-content    { padding: 0 !important; overflow: hidden; }
+body.tb-fullpage .tb-page         { height: 100vh; gap: 0; border-radius: 0; }
+body.tb-fullpage .tb-editor-wrap  { border: none; border-radius: 0; box-shadow: none; }
+
+/* ── MOBILE ──────────────────────────────────────────── */
+@media (max-width: 768px) {
+  .tb-page { height: calc(100vh - var(--nav-h) - 60px); gap: 12px; }
+  .tb-header { padding: 12px 14px; gap: 10px; }
+  .tb-header h2 { font-size: 15px; }
+  .tb-form-group { min-width: 140px; }
+  .tb-actions { width: 100%; }
+  .tb-actions .btn { flex: 1; text-align: center; justify-content: center; }
+}
+
+@media (max-width: 480px) {
+  .tb-page { height: calc(100vh - var(--nav-h) - 48px); gap: 10px; }
+  .tb-form-group { min-width: 100%; }
+}
+
+/* ══════════════════════════════════════════════════════
+   DARK MODE
+   ══════════════════════════════════════════════════════ */
+[data-theme="dark"] .tb-header { background: var(--bg-2); }

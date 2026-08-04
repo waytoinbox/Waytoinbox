@@ -1,0 +1,270 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>{% block title %}Admin Console{% endblock %} — Waytoinbox</title>
+
+  <!-- Theme: apply before paint -->
+  <script>(function(){var t=localStorage.getItem('wti-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}());</script>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com"/>
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"/>
+
+  <!-- Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"/>
+
+  <!-- App CSS -->
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/dark-mode.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/admin.css' %}"/>
+
+  {% block extra_css %}{% endblock %}
+</head>
+<body>
+
+<div class="admin-wrap">
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────── -->
+  <aside class="admin-sidebar" id="adminSidebar">
+
+    <!-- Logo -->
+    <div class="admin-sidebar-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" alt="Waytoinbox"/>
+      <span class="admin-sidebar-logo-text">Wayto<span>inbox</span></span>
+      <span class="admin-sidebar-badge">Admin</span>
+    </div>
+
+    <!-- Navigation -->
+    <nav class="admin-nav" id="adminNav">
+
+      <!-- Overview -->
+      <a href="{% url 'admin_dashboard' %}" class="admin-nav-item" data-url="admin_dashboard">
+        <i class="fas fa-gauge-high"></i>
+        <span class="admin-nav-item-text">Dashboard</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+      <div class="admin-nav-section">Users</div>
+
+      <a href="{% url 'admin_users' %}" class="admin-nav-item" data-url="admin_users">
+        <i class="fas fa-users"></i>
+        <span class="admin-nav-item-text">User Management</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+      <div class="admin-nav-section">Email Services</div>
+
+      <a href="{% url 'admin_validations' %}" class="admin-nav-item" data-url="admin_validations">
+        <i class="fas fa-check-double"></i>
+        <span class="admin-nav-item-text">Email Validation</span>
+      </a>
+      <a href="{% url 'admin_email_verification' %}" class="admin-nav-item" data-url="admin_email_verification">
+        <i class="fas fa-envelope-circle-check"></i>
+        <span class="admin-nav-item-text">Email Verification</span>
+      </a>
+      <a href="{% url 'admin_blocklist' %}" class="admin-nav-item" data-url="admin_blocklist">
+        <i class="fas fa-shield-halved"></i>
+        <span class="admin-nav-item-text">Blocklist Monitor</span>
+      </a>
+      <a href="{% url 'admin_reputation' %}" class="admin-nav-item" data-url="admin_reputation">
+        <i class="fas fa-star-half-stroke"></i>
+        <span class="admin-nav-item-text">Domain Reputation</span>
+      </a>
+      <a href="{% url 'admin_headers' %}" class="admin-nav-item" data-url="admin_headers">
+        <i class="fas fa-code"></i>
+        <span class="admin-nav-item-text">Header Analyzer</span>
+      </a>
+      <a href="{% url 'admin_dmarc' %}" class="admin-nav-item" data-url="admin_dmarc">
+        <i class="fas fa-lock"></i>
+        <span class="admin-nav-item-text">DMARC Analyzer</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+      <div class="admin-nav-section">Campaigns</div>
+
+      <a href="{% url 'admin_campaigns' %}" class="admin-nav-item" data-url="admin_campaigns">
+        <i class="fas fa-paper-plane"></i>
+        <span class="admin-nav-item-text">Campaign Management</span>
+      </a>
+      <a href="{% url 'admin_lists' %}" class="admin-nav-item" data-url="admin_lists">
+        <i class="fas fa-list"></i>
+        <span class="admin-nav-item-text">Lists &amp; Segments</span>
+      </a>
+      <a href="{% url 'admin_email_templates' %}" class="admin-nav-item" data-url="admin_email_templates">
+        <i class="fas fa-file-code"></i>
+        <span class="admin-nav-item-text">Templates</span>
+      </a>
+      <a href="{% url 'admin_analytics' %}" class="admin-nav-item" data-url="admin_analytics">
+        <i class="fas fa-chart-line"></i>
+        <span class="admin-nav-item-text">Campaign Analytics</span>
+      </a>
+      <a href="{% url 'admin_suppression' %}" class="admin-nav-item" data-url="admin_suppression">
+        <i class="fas fa-ban"></i>
+        <span class="admin-nav-item-text">Suppression Lists</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+      <div class="admin-nav-section">Billing</div>
+
+      <a href="{% url 'admin_payments' %}" class="admin-nav-item" data-url="admin_payments">
+        <i class="fas fa-credit-card"></i>
+        <span class="admin-nav-item-text">Payments</span>
+      </a>
+      <a href="{% url 'admin_subscriptions' %}" class="admin-nav-item" data-url="admin_subscriptions">
+        <i class="fas fa-repeat"></i>
+        <span class="admin-nav-item-text">Subscriptions</span>
+      </a>
+      <a href="{% url 'admin_coupons' %}" class="admin-nav-item" data-url="admin_coupons">
+        <i class="fas fa-tag"></i>
+        <span class="admin-nav-item-text">Coupons</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+      <div class="admin-nav-section">Operations</div>
+
+      <a href="{% url 'admin_notifications' %}" class="admin-nav-item" data-url="admin_notifications">
+        <i class="fas fa-bell"></i>
+        <span class="admin-nav-item-text">Notifications</span>
+      </a>
+      <a href="{% url 'admin_reports' %}" class="admin-nav-item" data-url="admin_reports">
+        <i class="fas fa-file-chart-column"></i>
+        <span class="admin-nav-item-text">Reports</span>
+      </a>
+      <a href="{% url 'admin_audit' %}" class="admin-nav-item" data-url="admin_audit">
+        <i class="fas fa-clipboard-list"></i>
+        <span class="admin-nav-item-text">Audit Logs</span>
+      </a>
+      <a href="{% url 'admin_system' %}" class="admin-nav-item" data-url="admin_system">
+        <i class="fas fa-server"></i>
+        <span class="admin-nav-item-text">System Monitoring</span>
+      </a>
+      <a href="{% url 'admin_settings' %}" class="admin-nav-item" data-url="admin_settings">
+        <i class="fas fa-sliders"></i>
+        <span class="admin-nav-item-text">Settings</span>
+      </a>
+
+      <div class="admin-nav-divider"></div>
+
+      <a href="{% url 'admin_profile' %}" class="admin-nav-item" data-url="admin_profile">
+        <i class="fas fa-circle-user"></i>
+        <span class="admin-nav-item-text">Profile</span>
+      </a>
+      <a href="{% url 'logout' %}" class="admin-nav-item">
+        <i class="fas fa-right-from-bracket"></i>
+        <span class="admin-nav-item-text">Logout</span>
+      </a>
+
+    </nav>
+  </aside>
+
+  <!-- ── Main ──────────────────────────────────────────────────────── -->
+  <div class="admin-main">
+
+    <!-- Topbar -->
+    <div class="admin-topbar">
+      <div class="admin-topbar-breadcrumb">
+        <a href="{% url 'admin_dashboard' %}">Admin</a>
+        <span class="sep"><i class="fas fa-chevron-right" style="font-size:9px;"></i></span>
+        {% block breadcrumb %}<span class="current">Dashboard</span>{% endblock %}
+      </div>
+
+      <div class="admin-topbar-right">
+        <!-- Theme toggle -->
+        <button class="admin-theme-btn" id="adminThemeBtn" title="Toggle theme">
+          <i class="fas fa-moon" id="adminThemeIcon"></i>
+        </button>
+
+        <!-- View site -->
+        <a href="{% url 'home' %}" class="btn-admin btn-admin-outline btn-admin-sm" target="_blank" title="View site">
+          <i class="fas fa-arrow-up-right-from-square"></i>
+          <span>Site</span>
+        </a>
+
+        <!-- User chip -->
+        <div class="admin-user-chip">
+          <div class="admin-user-avatar" id="adminAvatarInitial">A</div>
+          <span id="adminUserEmail">Admin</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Page content -->
+    <div class="admin-content">
+      {% block content %}{% endblock %}
+    </div>
+
+  </div><!-- /.admin-main -->
+
+</div><!-- /.admin-wrap -->
+
+<!-- Confirm modal (shared) -->
+<div class="admin-modal-backdrop" id="adminConfirmModal">
+  <div class="admin-modal">
+    <div class="admin-modal-title" id="adminConfirmTitle">Confirm Action</div>
+    <div class="admin-modal-body"  id="adminConfirmBody">Are you sure?</div>
+    <div class="admin-modal-actions">
+      <button class="btn-admin btn-admin-outline" id="adminConfirmCancel">Cancel</button>
+      <button class="btn-admin btn-admin-danger"  id="adminConfirmOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast container (shared with WTI) -->
+<div id="wti-toast-container" aria-live="polite" aria-atomic="false"
+     style="position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem;max-width:360px;pointer-events:none;"></div>
+
+{% load static %}
+<script src="{% static 'Email_validate_app/js/wti_toast.js' %}"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script src="{% static 'Email_validate_app/js/admin.js' %}"></script>
+
+<script>
+(function() {
+  // ── Active nav link ─────────────────────────────────────────────
+  var path = window.location.pathname;
+  document.querySelectorAll('.admin-nav-item[data-url]').forEach(function(el) {
+    var href = el.getAttribute('href');
+    if (href && path.startsWith(href) && href !== '/') {
+      el.classList.add('active');
+    }
+  });
+
+  // ── Theme toggle ────────────────────────────────────────────────
+  var html = document.documentElement;
+  var icon = document.getElementById('adminThemeIcon');
+  function syncIcon() {
+    if (html.getAttribute('data-theme') === 'dark') {
+      icon.className = 'fas fa-sun';
+    } else {
+      icon.className = 'fas fa-moon';
+    }
+  }
+  syncIcon();
+  document.getElementById('adminThemeBtn').addEventListener('click', function() {
+    if (html.getAttribute('data-theme') === 'dark') {
+      html.removeAttribute('data-theme');
+      localStorage.setItem('wti-theme', 'light');
+    } else {
+      html.setAttribute('data-theme', 'dark');
+      localStorage.setItem('wti-theme', 'dark');
+    }
+    syncIcon();
+  });
+
+  // ── User chip ───────────────────────────────────────────────────
+  var email = '{{ request.session.logged_in|default:""|escapejs }}';
+  if (email) {
+    document.getElementById('adminUserEmail').textContent = email.split('@')[0];
+    document.getElementById('adminAvatarInitial').textContent = email[0].toUpperCase();
+  }
+})();
+</script>
+
+{% block extra_js %}{% endblock %}
+
+</body>
+</html>

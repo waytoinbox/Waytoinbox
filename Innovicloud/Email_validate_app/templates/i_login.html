@@ -1,0 +1,151 @@
+﻿{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Login - Waytoinbox</title>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <link rel="icon" href="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" type="image/png"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/components.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <style>
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: var(--bg);
+      box-sizing: border-box;
+    }
+  </style>
+</head>
+<body>
+
+<div class="login-card">
+
+  <!-- â”€â”€ LEFT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <div class="login-left">
+    <div class="login-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" alt="Waytoinbox" style="width:36px;height:36px;object-fit:contain;"/>
+      <span class="login-logo-name">Wayto<span>inbox</span></span>
+    </div>
+
+    <div class="login-hero">
+      <h2>Welcome back to Waytoinbox</h2>
+      <p>Verify emails, monitor your sender reputation, and keep your lists clean &ndash; all in one place.</p>
+      <a href="{% url 'signup' %}" class="login-signup-link">
+        Don’t have an account? Sign up free &rarr;
+      </a>
+    </div>
+
+    <div class="login-stats">
+      <div>
+        <span class="login-stat-val">50M+</span>
+        <span class="login-stat-lbl">Emails verified</span>
+      </div>
+      <div>
+        <span class="login-stat-val">99%</span>
+        <span class="login-stat-lbl">Accuracy rate</span>
+      </div>
+      <div>
+        <span class="login-stat-val">60+</span>
+        <span class="login-stat-lbl">Blocklist sources</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- â”€â”€ RIGHT â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ -->
+  <div class="login-right">
+    <div class="login-right-head">
+      <h1>Sign in</h1>
+      <p>Enter your credentials to access your account.</p>
+    </div>
+
+    <div id="loginAlert"></div>
+
+    <form id="loginForm">
+      {% csrf_token %}
+
+      <div class="login-field">
+        <label class="login-label" for="email">Email address</label>
+        <input
+          class="login-input" type="email"
+          name="email" id="email"
+          placeholder="you@company.com"
+          required autocomplete="off"
+        />
+      </div>
+
+      <div class="login-field">
+        <label class="login-label" for="password">Password</label>
+        <div class="login-input-wrap">
+          <input
+            class="login-input" type="password"
+            name="password" id="password"
+            placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+            required autocomplete="off"
+            style="padding-right:42px"
+          />
+          <i class="fa-solid fa-eye-slash login-toggle-pw" id="togglePassword"></i>
+        </div>
+      </div>
+
+      <div class="login-row">
+        <a href="{% url 'forgot_password' %}" class="login-forgot">Forgot password?</a>
+      </div>
+
+      <button type="submit" class="login-btn">
+        <i class="fas fa-sign-in-alt"></i> Sign in
+      </button>
+    </form>
+
+    <a href="{% url 'home' %}" class="login-home-link">
+      <i class="fas fa-arrow-left"></i> Back to home
+    </a>
+  </div>
+
+</div>
+
+<script>
+/* Password toggle */
+document.getElementById('togglePassword').addEventListener('click', function() {
+  const pw = document.getElementById('password');
+  const isHidden = pw.type === 'password';
+  pw.type = isHidden ? 'text' : 'password';
+  this.classList.toggle('fa-eye-slash', !isHidden);
+  this.classList.toggle('fa-eye', isHidden);
+});
+
+/* Login fetch */
+document.getElementById('loginForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const alertEl = document.getElementById('loginAlert');
+  const btn     = this.querySelector('button[type=submit]');
+  alertEl.innerHTML = '';
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Signing in...';
+
+  try {
+    const res  = await fetch("{% url 'login' %}", { method: 'POST', body: new FormData(this) });
+    const data = await res.json();
+    if (data.status === 'ok') {
+      window.location.href = data.redirect;
+    } else {
+      const cls = data.status === 'warning' ? 'warning' : 'error';
+      alertEl.innerHTML = `<div class="login-alert login-alert--${cls}">${data.message}</div>`;
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign in';
+    }
+  } catch (err) {
+    alertEl.innerHTML = `<div class="login-alert login-alert--error">Something went wrong. Please try again.</div>`;
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Sign in';
+  }
+});
+</script>
+
+</body>
+</html>

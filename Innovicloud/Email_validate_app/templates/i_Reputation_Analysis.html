@@ -1,0 +1,504 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/reputation_analysis.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+<style>
+.cp-pag{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;}
+.cp-pag-info{color:var(--ink-3);}
+.cp-pag-btns{display:flex;align-items:center;gap:10px;}
+.cp-pag-btn{display:inline-flex;align-items:center;gap:5px;padding:5px 13px;border-radius:6px;border:1px solid var(--border);background:var(--bg);color:var(--ink-2);font-size:13px;cursor:pointer;transition:background .15s;}
+.cp-pag-btn:hover:not(.disabled){background:var(--bg-2);color:var(--ink);}
+.cp-pag-btn.disabled{opacity:.45;cursor:default;pointer-events:none;}
+.cp-pag-cur{font-size:13px;color:var(--ink-3);min-width:48px;text-align:center;}
+</style>
+{% endblock %}
+{% block content %}
+
+
+<div class="ra-page">
+
+  <!-- ── FORM CARD ─────────────────────────────────────── -->
+  <div class="ra-form-card">
+    <div class="ra-card-head">
+      <div class="ra-card-icon">📊</div>
+      <div>
+        <h2>Reputation Analysis</h2>
+        <p>Analyze domain & IP reputation, spam rate, and delivery metrics to protect your sending reputation.</p>
+      </div>
+    </div>
+
+    <!-- Credit bar -->
+    <div class="ra-credit-bar" id="raCreditBar">
+      <i class="fas fa-coins ra-credit-icon"></i>
+      <div class="ra-credit-info">
+        <div class="ra-credit-label">
+          Analysis Credits <span id="raCreditText">{{ ac_current_credits }} / {{ ac_total_credits }}</span>
+        </div>
+        <div class="ra-credit-track">
+          <div class="ra-credit-fill" id="raCreditFill"></div>
+        </div>
+        {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
+      </div>
+      <span class="ra-credit-badge" id="raCreditBadge"></span>
+    </div>
+
+    <div id="ra-alert-area"></div>
+
+    <form id="raForm" novalidate>
+      {% csrf_token %}
+      <div class="ra-form">
+        <input
+          class="ra-input" type="text"
+          id="domain_input" name="domain_input"
+          placeholder="Enter domain (e.g. yourdomain.com)"
+          autocomplete="off" required
+        />
+        <button type="submit" class="ra-btn" id="raBtn">
+          <i class="fas fa-chart-line"></i> Analyze Domain
+        </button>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── RESULTS CARD ──────────────────────────────────── -->
+  <div class="ra-results-card">
+    <div class="ra-results-head">
+      <h3>Domain Reputation Report</h3>
+      <span class="ra-count-badge" id="raCount">0 Domains</span>
+    </div>
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_show_date=True pf_search_placeholder="Search domains…" %}
+    <div class="ra-table-wrap">
+      <table class="ra-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Domain</th>
+            <th>Status</th>
+            <th>Added</th>
+            <th>Last Checked</th>
+            <th>Actions</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="raTableBody">
+          <tr>
+            <td colspan="6" style="padding:0;border:none">
+              <div class="ra-empty">
+                <div class="ra-empty-icon">📊</div>
+                <h4>No reputation data yet</h4>
+                <p>Analyze a domain above to view reputation details.</p>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cp-pag" id="raPagBar">
+      <span class="cp-pag-info" id="raPagInfo"></span>
+      <div class="cp-pag-btns">
+        <button class="cp-pag-btn disabled" id="raPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="cp-pag-cur" id="raPagNum"></span>
+        <button class="cp-pag-btn" id="raNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── DELETE MODAL ──────────────────────────────────────── -->
+<div class="ra-del-modal" id="raDelModal">
+  <div class="ra-del-modal-box">
+    <button class="ev-result__close" onclick="closeRaDelModal()" style="position:absolute;top:16px;right:16px">✕</button>
+    <h4>Remove Record</h4>
+    <p class="ra-del-modal-sub">Type <strong id="raDelTarget"></strong> below to confirm removal.</p>
+    <input class="ra-del-modal-input" type="text" id="raDelInput" placeholder="Type here to confirm" autocomplete="off"/>
+    <div class="ra-del-modal-actions">
+      <button class="ra-del-modal-cancel" onclick="closeRaDelModal()">Cancel</button>
+      <button class="ra-del-modal-confirm" id="raDelConfirmBtn" disabled onclick="doRaHide()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── UNVERIFIED MODAL ──────────────────────────────────── -->
+<div class="ra-unverified-modal" id="raUnverifiedModal">
+  <div class="ra-unverified-box">
+    <div style="font-size:40px;margin-bottom:12px">🔒</div>
+    <h4>Access Required</h4>
+    <p>Domain verification is pending. Please grant access to <strong>johnking13432@gmail.com</strong> or <a href="#" onclick="openContactModal();return false;" style="color:var(--teal);font-weight:600;text-decoration:none;" onmouseover="this.style.textDecoration='underline'" onmouseout="this.style.textDecoration='none'">Contact Us for Support</a> to proceed.</p>
+    <button class="ra-unverified-close" onclick="closeUnverifiedModal()">Close</button>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+/* ── Search + Pagination ─────────────────────────────── */
+var _raPag = null;
+
+function initRaPag() {
+  var tbody   = document.getElementById('raTableBody');
+  var bar     = document.getElementById('raPagBar');
+  var prevBtn = document.getElementById('raPrevBtn');
+  var nextBtn = document.getElementById('raNextBtn');
+  var infoEl  = document.getElementById('raPagInfo');
+  var numEl   = document.getElementById('raPagNum');
+  var PAGE = 15, cur = 1;
+
+  function visibleRows() {
+    return Array.prototype.filter.call(tbody.querySelectorAll('tr'), function(tr) {
+      return tr.dataset.filtered !== 'true' && !tr.querySelector('td[colspan]');
+    });
+  }
+
+  function render() {
+    var all   = visibleRows();
+    var total = all.length;
+    var pages = Math.ceil(total / PAGE) || 1;
+    if (cur > pages) cur = pages;
+    var start = (cur - 1) * PAGE;
+    var end   = Math.min(start + PAGE, total);
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+      if (!tr.querySelector('td[colspan]')) tr.style.display = 'none';
+    });
+    all.forEach(function(tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+    if (infoEl) infoEl.textContent = total ? 'Showing ' + (start + 1) + '–' + end + ' of ' + total : '';
+    if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+    if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+    if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+    if (bar) bar.style.display = total <= PAGE ? 'none' : '';
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', function () { if (cur > 1) { cur--; render(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function () {
+    var pages = Math.ceil(visibleRows().length / PAGE);
+    if (cur < pages) { cur++; render(); }
+  });
+
+  render();
+  _raPag = { refresh: function () { cur = 1; render(); } };
+}
+
+function reNumberRa() {
+  var tbody = document.getElementById('raTableBody');
+  if (!tbody) return;
+  var rows = Array.prototype.filter.call(tbody.querySelectorAll('tr'), function(tr) {
+    return !tr.querySelector('td[colspan]');
+  });
+  rows.forEach(function(tr, i) {
+    var span = tr.querySelector('.ra-id');
+    if (span) span.textContent = i + 1;
+  });
+}
+
+/* ── Credit bar ──────────────────────────────────────── */
+var _raCurrent = {{ ac_current_credits|default:0 }};
+var _raTotal   = {{ ac_total_credits|default:0 }};
+
+function updateCreditBar(current, total) {
+  _raCurrent = current; _raTotal = total;
+  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var fill  = document.getElementById('raCreditFill');
+  var badge = document.getElementById('raCreditBadge');
+  var text  = document.getElementById('raCreditText');
+  var btn   = document.getElementById('raBtn');
+  var input = document.getElementById('domain_input');
+
+  text.textContent = current + ' / ' + total;
+  fill.style.width = pct + '%';
+  fill.className  = 'ra-credit-fill';
+  badge.className = 'ra-credit-badge';
+
+  if (current <= 0) {
+    fill.classList.add('empty'); badge.classList.add('empty');
+    badge.textContent = 'No Credits';
+    btn.disabled = true; input.disabled = true;
+    input.placeholder = 'No credits left — purchase more';
+  } else if (pct <= 20) {
+    fill.classList.add('warn'); badge.classList.add('warn');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false; input.disabled = false;
+    input.placeholder = 'Enter domain (e.g. yourdomain.com)';
+  } else {
+    badge.classList.add('ok');
+    badge.textContent = current + ' credit' + (current !== 1 ? 's' : '') + ' left';
+    btn.disabled = false; input.disabled = false;
+    input.placeholder = 'Enter domain (e.g. yourdomain.com)';
+  }
+}
+
+updateCreditBar(_raCurrent, _raTotal);
+
+/* ── Delete modal ────────────────────────────────────── */
+var _raPendingId  = null;
+var _raPendingRow = null;
+
+function openRaDelModal(recordId, domainValue, row) {
+  _raPendingId  = recordId;
+  _raPendingRow = row;
+  document.getElementById('raDelTarget').textContent = domainValue;
+  document.getElementById('raDelInput').value = '';
+  document.getElementById('raDelConfirmBtn').disabled = true;
+  document.getElementById('raDelModal').classList.add('show');
+  setTimeout(function () { document.getElementById('raDelInput').focus(); }, 50);
+}
+
+function closeRaDelModal() {
+  document.getElementById('raDelModal').classList.remove('show');
+  _raPendingId = null; _raPendingRow = null;
+}
+
+document.getElementById('raDelInput').addEventListener('input', function () {
+  var target = document.getElementById('raDelTarget').textContent;
+  document.getElementById('raDelConfirmBtn').disabled = (this.value !== target);
+});
+
+function doRaHide() {
+  if (!_raPendingId) return;
+  var rowToRemove = _raPendingRow;
+  var recordId    = _raPendingId;
+  closeRaDelModal();
+
+  var fd = new FormData();
+  fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+  fd.append('record_id', recordId);
+  fd.append('record_type', 'reputation');
+
+  fetch('/reputation/hide_row/', { method: 'POST', body: fd })
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      if (data.status === 'ok') {
+        if (rowToRemove) {
+          rowToRemove.style.transition = 'opacity .4s';
+          rowToRemove.style.opacity    = '0';
+          setTimeout(function () { rowToRemove.remove(); updateRowCount(); if (_raPag) _raPag.refresh(); reNumberRa(); }, 400);
+        }
+      } else {
+        WTI.toast(data.message || 'Failed to remove.', 'error');
+      }
+    })
+    .catch(function () { WTI.toast('Something went wrong.', 'error'); });
+}
+
+document.getElementById('raDelModal').addEventListener('click', function (e) {
+  if (e.target === this) closeRaDelModal();
+});
+
+/* ── Unverified modal ────────────────────────────────── */
+function showUnverifiedModal() {
+  document.getElementById('raUnverifiedModal').classList.add('show');
+}
+function closeUnverifiedModal() {
+  document.getElementById('raUnverifiedModal').classList.remove('show');
+}
+document.getElementById('raUnverifiedModal').addEventListener('click', function (e) {
+  if (e.target === this) closeUnverifiedModal();
+});
+
+/* ── Row count ───────────────────────────────────────── */
+function updateRowCount() {
+  var tbody   = document.getElementById('raTableBody');
+  var countEl = document.getElementById('raCount');
+  if (!tbody || !countEl) return;
+  var n = tbody.querySelectorAll('tr').length;
+  countEl.textContent = n + ' Domain' + (n !== 1 ? 's' : '');
+}
+
+/* ── Status cell ─────────────────────────────────────── */
+function buildStatusCell(status) {
+  if (!status || status.toLowerCase() === 'unverified') {
+    return '<span class="ra-status ra-status-unverified"><i class="fas fa-times-circle"></i> Unverified</span>';
+  }
+  return '<span class="ra-status ra-status-verified"><i class="fas fa-check"></i> Verified</span>';
+}
+
+/* ── Action cell ─────────────────────────────────────── */
+function buildActionCell(repId, status) {
+  if (!status || status.toLowerCase() === 'unverified') {
+    return '<button class="ra-overview-btn ra-access-btn" onclick="showUnverifiedModal()"><i class="fas fa-key"></i> Get Access</button>';
+  }
+  return '<a href="/Reputation_Analysis/' + repId + '/" class="ra-overview-btn"><i class="fas fa-chart-bar"></i> Overview</a>';
+}
+
+/* ── Form submit ─────────────────────────────────────── */
+document.getElementById('raForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var btn    = document.getElementById('raBtn');
+  var domain = document.getElementById('domain_input').value.trim();
+  if (!domain) return;
+
+  btn.disabled  = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Analyzing...';
+
+  try {
+    var res  = await fetch('/Reputation_Analysis/', { method: 'POST', body: new FormData(this) });
+    var data = await res.json();
+    if (data.status === 'ok') {
+      WTI.toast("Domain '" + data.domain + "' submitted successfully.", 'success');
+      document.getElementById('domain_input').value = '';
+      raPrependRow(data.rep_id, data.domain, data.rep_status || 'unverified', data.date, data.last_checked || null);
+      if (data.ac_current_credits !== undefined) updateCreditBar(data.ac_current_credits, _raTotal);
+    } else if (data.status === 'warning') {
+      WTI.toast(data.message, 'warning');
+    } else {
+      WTI.toast(data.message || 'Something went wrong.', 'error');
+      if (data.ac_current_credits !== undefined) updateCreditBar(data.ac_current_credits, _raTotal);
+    }
+  } catch (err) {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+  } finally {
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="fas fa-chart-line"></i> Analyze Domain';
+  }
+});
+
+/* ── Prepend row ─────────────────────────────────────── */
+function _fmtDate(d) {
+  return d ? new Date(d).toLocaleDateString(undefined, { year:'numeric', month:'short', day:'numeric' }) : '—';
+}
+function raPrependRow(repId, domain, status, date, lastChecked) {
+  var tbody      = document.getElementById('raTableBody');
+  var dateIso    = date ? date.slice(0, 10) : '';
+  var dateStr    = _fmtDate(date);
+  var lcStr      = _fmtDate(lastChecked);
+  var emptyRow   = tbody.querySelector('td[colspan]');
+  if (emptyRow) emptyRow.closest('tr').remove();
+  var safeDomain = domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  var tr = document.createElement('tr');
+  tr.dataset.search = domain;
+  tr.dataset.status = (status || 'unverified').toLowerCase();
+  tr.dataset.date   = dateIso;
+  tr.innerHTML =
+    '<td data-label="#"><span class="ra-id"></span></td>' +
+    '<td data-label="Domain"><span class="ra-domain">' + domain + '</span></td>' +
+    '<td data-label="Status">' + buildStatusCell(status) + '</td>' +
+    '<td data-label="Added"><span class="ra-date">' + dateStr + '</span></td>' +
+    '<td data-label="Last Checked"><span class="ra-date">' + lcStr + '</span></td>' +
+    '<td data-label="Actions">' + buildActionCell(repId, status) + '</td>' +
+    '<td><button class="sv-del-btn" title="Remove" onclick="openRaDelModal(\'' + repId + '\',\'' + safeDomain + '\',this.closest(\'tr\'))"><i class="fas fa-trash"></i></button></td>';
+  tbody.insertBefore(tr, tbody.firstChild);
+  updateRowCount();
+  if (_raPag) _raPag.refresh();
+  reNumberRa();
+}
+
+/* ── Load on page load ───────────────────────────────── */
+fetch('/get-reputation-data/')
+  .then(function (r) { return r.json(); })
+  .then(function (json) {
+    var tbody   = document.getElementById('raTableBody');
+    var countEl = document.getElementById('raCount');
+    var data    = json.data || [];
+    countEl.textContent = data.length + ' Domain' + (data.length !== 1 ? 's' : '');
+    if (!data.length) return;
+    tbody.innerHTML = data.map(function (item) {
+      var dateIso    = item.date ? item.date.slice(0, 10) : '';
+      var dateStr    = _fmtDate(item.date);
+      var lcStr      = _fmtDate(item.last_checked);
+      var safeDomain = item.domain.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+      var statusVal  = (item.status || 'unverified').toLowerCase();
+      return '<tr data-search="' + item.domain + '" data-status="' + statusVal + '" data-date="' + dateIso + '">' +
+        '<td data-label="#"><span class="ra-id"></span></td>' +
+        '<td data-label="Domain"><span class="ra-domain">' + item.domain + '</span></td>' +
+        '<td data-label="Status">' + buildStatusCell(item.status) + '</td>' +
+        '<td data-label="Added"><span class="ra-date">' + dateStr + '</span></td>' +
+        '<td data-label="Last Checked"><span class="ra-date">' + lcStr + '</span></td>' +
+        '<td data-label="Actions">' + buildActionCell(item.id, item.status) + '</td>' +
+        '<td><button class="sv-del-btn" title="Remove" onclick="openRaDelModal(\'' + item.id + '\',\'' + safeDomain + '\',this.closest(\'tr\'))"><i class="fas fa-trash"></i></button></td>' +
+        '</tr>';
+    }).join('');
+    initRaPag();
+    reNumberRa();
+    applyRaFilters();
+  })
+  .catch(function (err) { console.error('Error loading data:', err); });
+
+function applyRaFilters() {
+  var f = PF.getFilters();
+  var tbody = document.getElementById('raTableBody');
+  Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+    if (tr.querySelector('td[colspan]')) return;
+    var match = PF.matchesSearch(tr.dataset.search || '', f.search)
+              && PF.matchesStatus(tr.dataset.status || '', f.status)
+              && PF.matchesDate(tr.dataset.date || '', f.dateFrom, f.dateTo);
+    tr.dataset.filtered = match ? 'false' : 'true';
+  });
+  if (_raPag) _raPag.refresh();
+}
+
+PF.init({ debounce: 250, urlSync: false });
+PF.wire(applyRaFilters);
+</script>
+
+<!-- ── CONTACT US MODAL ───────────────────────────────────── -->
+<div class="ra-contact-modal" id="raContactModal">
+  <div class="ra-contact-box">
+    <button class="ev-result__close" onclick="closeContactModal()" style="position:absolute;top:16px;right:16px;">✕</button>
+    <h2>Contact Us for Support</h2>
+    <p>We'll get back to you within 24 hours.</p>
+    <div id="ra-contact-flash"></div>
+    <form id="raContactForm">
+      {% csrf_token %}
+      <div class="demo-label">Name</div>
+      <input class="demo-input" type="text" name="name" placeholder="Your name" required style="margin-bottom:12px;"/>
+
+      <div class="demo-label">Email</div>
+      <input class="demo-input" type="email" name="email" placeholder="your@email.com" required style="margin-bottom:12px;"/>
+
+      <div class="demo-label">Message</div>
+      <textarea class="demo-input" name="message" rows="4" placeholder="Describe your issue..." required style="margin-bottom:18px;resize:vertical;height:auto;"></textarea>
+
+      <button type="submit" class="demo-verify-btn" id="raContactSubmitBtn">Send Message →</button>
+    </form>
+  </div>
+</div>
+
+<script>
+/* ── Contact modal ────────────────────────────────────── */
+function openContactModal() {
+  closeUnverifiedModal();
+  document.getElementById('raContactModal').classList.add('show');
+  document.getElementById('ra-contact-flash').innerHTML = '';
+  document.getElementById('raContactForm').reset();
+}
+
+function closeContactModal() {
+  document.getElementById('raContactModal').classList.remove('show');
+}
+
+document.getElementById('raContactModal').addEventListener('click', function(e) {
+  if (e.target === this) closeContactModal();
+});
+
+document.getElementById('raContactForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var flash = document.getElementById('ra-contact-flash');
+  var btn   = document.getElementById('raContactSubmitBtn');
+
+  flash.innerHTML = '';
+  btn.disabled    = true;
+  btn.innerHTML   = 'Sending…';
+
+  var formData = new FormData(this);
+  formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+  try {
+    var res  = await fetch('{% url "contact_us" %}', { method: 'POST', body: formData });
+    var data = await res.json();
+
+    if (data.status === 'ok') {
+      flash.innerHTML = '<div class="ra-alert ra-alert--success" style="margin-bottom:14px">✓ ' + (data.message || 'Message sent! We\'ll get back to you soon.') + '</div>';
+      this.reset();
+      setTimeout(closeContactModal, 2500);
+    } else {
+      flash.innerHTML = '<div class="ra-alert ra-alert--error" style="margin-bottom:14px">' + (data.message || 'Something went wrong.') + '</div>';
+    }
+  } catch (err) {
+    flash.innerHTML = '<div class="ra-alert ra-alert--error" style="margin-bottom:14px">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled  = false;
+    btn.innerHTML = 'Send Message →';
+  }
+});
+</script>
+
+{% endblock %}

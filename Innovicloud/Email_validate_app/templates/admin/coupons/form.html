@@ -1,0 +1,128 @@
+{% extends 'admin/base.html' %}
+{% block title %}{{ title }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_coupons' %}">Coupons</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ title }}</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">{{ title }}</h1>
+    <p class="admin-page-subtitle">{% if coupon %}Editing {{ coupon.code }}{% else %}Create a new coupon code{% endif %}</p>
+  </div>
+  <a href="{% url 'admin_coupons' %}" class="btn-admin btn-admin-outline">
+    <i class="fas fa-arrow-left"></i> Back to Coupons
+  </a>
+</div>
+
+<div class="admin-card" style="max-width:640px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-ticket-alt" style="color:var(--teal);margin-right:6px;"></i>Coupon Details</span>
+  </div>
+  <div style="padding:24px;">
+    <div id="form-msg" style="display:none;margin-bottom:16px;" class="admin-card"></div>
+    <form id="couponForm">
+      {% csrf_token %}
+      <div class="admin-form-group">
+        <label class="admin-form-label">Code <span style="color:var(--red);">*</span></label>
+        <input type="text" name="code" class="admin-input" placeholder="e.g. SAVE20"
+               value="{{ coupon.code|default:'' }}" style="text-transform:uppercase;" required>
+        <small style="color:var(--ink-3);font-size:12px;">Uppercase letters and numbers only. Will be auto-uppercased.</small>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="admin-form-group">
+          <label class="admin-form-label">Discount Type <span style="color:var(--red);">*</span></label>
+          <select name="discount_type" class="admin-input admin-filter-select" required>
+            <option value="percentage" {% if coupon.discount_type == 'percentage' %}selected{% endif %}>Percentage (%)</option>
+            <option value="fixed_credits" {% if coupon.discount_type == 'fixed_credits' %}selected{% endif %}>Fixed Credits</option>
+            <option value="fixed_amount" {% if coupon.discount_type == 'fixed_amount' %}selected{% endif %}>Fixed Amount ($)</option>
+          </select>
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Discount Value <span style="color:var(--red);">*</span></label>
+          <input type="number" name="discount_value" class="admin-input" step="0.01" min="0"
+                 value="{{ coupon.discount_value|default:'' }}" placeholder="e.g. 20" required>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="admin-form-group">
+          <label class="admin-form-label">Max Uses <small style="color:var(--ink-3);">(blank = unlimited)</small></label>
+          <input type="number" name="max_uses" class="admin-input" min="1"
+                 value="{{ coupon.max_uses|default:'' }}" placeholder="Unlimited">
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Status</label>
+          <select name="is_active" class="admin-input admin-filter-select">
+            <option value="1" {% if coupon == None or coupon.is_active %}selected{% endif %}>Active</option>
+            <option value="0" {% if coupon and not coupon.is_active %}selected{% endif %}>Inactive</option>
+          </select>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="admin-form-group">
+          <label class="admin-form-label">Valid From <span style="color:var(--red);">*</span></label>
+          <input type="datetime-local" name="valid_from" class="admin-input"
+                 value="{% if coupon.valid_from %}{{ coupon.valid_from|date:'Y-m-d' }}T{{ coupon.valid_from|time:'H:i' }}{% endif %}" required>
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Valid Until <small style="color:var(--ink-3);">(blank = no expiry)</small></label>
+          <input type="datetime-local" name="valid_until" class="admin-input"
+                 value="{% if coupon.valid_until %}{{ coupon.valid_until|date:'Y-m-d' }}T{{ coupon.valid_until|time:'H:i' }}{% endif %}">
+        </div>
+      </div>
+
+      <div class="admin-form-group">
+        <label class="admin-form-label">Description</label>
+        <textarea name="description" class="admin-input" rows="3" placeholder="Optional internal note…">{{ coupon.description|default:'' }}</textarea>
+      </div>
+
+      <div style="display:flex;gap:12px;justify-content:flex-end;margin-top:8px;">
+        <a href="{% url 'admin_coupons' %}" class="btn-admin btn-admin-outline">Cancel</a>
+        <button type="submit" class="btn-admin btn-admin-primary" id="saveBtn">
+          <i class="fas fa-save"></i> Save Coupon
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+document.getElementById('couponForm').addEventListener('submit', function(e) {
+  e.preventDefault();
+  const btn = document.getElementById('saveBtn');
+  const msg = document.getElementById('form-msg');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+  const data = new FormData(this);
+  WTI.apiFetch('{{ form_action }}', {method:'POST', body: data})
+    .then(r => r.json())
+    .then(res => {
+      if (res.status === 'ok') {
+        WTI.toast(res.message || 'Saved.', 'success');
+        setTimeout(() => window.location = res.data?.redirect || '/wti-admin/coupons/', 800);
+      } else {
+        msg.style.display = 'block';
+        msg.style.padding = '12px 16px';
+        msg.style.color = 'var(--red)';
+        msg.style.borderLeft = '4px solid var(--red)';
+        msg.textContent = res.message || 'An error occurred.';
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save"></i> Save Coupon';
+      }
+    })
+    .catch(() => {
+      WTI.toast('Network error.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Coupon';
+    });
+});
+</script>
+{% endblock %}

@@ -1,0 +1,1044 @@
+﻿{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Waytoinbox — Email Validation & Deliverability Platform</title>
+  <!-- Apply saved theme before CSS renders to prevent flash -->
+  <script>(function(){var t=localStorage.getItem('wti-theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}());</script>
+  <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;1,400&display=swap" rel="stylesheet"/>
+  <link rel="icon" href="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}" type="image/png"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/components.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/tokens-reset-utilities.css' %}"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/layout-nav-hero.css' %}"/>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer"/>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/dark-mode.css' %}"/>
+  <style>
+    .solutions-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:24px;margin-top:40px}
+    .solution-card{background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:28px 28px 24px}
+    .solution-head{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+    .solution-head-icon{font-size:22px;width:42px;height:42px;display:flex;align-items:center;justify-content:center;border-radius:10px;flex-shrink:0}
+    .solution-card h3{font-size:16px;font-weight:700;margin:0;color:var(--ink)}
+    .solution-card>p{font-size:13.5px;color:var(--ink-2);margin:0 0 16px;line-height:1.6}
+    .solution-tools{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:7px}
+    .solution-tools li a{font-size:13.5px;color:var(--teal);text-decoration:none;display:flex;align-items:center;gap:6px}
+    .solution-tools li a::before{content:"→";font-size:11px;opacity:.7}
+    .solution-tools li a:hover{text-decoration:underline}
+    .bl-row{display:flex;align-items:center;justify-content:space-between;padding:9px 14px;border-bottom:1px solid var(--border);font-size:13px}
+    .bl-row:last-of-type{border-bottom:none}
+    .bl-clean{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:#007A5E;font-weight:600}
+    .bl-listed{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;color:#C94A1D;font-weight:600;background:#FFF3EF;border:1px solid rgba(255,107,53,.25);border-radius:5px;padding:2px 8px}
+    .camp-bar-wrap{display:flex;align-items:center;gap:10px;margin:6px 0}
+    .camp-bar-track{flex:1;height:7px;background:var(--border);border-radius:4px;overflow:hidden}
+    .camp-bar-fill{height:100%;border-radius:4px}
+    @media(max-width:640px){.solutions-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<!-- ── NOTICE BAR ──────────────────────────────────────── -->
+<!--div class="notice-bar">
+  <p>🎉 We don't charge credits for "unknown" results — your budget goes further. <a href="#">Here's how →</a></p>
+</div-->
+
+<!-- ── NAV ─────────────────────────────────────────────── -->
+<nav class="nav" id="mainNav">
+  <div class="container nav-inner">
+
+    <a href="#" class="nav-logo">
+      <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}"
+          alt="Waytoinbox" style="width:36px;height:36px;object-fit:contain;"/>
+      Wayto<span>inbox</span>
+    </a>
+
+    <ul class="nav-links">
+      <li><a href="#solutions">Services</a></li>
+      <li class="has-dropdown">
+        <a href="{% url 'dashboard' %}">Tools</a>
+        <div class="dropdown">
+          <!-- Left column -->
+          <div class="dropdown-col">
+            <div class="dropdown-group-label">Email Validation</div>
+            <a href="{% url 'single_service' %}">
+              <span class="dropdown-icon">✉️</span>
+              <span>
+                <span class="dropdown-item-name">Single Email Verify</span>
+                <span class="dropdown-item-desc">Real-time SMTP &amp; MX check</span>
+              </span>
+            </a>
+            <a href="{% url 'services' %}">
+              <span class="dropdown-icon">📋</span>
+              <span>
+                <span class="dropdown-item-name">Bulk Email Verify</span>
+                <span class="dropdown-item-desc">Clean lists up to 500K addresses</span>
+              </span>
+            </a>
+            <div class="dropdown-sep"></div>
+            <div class="dropdown-group-label">Deliverability</div>
+            <a href="{% url 'dmarc_check' %}">
+              <span class="dropdown-icon">📧</span>
+              <span>
+                <span class="dropdown-item-name">DMARC Analysis <span class="dropdown-badge">Free</span></span>
+                <span class="dropdown-item-desc">Check DMARC, SPF &amp; DKIM records</span>
+              </span>
+            </a>
+            <a href="{% url 'Header_Analysis' %}">
+              <span class="dropdown-icon">🔍</span>
+              <span>
+                <span class="dropdown-item-name">Header Analysis</span>
+                <span class="dropdown-item-desc">Debug raw email headers</span>
+              </span>
+            </a>
+            <a href="{% url 'Reputation_Analysis' %}">
+              <span class="dropdown-icon">📊</span>
+              <span>
+                <span class="dropdown-item-name">Reputation Analysis</span>
+                <span class="dropdown-item-desc">Domain reputation &amp; spam rate</span>
+              </span>
+            </a>
+          </div>
+          <!-- Right column -->
+          <div class="dropdown-col">
+            <div class="dropdown-group-label">Blacklist Monitoring</div>
+            <a href="{% url 'Blocklist_Monitor' %}">
+              <span class="dropdown-icon">🛡️</span>
+              <span>
+                <span class="dropdown-item-name">IP Blocklist Monitor</span>
+                <span class="dropdown-item-desc">Watch 60+ global blocklists</span>
+              </span>
+            </a>
+            <a href="{% url 'Domain_Blacklist' %}">
+              <span class="dropdown-icon">🌐</span>
+              <span>
+                <span class="dropdown-item-name">Domain Blacklist</span>
+                <span class="dropdown-item-desc">Check your domain reputation</span>
+              </span>
+            </a>
+            <div class="dropdown-sep"></div>
+            <div class="dropdown-group-label">Email Marketing</div>
+            <a href="{% url 'campaigns' %}">
+              <span class="dropdown-icon">📣</span>
+              <span>
+                <span class="dropdown-item-name">Campaigns</span>
+                <span class="dropdown-item-desc">Send targeted email campaigns</span>
+              </span>
+            </a>
+            <a href="{% url 'sender_verify' %}">
+              <span class="dropdown-icon">🔐</span>
+              <span>
+                <span class="dropdown-item-name">Sender Verify</span>
+                <span class="dropdown-item-desc">Verify your sender domain &amp; emails</span>
+              </span>
+            </a>
+            <a href="{% url 'templates_page' %}">
+              <span class="dropdown-icon">🎨</span>
+              <span>
+                <span class="dropdown-item-name">Templates</span>
+                <span class="dropdown-item-desc">Design reusable email templates</span>
+              </span>
+            </a>
+          </div>
+        </div>
+      </li>
+      <li><a href="{% url 'subscription' %}">Pricing</a></li>
+      <li><a href="#about">About</a></li>
+    </ul>
+
+    <div class="nav-cta">
+      <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark / light mode">
+        <i class="fas fa-moon" id="themeToggleIcon"></i>
+      </button>
+      {% if 'logged_in' not in request.session %}
+        <a href="{% url 'login' %}" class="nav-login">Log in</a>
+        <a href="{% url 'signup' %}" class="btn btn-primary btn-sm">Get started free</a>
+      {% else %}
+        <a href="{% url 'dashboard' %}" class="nav-login">Dashboard</a>
+        <a href="{% url 'logout' %}" class="btn btn-primary btn-sm">Log out</a>
+      {% endif %}
+    </div>
+
+    <div class="hamburger" id="hamburger" onclick="toggleMobileNav()">
+      <span></span><span></span><span></span>
+    </div>
+
+  </div>
+</nav>
+
+<!-- ── MOBILE NAV ──────────────────────────────────────── -->
+<div class="mobile-nav" id="mobileNav">
+  <a href="#solutions">Services</a>
+  <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;">Email Validation</div>
+  <a href="{% url 'single_service' %}">✉️ &nbsp;Single Email Verify</a>
+  <a href="{% url 'services' %}">📋 &nbsp;Bulk Email Verify</a>
+  <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;">Deliverability</div>
+  <a href="{% url 'dmarc_check' %}">📧 &nbsp;DMARC Analysis</a>
+  <a href="{% url 'Header_Analysis' %}">🔍 &nbsp;Header Analysis</a>
+  <a href="{% url 'Reputation_Analysis' %}">📊 &nbsp;Reputation Analysis</a>
+  <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;">Blacklist Monitoring</div>
+  <a href="{% url 'Blocklist_Monitor' %}">🛡️ &nbsp;IP Blocklist Monitor</a>
+  <a href="{% url 'Domain_Blacklist' %}">🌐 &nbsp;Domain Blacklist</a>
+  <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;">Email Marketing</div>
+  <a href="{% url 'campaigns' %}">📣 &nbsp;Campaigns</a>
+  <a href="{% url 'sender_verify' %}">🔐 &nbsp;Sender Verify</a>
+  <a href="{% url 'templates_page' %}">🎨 &nbsp;Templates</a>
+  <hr>
+  <a href="{% url 'subscription' %}">Pricing</a>
+  <a href="#about">About</a>
+  <hr>
+  {% if 'logged_in' not in request.session %}
+  <a href="{% url 'login' %}" style="color:var(--teal);font-weight:600">Log in</a>
+  <a href="{% url 'signup' %}" class="btn btn-primary" style="justify-content:center;margin-top:4px">Get started free</a>
+  {% else %}
+  <a href="{% url 'dashboard' %}" style="color:var(--teal);font-weight:600">Dashboard</a>
+  <a href="{% url 'logout' %}" class="btn btn-primary" style="justify-content:center;margin-top:4px">Log out</a>
+  {% endif %}
+</div>
+
+<!-- ── HERO ─────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="container hero-inner">
+
+    <div class="hero-left fade-up">
+      <div class="hero-badge">
+        <span class="badge">✦ 99% Accuracy. Zero Guesswork.</span>
+      </div>
+      <h1>Stop Sending Emails<br>Into the <em>Void</em></h1>
+      <p class="hero-sub">
+        Bad emails kill your sender reputation. Waytoinbox verifies every address in real time so your campaigns land in the inbox — not the spam folder.
+      </p>
+      <div class="hero-actions">
+        <a href="{% url 'services' %}" class="btn btn-primary">Try it free — no card needed →</a>
+        <a href="#solutions" class="btn btn-outline">See all tools</a>
+      </div>
+      <div class="hero-stats">
+        <div>
+          <span class="hero-stat-val">50M+</span>
+          <span class="hero-stat-lbl">Emails checked</span>
+        </div>
+        <div>
+          <span class="hero-stat-val">99%</span>
+          <span class="hero-stat-lbl">Accuracy rate</span>
+        </div>
+        <div>
+          <span class="hero-stat-val">60+</span>
+          <span class="hero-stat-lbl">Blocklist sources</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE DEMO WIDGET -->
+     
+    <div class="hero-demo fade-up" style="transition-delay:.15s">
+      <div class="hero-demo-tab">
+        <button class="demo-tab-btn active" onclick="switchTab('email', this)">Email Verify</button>
+        <button class="demo-tab-btn" onclick="switchTab('dmarc', this)">DMARC Check</button>
+      </div>
+
+      <div class="demo-pane active" id="pane-email">
+        <div id="ev-flash-area"></div>
+        <form id="emailVerifyForm">
+          {% csrf_token %}
+          <div class="demo-label">Enter an email address</div>
+          <div class="demo-input-wrap">
+            <input class="demo-input" name="_email_" type="email" id="emailInput"
+              placeholder="someone@company.com" autocomplete="off" required/>
+          </div>
+          <button type="submit" class="demo-verify-btn" id="emailVerifyBtn">Check This Email →</button>
+        </form>
+        <div id="ev-result-area"></div>
+      </div>
+
+      <div class="demo-pane" id="pane-dmarc">
+        <div id="dmarc-flash-area"></div>
+        <form id="dmarcVerifyForm">
+          {% csrf_token %}
+          <div class="demo-label">Enter your domain</div>
+          <div class="demo-input-wrap">
+            <input class="demo-input" name="domain_" type="text" id="dmarcInput"
+              placeholder="yourdomain.com" autocomplete="off" required/>
+          </div>
+          <div class="demo-label" style="margin-top:10px;">
+            DKIM Selector <span style="font-weight:400;color:var(--ink-3);font-size:11px;">(optional — leave blank to auto-detect)</span>
+          </div>
+          <div class="demo-input-wrap">
+            <input class="demo-input" name="dkim_selector" type="text" id="dmarcDkimSelector"
+              placeholder="e.g. google, selector1, k1" autocomplete="off"/>
+          </div>
+          <button type="submit" class="demo-verify-btn" id="dmarcVerifyBtn">Run DMARC, SPF & DKIM Check →</button>
+        </form>
+        <div id="dmarc-result-area"></div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ── SOCIAL PROOF BAND ──────────────────────────────── -->
+<div class="proof-band">
+  <div class="container proof-inner">
+    <div class="proof-stat">
+      <span class="proof-val">50M<span>+</span></span>
+      <div class="proof-lbl">Emails Verified</div>
+    </div>
+    <div class="proof-divider"></div>
+    <div class="proof-stat">
+      <span class="proof-val">12K<span>+</span></span>
+      <div class="proof-lbl">Active Users</div>
+    </div>
+    <div class="proof-divider"></div>
+    <div class="proof-stat">
+      <span class="proof-val">99<span>%</span></span>
+      <div class="proof-lbl">Accuracy Rate</div>
+    </div>
+    <div class="proof-divider"></div>
+    <div class="proof-stat">
+      <span class="proof-val">60<span>+</span></span>
+      <div class="proof-lbl">Blocklist Sources</div>
+    </div>
+    <div class="proof-divider"></div>
+    <div class="proof-stat">
+      <span class="proof-val">99.9<span>%</span></span>
+      <div class="proof-lbl">Uptime SLA</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── EXPLORE OUR SOLUTIONS ──────────────────────────── -->
+<section class="section section-alt" id="solutions">
+  <div class="container">
+    <div class="section-head fade-up">
+      <div class="section-label">Explore Our Solutions</div>
+      <h2>Everything you need for inbox success</h2>
+      <p>From verifying a single address to running full email campaigns — Waytoinbox covers every step of the email lifecycle in one place.</p>
+    </div>
+    <div class="solutions-grid">
+
+      <!-- Email Validation -->
+      <div class="solution-card fade-up">
+        <div class="solution-head">
+          <div class="solution-head-icon" style="background:#e6faf6;">✉️</div>
+          <h3>Email Validation</h3>
+        </div>
+        <p>Verify individual addresses or entire lists with live SMTP checks, MX lookups, and syntax validation — results in seconds.</p>
+        <ul class="solution-tools">
+          <li><a href="{% url 'single_service' %}">Single Email Verification</a></li>
+          <li><a href="{% url 'services' %}">Bulk Email Verification</a></li>
+        </ul>
+      </div>
+
+      <!-- Email Marketing -->
+      <div class="solution-card fade-up" style="transition-delay:.08s">
+        <div class="solution-head">
+          <div class="solution-head-icon" style="background:#fff0e6;">📣</div>
+          <h3>Email Marketing</h3>
+        </div>
+        <p>Send targeted campaigns from clean, verified lists. Build templates, schedule sends, manage contacts, and track results in real time.</p>
+        <ul class="solution-tools">
+          <li><a href="{% url 'campaigns' %}">Email Campaigns</a></li>
+          <li><a href="{% url 'sender_verify' %}">Sender Verification</a></li>
+          <li><a href="{% url 'templates_page' %}">Email Templates</a></li>
+          <li><a href="{% url 'all_contacts' %}">Contact Management</a></li>
+        </ul>
+      </div>
+
+      <!-- Email Deliverability -->
+      <div class="solution-card fade-up" style="transition-delay:.08s">
+        <div class="solution-head">
+          <div class="solution-head-icon" style="background:#eef4ff;">📊</div>
+          <h3>Email Deliverability</h3>
+        </div>
+        <p>Audit your DNS authentication, debug raw email headers, and monitor your sending reputation — so your emails reach the inbox, not spam.</p>
+        <ul class="solution-tools">
+          <li><a href="{% url 'dmarc_check' %}">DMARC Analysis</a></li>
+          <li><a href="{% url 'Header_Analysis' %}">Header Analysis</a></li>
+          <li><a href="{% url 'Reputation_Analysis' %}">Reputation Analysis</a></li>
+        </ul>
+      </div>
+
+      <!-- Blocklist Monitoring -->
+      <div class="solution-card fade-up" style="transition-delay:.16s">
+        <div class="solution-head">
+          <div class="solution-head-icon" style="background:#f0f9ee;">🛡️</div>
+          <h3>Blocklist Monitoring</h3>
+        </div>
+        <p>We watch 60+ global DNS blocklists 24/7 and alert you the instant your IP or domain gets flagged — with step-by-step delisting guidance.</p>
+        <ul class="solution-tools">
+          <li><a href="{% url 'Blocklist_Monitor' %}">IP Blocklist Monitor</a></li>
+          <li><a href="{% url 'Domain_Blacklist' %}">Domain Blocklist Monitor</a></li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── BULK VERIFY SPLIT ──────────────────────────────── -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="split fade-up">
+
+      <div class="split-text">
+        <div class="section-label">Bulk Verification</div>
+        <h2>Clean your whole list in minutes — not hours</h2>
+        <p>Upload a CSV or paste your addresses and watch our engine sort them in real time. Live SMTP handshakes, syntax checks, and role-address detection — all in one pass.</p>
+        <ul class="check-list">
+          <li class="check-item">Every result is clearly labeled: valid, invalid, or risky</li>
+          <li class="check-item">Download clean CSVs split by deliverable / undeliverable</li>
+          <li class="check-item">Handles lists up to 500K addresses per batch</li>
+          <li class="check-item">Live progress with streaming results as they come in</li>
+        </ul>
+        <a href="{% url 'services' %}" class="btn btn-primary">Upload your list free →</a>
+      </div>
+
+      <div class="split-visual">
+        <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--ink-3);margin-bottom:14px;text-transform:uppercase;letter-spacing:.06em">Verification Results</div>
+        <div class="mock-result">
+          <div class="mock-row">
+            <span class="mock-email">alice@company.com</span>
+            <span class="mock-status st-valid">✓ Valid</span>
+          </div>
+          <div class="mock-row">
+            <span class="mock-email">bob.smith@gmail.com</span>
+            <span class="mock-status st-valid">✓ Valid</span>
+          </div>
+          <div class="mock-row">
+            <span class="mock-email">noreply@fakecorp.net</span>
+            <span class="mock-status st-invalid">✗ Invalid</span>
+          </div>
+          <div class="mock-row">
+            <span class="mock-email">info@tempmail.io</span>
+            <span class="mock-status st-risky">⚠ Risky</span>
+          </div>
+          <div class="mock-row">
+            <span class="mock-email">ceo@realorg.org</span>
+            <span class="mock-status st-valid">✓ Valid</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <div style="flex:1;background:var(--mint-lt);border:1px solid rgba(0,198,162,.2);border-radius:8px;padding:10px 14px">
+            <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:#007A5E">3</div>
+            <div style="font-size:12px;color:#009977">Deliverable</div>
+          </div>
+          <div style="flex:1;background:#FFF3EF;border:1px solid rgba(255,107,53,.2);border-radius:8px;padding:10px 14px">
+            <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:#C94A1D">1</div>
+            <div style="font-size:12px;color:#E05A28">Undeliverable</div>
+          </div>
+          <div style="flex:1;background:#FFFBEF;border:1px solid rgba(255,188,0,.2);border-radius:8px;padding:10px 14px">
+            <div style="font-family:var(--font-head);font-size:20px;font-weight:800;color:#9A6800">1</div>
+            <div style="font-size:12px;color:#9A6800">Risky</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── EMAIL MARKETING SPLIT ──────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="split reverse fade-up">
+
+      <div class="split-text">
+        <div class="section-label">Email Marketing</div>
+        <h2>Send campaigns that land — every time</h2>
+        <p>Build on verified, clean lists and send targeted campaigns with confidence. Design with the template builder, schedule your sends, and track every open, click, and bounce as it happens.</p>
+        <ul class="check-list">
+          <li class="check-item">Create and schedule targeted email campaigns</li>
+          <li class="check-item">Design reusable templates with the drag-and-drop builder</li>
+          <li class="check-item">Manage contacts, segments, and unsubscribes automatically</li>
+          <li class="check-item">Track opens, clicks, bounces, and complaints in real time</li>
+        </ul>
+        <a href="{% url 'campaigns' %}" class="btn btn-primary">Create your first campaign →</a>
+      </div>
+
+      <div class="split-visual">
+        <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--ink-3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em">Campaign Performance</div>
+        <div style="font-size:13px;color:var(--ink);font-weight:600;margin-bottom:14px;">Your summer sale starts now 🎉</div>
+        <div>
+          <div class="camp-bar-wrap">
+            <span style="font-size:12px;color:var(--ink-3);width:68px;flex-shrink:0">📤 Sent</span>
+            <div class="camp-bar-track"><div class="camp-bar-fill" style="width:100%;background:var(--border)"></div></div>
+            <span style="font-size:12px;color:var(--ink);min-width:62px;text-align:right">5,200</span>
+          </div>
+          <div class="camp-bar-wrap">
+            <span style="font-size:12px;color:var(--ink-3);width:68px;flex-shrink:0">📬 Opened</span>
+            <div class="camp-bar-track"><div class="camp-bar-fill" style="width:42%;background:#00C6A2"></div></div>
+            <span style="font-size:12px;color:var(--ink);min-width:62px;text-align:right">2,184 <span style="color:var(--teal)">42%</span></span>
+          </div>
+          <div class="camp-bar-wrap">
+            <span style="font-size:12px;color:var(--ink-3);width:68px;flex-shrink:0">🔗 Clicked</span>
+            <div class="camp-bar-track"><div class="camp-bar-fill" style="width:7.5%;background:#00C6A2"></div></div>
+            <span style="font-size:12px;color:var(--ink);min-width:62px;text-align:right">391 <span style="color:var(--teal)">7.5%</span></span>
+          </div>
+          <div class="camp-bar-wrap">
+            <span style="font-size:12px;color:var(--ink-3);width:68px;flex-shrink:0">↩ Bounced</span>
+            <div class="camp-bar-track"><div class="camp-bar-fill" style="width:0.2%;background:#E11D48"></div></div>
+            <span style="font-size:12px;color:var(--ink);min-width:62px;text-align:right">12 <span style="color:#E11D48">0.2%</span></span>
+          </div>
+        </div>
+        <div style="display:flex;gap:10px;margin-top:16px">
+          <div class="em-stat-card">
+            <div class="em-stat-val">42%</div>
+            <div class="em-stat-lbl">Open Rate</div>
+          </div>
+          <div class="em-stat-card">
+            <div class="em-stat-val">7.5%</div>
+            <div class="em-stat-lbl">Click Rate</div>
+          </div>
+          <div class="em-stat-card">
+            <div class="em-stat-val">0.2%</div>
+            <div class="em-stat-lbl">Bounce Rate</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── EMAIL DELIVERABILITY SPLIT ─────────────────────── -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="split fade-up">
+
+      <div class="split-text">
+        <div class="section-label">Email Deliverability</div>
+        <h2>Stop guessing why emails land in spam</h2>
+        <p>Authentication failures, misconfigured SPF records, and missing DKIM — these invisible issues silently tank your deliverability. We surface them instantly and show you exactly what to fix.</p>
+        <ul class="check-list">
+          <li class="check-item">Audit DMARC, SPF &amp; DKIM records in under 2 seconds</li>
+          <li class="check-item">Paste any email header for a full routing and auth diagnostic</li>
+          <li class="check-item">Monitor your domain's spam rate via Google Postmaster Tools</li>
+          <li class="check-item">Catch misconfigurations before Gmail or Outlook decides to block you</li>
+        </ul>
+        <a href="{% url 'dmarc_check' %}" class="btn btn-primary">Run a free DMARC check →</a>
+      </div>
+
+      <div class="split-visual">
+        <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--ink-3);margin-bottom:14px;text-transform:uppercase;letter-spacing:.06em">DMARC / SPF / DKIM Audit</div>
+        <div class="dns-grid">
+          <div class="dns-row">
+            <span class="dns-name">DMARC</span>
+            <span class="dns-val">v=DMARC1; p=quarantine</span>
+            <span class="dns-ok">✓ Pass</span>
+          </div>
+          <div class="dns-row">
+            <span class="dns-name">SPF</span>
+            <span class="dns-val">v=spf1 include:_spf.google.com ~all</span>
+            <span class="dns-ok">✓ Pass</span>
+          </div>
+          <div class="dns-row">
+            <span class="dns-name">DKIM</span>
+            <span class="dns-val">No selector found</span>
+            <span class="dns-fail">✗ Missing</span>
+          </div>
+        </div>
+        <div style="margin-top:16px;padding:14px;background:#FFF3EF;border:1px solid rgba(255,107,53,.2);border-radius:10px;font-size:13px;color:#C94A1D">
+          <strong>⚠ Action needed:</strong> DKIM isn't configured. Your emails may fail authentication checks and land in spam.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── BLOCKLIST MONITORING SPLIT ─────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="split reverse fade-up">
+
+      <div class="split-text">
+        <div class="section-label">Blocklist Monitoring</div>
+        <h2>Know the moment your IP or domain is blacklisted</h2>
+        <p>We monitor 60+ global DNS blocklists 24/7 so you don't have to. The second your IP or domain gets flagged, you'll know — and we'll walk you through exactly how to get delisted.</p>
+        <ul class="check-list">
+          <li class="check-item">Monitors 60+ global DNS blocklists around the clock</li>
+          <li class="check-item">Instant email alerts the moment you're listed</li>
+          <li class="check-item">Step-by-step delisting guidance built right in</li>
+          <li class="check-item">Full reputation history so you can spot trends early</li>
+        </ul>
+        <a href="{% url 'Blocklist_Monitor' %}" class="btn btn-primary">Start monitoring free →</a>
+      </div>
+
+      <div class="split-visual">
+        <div style="font-family:var(--font-head);font-size:13px;font-weight:700;color:var(--ink-3);margin-bottom:14px;text-transform:uppercase;letter-spacing:.06em">IP Reputation Check</div>
+        <div style="border:1.5px solid var(--border);border-radius:var(--radius-lg);overflow:hidden;background:var(--bg)">
+          <div class="bl-row"><span>Spamhaus ZEN</span><span class="bl-clean">● Clean</span></div>
+          <div class="bl-row"><span>Spamcop</span><span class="bl-clean">● Clean</span></div>
+          <div class="bl-row"><span>SORBS</span><span class="bl-clean">● Clean</span></div>
+          <div class="bl-row"><span>Barracuda</span><span class="bl-listed">⚠ Listed</span></div>
+          <div class="bl-row"><span>URIBL</span><span class="bl-clean">● Clean</span></div>
+        </div>
+        <div style="margin-top:10px;font-size:12px;color:var(--ink-3);text-align:center">Monitoring 60+ sources &nbsp;·&nbsp; Last checked: just now</div>
+        <div style="margin-top:12px;padding:14px;background:#FFF3EF;border:1px solid rgba(255,107,53,.2);border-radius:10px;font-size:13px;color:#C94A1D">
+          <strong>⚠ Action needed:</strong> Listed on 1 of 60 monitored blocklists. Click to start delisting.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── WHY CHOOSE ─────────────────────────────────────── -->
+<section class="section section-alt">
+  <div class="container">
+    <div class="section-head fade-up">
+      <div class="section-label">Why Waytoinbox</div>
+      <h2>Built for teams who can't afford to miss the inbox</h2>
+      <p>We combine industry-leading verification with a platform that's easy to use and priced fairly — so you can focus on sending, not troubleshooting.</p>
+    </div>
+    <div class="features-grid">
+
+      <div class="feature-card fade-up">
+        <div class="feature-icon">🎯</div>
+        <h4>99% Accuracy</h4>
+        <p>Multi-layer algorithms plus live SMTP handshakes mean you can trust every result we return. No guesswork.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:.07s">
+        <div class="feature-icon">🔐</div>
+        <h4>Your Data Stays Yours</h4>
+        <p>Everything's encrypted in transit and at rest. We don't sell it, share it, or even peek at it. Period.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:.14s">
+        <div class="feature-icon">💰</div>
+        <h4>Pricing That Makes Sense</h4>
+        <p>Simple per-credit pricing with no hidden fees. Every verification gives you a clear, actionable result.</p>
+      </div>
+
+      <div class="feature-card fade-up" style="transition-delay:.21s">
+        <div class="feature-icon">🚀</div>
+        <h4>Up and Running in Minutes</h4>
+        <p>Clean dashboard, REST API, zero complicated setup. If you've got a list, you're ready to go right now.</p>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── TESTIMONIALS ───────────────────────────────────── -->
+<section class="section">
+  <div class="container">
+    <div class="section-head fade-up">
+      <div class="section-label">Customer Stories</div>
+      <h2>Marketers and developers love Waytoinbox</h2>
+    </div>
+    <div class="testi-grid">
+
+      <div class="testi-card fade-up">
+        <div class="testi-stars">★★★★★</div>
+        <p class="testi-text">"Our bounce rate dropped from 8% to under 0.3% after one run through Waytoinbox. I didn't expect it to be this fast — we cleaned 200K records before lunch."</p>
+        <div class="testi-author">
+          <div class="testi-avatar av-a">JM</div>
+          <div>
+            <div class="testi-name">Jake Mitchell</div>
+            <div class="testi-role">Email Marketing Manager, GrowthLab</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="testi-card fade-up" style="transition-delay:.1s">
+        <div class="testi-stars">★★★★★</div>
+        <p class="testi-text">"The blacklist monitoring literally saved our Q4 campaign. Got alerted within minutes, followed the delisting steps, and we were back in the clear the same afternoon."</p>
+        <div class="testi-author">
+          <div class="testi-avatar av-b">SR</div>
+          <div>
+            <div class="testi-name">Sarah Reynolds</div>
+            <div class="testi-role">DevOps Lead, CloudSend Inc.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="testi-card fade-up" style="transition-delay:.2s">
+        <div class="testi-stars">★★★★★</div>
+        <p class="testi-text">"The accuracy is incredible. We run a ton of cold outreach and Waytoinbox has completely eliminated bounce issues — saves us from blacklists every single month."</p>
+        <div class="testi-author">
+          <div class="testi-avatar av-c">TC</div>
+          <div>
+            <div class="testi-name">Tyler Cruz</div>
+            <div class="testi-role">Head of Growth, Outbound Co.</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── ABOUT ──────────────────────────────────────────── -->
+<section class="section section-alt" id="about">
+  <div class="container">
+    <div class="split fade-up">
+
+      <div class="split-text">
+        <div class="section-label">About Waytoinbox</div>
+        <h2>Built by email people,<br>for email people</h2>
+        <p>Waytoinbox was born out of frustration with bounce rates, blacklists, and the mystery of "why didn't that campaign land?" We've been in the email trenches — and we built the tools we wish we'd had.</p>
+        <p style="margin-top:14px;color:var(--ink-2);font-size:14px;line-height:1.75;">Used by email marketers, developers, and growth teams across 50+ countries to protect sender reputations and keep inboxes open.</p>
+        <ul class="check-list" style="margin-top:22px;">
+          <li class="check-item">No black-box scores — every result is fully explainable</li>
+          <li class="check-item">Your data is never sold, shared, or used for training</li>
+          <li class="check-item">Encrypted in transit and at rest</li>
+          <li class="check-item">Flat credit pricing — no seat fees, no surprise invoices</li>
+        </ul>
+      </div>
+
+      <div class="split-visual">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+          <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px;text-align:center;">
+            <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:var(--ink);">50M<span style="font-size:16px;color:var(--teal);">+</span></div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:4px;">Emails verified</div>
+          </div>
+          <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px;text-align:center;">
+            <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:var(--ink);">12K<span style="font-size:16px;color:var(--teal);">+</span></div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:4px;">Active users</div>
+          </div>
+          <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px;text-align:center;">
+            <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:var(--ink);">50<span style="font-size:16px;color:var(--teal);">+</span></div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:4px;">Countries served</div>
+          </div>
+          <div style="background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);padding:20px;text-align:center;">
+            <div style="font-family:var(--font-head);font-size:26px;font-weight:800;color:var(--ink);">99.9<span style="font-size:16px;color:var(--teal);">%</span></div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:4px;">Uptime SLA</div>
+          </div>
+        </div>
+        <div style="padding:20px 22px;background:var(--bg);border:1.5px solid var(--border);border-radius:var(--radius-lg);">
+          <div style="font-size:11px;font-weight:700;color:var(--teal);letter-spacing:.07em;text-transform:uppercase;margin-bottom:10px;">Our mission</div>
+          <p style="font-size:13.5px;color:var(--ink-2);line-height:1.75;margin:0;">Every email you send should have a fair shot at the inbox. We exist to give you the tools and intelligence to make that happen — reliably, affordably, and without the guesswork.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ── CTA BAND ───────────────────────────────────────── -->
+<div class="cta-band">
+  <div class="container cta-inner fade-up">
+    <h2>Ready to stop bouncing<br><span>and start landing?</span></h2>
+    <p>Sign up free and verify your first 100 emails on us. No credit card, no commitment, no BS.</p>
+    <div class="cta-actions">
+      <a href="{% url 'services' %}" class="btn btn-primary" style="font-size:15px;padding:15px 32px">Get started for free →</a>
+      <a href="{% url 'subscription'%}" class="btn btn-ghost" style="font-size:15px;padding:15px 32px">View pricing</a>
+    </div>
+    <p class="cta-note">Free plan · No credit card · Cancel whenever</p>
+  </div>
+</div>
+
+<!-- ── FOOTER ─────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-grid">
+
+      <div class="footer-brand">
+        <a href="#" class="nav-logo" style="margin-bottom:0">
+          <img src="{% static 'Email_validate_app/img/Waytoinbox_logo.png' %}"
+          alt="Waytoinbox" style="width:28px;height:28px;object-fit:contain;"/>
+          Wayto<span>inbox</span>
+        </a>
+        <p>We help email marketers and developers stop bouncing and start landing. Fast, accurate, and built for teams who ship.</p>
+        <div class="footer-socials">
+          <a href="https://x.com/Waytoinbox" target="_blank" class="social-btn" title="Twitter/X">𝕏</a>
+          <a href="https://linkedin.com/company/Waytoinbox" target="_blank" class="social-btn" title="LinkedIn">in</a>
+          <a href="https://g.co/kgs/waytoinbox" target="_blank" class="social-btn" title="Google">G</a>
+        </div>
+      </div>
+
+      <div class="footer-col">
+        <h5>Services</h5>
+        <ul>
+          <li style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:2px 0 4px;pointer-events:none">Email Validation</li>
+          <li><a href="{% url 'single_service' %}">Single Email Verify</a></li>
+          <li><a href="{% url 'services' %}">Bulk Email Verify</a></li>
+          <li style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;pointer-events:none">Email Marketing</li>
+          <li><a href="{% url 'campaigns' %}">Email Campaigns</a></li>
+          <li><a href="{% url 'sender_verify' %}">Sender Verification</a></li>
+          <li><a href="{% url 'templates_page' %}">Email Templates</a></li>
+          <li style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;pointer-events:none">Deliverability</li>
+          <li><a href="{% url 'dmarc_check' %}">DMARC Analysis</a></li>
+          <li><a href="{% url 'Header_Analysis' %}">Header Analysis</a></li>
+          <li><a href="{% url 'Reputation_Analysis' %}">Reputation Analysis</a></li>
+          <li style="font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);padding:10px 0 4px;pointer-events:none">Blocklist Monitoring</li>
+          <li><a href="{% url 'Blocklist_Monitor' %}">IP Blocklist Monitor</a></li>
+          <li><a href="{% url 'Domain_Blacklist' %}">Domain Blocklist</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h5>Company</h5>
+        <ul>
+          <li><a href="#about">About Us</a></li>
+          <li><a href="{% url 'subscription' %}">Pricing</a></li>
+          <li><a href="#">Blog</a></li>
+          <li><a href="#">API Docs</a></li>
+          <li><a href="#">Changelog</a></li>
+          <li><a onclick="supportform()">Contact</a></li>
+        </ul>
+      </div>
+
+      <div class="footer-col">
+        <h5>Support</h5>
+        <ul>
+          <li><a href="#">Help Center</a></li>
+          <li><a href="#">Status Page</a></li>
+          <li><a href="#">System Status</a></li>
+          <li><a href="#">Privacy Policy</a></li>
+          <li><a href="#">Terms of Service</a></li>
+          <li><a href="#">Cookie Policy</a></li>
+        </ul>
+      </div>
+
+    </div>
+    <div class="footer-bottom">
+      <span class="footer-copy">© 2026 Waytoinbox — All rights reserved.</span>
+      <div class="footer-legal">
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+        <a href="#">Cookie Policy</a>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<!-- ── STICKY SUPPORT BUTTON ──────────────────────────── -->
+<button class="support-fab" onclick="supportform()" title="Contact Support">
+  <svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+  </svg>
+</button>
+
+<!-- ── SUPPORT FORM POPUP ─────────────────────────────── -->
+<div class="support-form" id="supportform">
+  <div class="support-contact">
+    <button class="ev-result__close" style="position:absolute;top:16px;right:16px;" onclick="closesupportform()">✕</button>
+    <h2>Contact Us for Support</h2>
+    <p>We'll get back to you within 24 hours.</p>
+    <div id="contact-flash"></div>
+    <form id="Contact_Us">
+      {% csrf_token %}
+      <div class="demo-label">Name</div>
+      <input class="demo-input" type="text" name="name" required style="margin-bottom:12px"/>
+
+      <div class="demo-label">Email</div>
+      <input class="demo-input" type="email" name="email" required style="margin-bottom:12px"/>
+
+      <div class="demo-label">Message</div>
+      <textarea class="demo-input" name="message" rows="4" required style="margin-bottom:16px;resize:vertical;height:auto"></textarea>
+
+      <button type="submit" class="demo-verify-btn" id="contact-submit-btn">Send Message →</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  window._activeTab = "{{ active_tab|default:'email' }}";
+</script>
+<script src="{% static 'Email_validate_app/js/i_script.js' %}"></script>
+<script>
+document.getElementById('emailVerifyForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const flashArea  = document.getElementById('ev-flash-area');
+  const resultArea = document.getElementById('ev-result-area');
+  const btn        = document.getElementById('emailVerifyBtn');
+  const email      = document.getElementById('emailInput').value.trim();
+
+  flashArea.innerHTML = '';
+  resultArea.innerHTML = '';
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Checking…';
+
+  const formData = new FormData();
+  formData.append('_email_', email);
+  formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+  try {
+    const res = await fetch('/api/validate/email/', {
+      method: 'POST',
+      body: formData
+    });
+
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error('Server error (' + res.status + '). Please try again.');
+    }
+    const data = await res.json();
+
+    if (data.status === 'error') {
+      flashArea.innerHTML = `<div class="ev-flash ev-flash--error">${data.message}</div>`;
+      return;
+    }
+
+    const cls  = data.result.toLowerCase();
+    const icon = data.result === 'Valid' ? '✓' : data.result === 'Invalid' ? '✗' : '⚠';
+
+    resultArea.innerHTML = `
+      <div class="ev-result ev-result--${cls}">
+        <button type="button" class="ev-result__close" onclick="this.parentElement.remove()" style="position:absolute;top:16px;right:16px;">✕</button>
+        <div class="ev-result__email">${data.email}</div>
+        <div class="ev-result__badge ev-badge--${cls}">${icon} ${data.result}</div>
+        <div class="ev-result__rows">
+          <div class="ev-result__row">
+            <span class="ev-result__label">Email Status</span>
+            <span class="ev-result__sep">:</span>
+            <span class="ev-result__val">${data.result}</span>
+          </div>
+          <div class="ev-result__row">
+            <span class="ev-result__label">MX Record</span>
+            <span class="ev-result__sep">:</span>
+            <span class="ev-result__val ev-result__val--mono">${data.mx_record || '-'}</span>
+          </div>
+        </div>
+      </div>`;
+
+    const creditEl = document.getElementById('credit-count');
+    if (creditEl) creditEl.innerText = data.credits;
+
+  } catch (err) {
+    console.error('[Email Verify Error]', err);
+    flashArea.innerHTML = `<div class="ev-flash ev-flash--error">${err.message || 'Something went wrong. Please try again.'}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Check This Email →';
+  }
+});
+
+document.getElementById('dmarcVerifyForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const flashArea  = document.getElementById('dmarc-flash-area');
+  const resultArea = document.getElementById('dmarc-result-area');
+  const btn        = document.getElementById('dmarcVerifyBtn');
+  const domain        = document.getElementById('dmarcInput').value.trim();
+  const dkimSelector  = document.getElementById('dmarcDkimSelector').value.trim();
+
+  flashArea.innerHTML  = '';
+  resultArea.innerHTML = '';
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Checking…';
+
+  const formData = new FormData();
+  formData.append('domain_', domain);
+  if (dkimSelector) formData.append('dkim_selector', dkimSelector);
+  formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+  try {
+    const res = await fetch('/api/domain-validate/', { method: 'POST', body: formData });
+
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error('Server error (' + res.status + '). Please try again.');
+    }
+    const data = await res.json();
+
+    if (data.status === 'error') {
+      flashArea.innerHTML = `<div class="ev-flash ev-flash--error">${data.message}</div>`;
+      return;
+    }
+
+    function box(label, r) {
+      const pass = r.status === 'pass';
+      const icon = pass ? '✓' : 'ℹ';
+      const cls  = pass ? 'dmarc-box--pass' : 'dmarc-box--fail';
+      let dkimMsg = 'At least one valid DKIM record found.';
+      if (label === 'DKIM' && pass) {
+        if (r.selector) dkimMsg += ` Selector: <code style="font-size:12px;background:var(--bg-2);padding:1px 6px;border-radius:4px;font-family:monospace;">${r.selector}</code>`;
+        if (r.key_type) dkimMsg += `&nbsp; <span style="color:var(--ink-3);font-size:12px;">${r.key_type.toUpperCase()}${r.key_bits ? '-'+r.key_bits : ''}</span>`;
+      }
+      let body = pass
+        ? `<p>${label === 'DMARC' ? `Valid DMARC record — policy set to <strong>${r.policy}</strong>.` : label === 'SPF' ? 'Valid SPF record found.' : dkimMsg}</p>
+           <details><summary>Details</summary><pre>${r.record}</pre></details>`
+        : `<p>${r.reason}</p>`;
+      return `<div class="dmarc-box ${cls}"><h4>${icon} ${label}</h4>${body}</div>`;
+    }
+
+    resultArea.innerHTML = `
+      <div class="dmarc-results">
+        <button type="button" class="ev-result__close" onclick="this.closest('.dmarc-results').remove()"  style="left: 420px">✕</button>
+        <div class="dmarc-domain">${data.domain}</div>
+        ${box('DMARC', data.dmarc)}
+        ${box('SPF',   data.spf)}
+        ${box('DKIM',  data.dkim)}
+      </div>`;
+
+  } catch (err) {
+    flashArea.innerHTML = `<div class="ev-flash ev-flash--error">Something went wrong. Please try again.</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Run DMARC, SPF & DKIM Check →';
+  }
+});
+
+document.getElementById('Contact_Us').addEventListener('submit', async function(e) {
+  e.preventDefault();
+
+  const flash = document.getElementById('contact-flash');
+  const btn   = document.getElementById('contact-submit-btn');
+
+  flash.innerHTML = '';
+  btn.disabled = true;
+  btn.innerHTML = 'Sending…';
+
+  const formData = new FormData(this);
+  formData.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]').value);
+
+  try {
+    const res = await fetch('{% url "contact_us" %}', { method: 'POST', body: formData });
+
+    const ct = res.headers.get('content-type') || '';
+    if (!ct.includes('application/json')) {
+      throw new Error('Server error (' + res.status + '). Please try again.');
+    }
+    const data = await res.json();
+
+    if (data.status === 'ok') {
+      flash.innerHTML = `<div class="ev-flash ev-flash--success" style="margin-bottom:12px">✓ ${data.message}</div>`;
+      this.reset();
+    } else {
+      flash.innerHTML = `<div class="ev-flash ev-flash--error" style="margin-bottom:12px">${data.message}</div>`;
+    }
+  } catch (err) {
+    flash.innerHTML = `<div class="ev-flash ev-flash--error" style="margin-bottom:12px">Something went wrong. Please try again.</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Send Message →';
+  }
+});
+</script>
+
+<script>
+// ── Theme toggle ──────────────────────────────────────
+(function() {
+  var btn  = document.getElementById('themeToggleBtn');
+  var icon = document.getElementById('themeToggleIcon');
+  if (!btn) return;
+
+  function applyIcon() {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    icon.className = dark ? 'fas fa-sun' : 'fas fa-moon';
+  }
+  applyIcon();
+
+  btn.addEventListener('click', function() {
+    var dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    if (dark) {
+      document.documentElement.removeAttribute('data-theme');
+      localStorage.setItem('wti-theme', 'light');
+    } else {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      localStorage.setItem('wti-theme', 'dark');
+    }
+    applyIcon();
+  });
+}());
+</script>
+<div id="wti-toast-container" aria-live="polite" aria-atomic="false"
+     style="position:fixed;bottom:1.5rem;right:1.5rem;z-index:9999;display:flex;flex-direction:column;gap:.5rem;max-width:360px;pointer-events:none;"></div>
+<script src="{% static 'Email_validate_app/js/wti_toast.js' %}"></script>
+</body>
+</html>

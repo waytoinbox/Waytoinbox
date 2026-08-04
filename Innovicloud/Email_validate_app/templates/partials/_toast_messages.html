@@ -1,0 +1,5 @@
+{% if messages %}
+{% for message in messages %}
+<span class="wti-server-message" data-message="{{ message|escapejs }}" data-type="{{ message.tags }}" hidden></span>
+{% endfor %}
+{% endif %}

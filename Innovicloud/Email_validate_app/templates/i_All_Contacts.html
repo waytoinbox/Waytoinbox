@@ -1,0 +1,279 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/all_contacts.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+{% endblock %}
+{% block content %}
+
+<div class="ac-page">
+
+  <!-- Header -->
+  <div class="ac-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">👥</div>
+      <div>
+        <h2>All Contacts</h2>
+        <p class="ac-subtitle">All unique contacts across your lists, deduplicated by email address.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="ac-stats" id="acStats" style="visibility:hidden;">
+    <div class="ac-stat-card">
+      <div class="ac-stat-label">Total Contacts</div>
+      <div class="ac-stat-value" id="statTotal">—</div>
+    </div>
+    <div class="ac-stat-card subscribed">
+      <div class="ac-stat-label">Subscribed</div>
+      <div class="ac-stat-value" id="statSubscribed">—</div>
+    </div>
+    <div class="ac-stat-card unsubscribed">
+      <div class="ac-stat-label">Unsubscribed</div>
+      <div class="ac-stat-value" id="statUnsubscribed">—</div>
+    </div>
+    <div class="ac-stat-card never">
+      <div class="ac-stat-label">Never Subscribed</div>
+      <div class="ac-stat-value" id="statNever">—</div>
+    </div>
+  </div>
+
+  <!-- Table Card -->
+  <div class="ac-card">
+
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_search_placeholder="Search name or email…" pf_show_date=True %}
+
+    <!-- Table -->
+    <div class="ac-table-wrap">
+      <table class="ac-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Name</th>
+            <th>Email Address</th>
+            <th>Status</th>
+            <th>Lists</th>
+            <th>Created Date</th>
+          </tr>
+        </thead>
+        <tbody id="acBody">
+          <tr>
+            <td colspan="6">
+              <div class="ac-empty ac-loading-init">
+                <span class="btn-spinner" style="width:20px;height:20px;border-width:3px;"></span>
+                Loading contacts…
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Pagination -->
+    <div class="ac-pagination" id="acPagination" style="display:none;">
+      <span class="ac-page-info" id="acPageInfo"></span>
+      <div class="ac-page-btns">
+        <button class="ac-page-btn" id="acPrevBtn"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="ac-page-current" id="acPageNum"></span>
+        <button class="ac-page-btn" id="acNextBtn">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+(function () {
+  var tbody    = document.getElementById('acBody');
+  var pageInfo = document.getElementById('acPageInfo');
+  var pageNum  = document.getElementById('acPageNum');
+  var pagBar   = document.getElementById('acPagination');
+  var prevBtn  = document.getElementById('acPrevBtn');
+  var nextBtn  = document.getElementById('acNextBtn');
+
+  var _page        = 1;
+  var _perPage     = 25;
+  var _loading     = false;
+  var _statsLoaded = false;
+  var _abortCtrl   = null;
+
+  /* ── Popup state ─────────────────────────────────────────── */
+  var _popup    = null;
+  var _listData = {};
+  var _listKey  = 0;
+
+  function buildPopup() {
+    var ov = document.createElement('div');
+    ov.className = 'ac-popup-overlay';
+    ov.innerHTML =
+      '<div class="ac-popup">' +
+        '<div class="ac-popup-head">' +
+          '<span class="ac-popup-title" id="acPopupTitle"></span>' +
+          '<button class="ac-popup-close" id="acPopupClose"><i class="fas fa-times"></i></button>' +
+        '</div>' +
+        '<div class="ac-popup-body" id="acPopupBody"></div>' +
+      '</div>';
+    document.body.appendChild(ov);
+    _popup = ov;
+    ov.querySelector('#acPopupClose').addEventListener('click', closePopup);
+    ov.addEventListener('click', function(e) { if (e.target === ov) closePopup(); });
+  }
+
+  function closePopup() { if (_popup) _popup.style.display = 'none'; }
+
+  function openPopup(key) {
+    var d = _listData[key];
+    if (!d) return;
+    document.getElementById('acPopupTitle').textContent = d.email;
+    document.getElementById('acPopupBody').innerHTML = d.lists.map(function(l) {
+      return '<span class="ac-list-tag ac-popup-tag">' + escHtml(l) + '</span>';
+    }).join('');
+    _popup.style.display = 'flex';
+  }
+
+  buildPopup();
+
+  /* ── Helpers ─────────────────────────────────────────────── */
+  function escHtml(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function statusBadge(s) {
+    if (s === 'subscribed')
+      return '<span class="ac-status subscribed"><i class="fas fa-check-circle"></i> Subscribed</span>';
+    if (s === 'unsubscribed')
+      return '<span class="ac-status unsubscribed"><i class="fas fa-user-slash"></i> Unsubscribed</span>';
+    return '<span class="ac-status never"><i class="fas fa-times-circle"></i> Never Subscribed</span>';
+  }
+
+  function listBadges(lists, email) {
+    if (!lists || lists.length === 0) return '<span class="ac-list-none">—</span>';
+    var MAX = 3;
+    var html = lists.slice(0, MAX).map(function(l) {
+      return '<span class="ac-list-tag">' + escHtml(l) + '</span>';
+    }).join('');
+    if (lists.length > MAX) {
+      var key = 'k' + (_listKey++);
+      _listData[key] = { lists: lists, email: email };
+      html += '<button class="ac-list-more" data-key="' + key + '">+' + (lists.length - MAX) + ' more</button>';
+    }
+    return html;
+  }
+
+  function setLoading(on) {
+    _loading = on;
+    PF.setLoading(on);
+    prevBtn.style.opacity = on ? '0.4' : '';
+    nextBtn.style.opacity = on ? '0.4' : '';
+  }
+
+  function setPageState(hasPrev, hasNext) {
+    prevBtn.classList.toggle('disabled', !hasPrev);
+    nextBtn.classList.toggle('disabled', !hasNext);
+  }
+
+  function loadPage(page) {
+    _page = page;
+    setLoading(true);
+
+    if (_abortCtrl) _abortCtrl.abort();
+    _abortCtrl = new AbortController();
+
+    var f = PF.getFilters();
+    var url = '/Email_Campaigns/contacts/page/?page=' + page +
+              '&per_page=' + _perPage +
+              '&search='    + encodeURIComponent(f.search) +
+              '&status='    + encodeURIComponent(f.status) +
+              '&date_from=' + encodeURIComponent(f.dateFrom) +
+              '&date_to='   + encodeURIComponent(f.dateTo);
+
+    fetch(url, { signal: _abortCtrl.signal })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      setLoading(false);
+      PF.showError(false);
+
+      if (d.error) {
+        tbody.innerHTML = '<tr><td colspan="6"><div class="ac-empty">Error loading contacts.</div></td></tr>';
+        return;
+      }
+
+      tbody.innerHTML = '';
+      if (d.contacts.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="6"><div class="ac-empty">' +
+          '<i class="fas fa-filter"></i> No contacts match your filters.</div></td></tr>';
+        pagBar.style.display = 'none';
+        PF.setCount(0, d.grand_total);
+        return;
+      }
+
+      _listData = {};
+
+      var offset = (d.page - 1) * d.per_page;
+      d.contacts.forEach(function(c, i) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td class="ac-num">' + (offset + i + 1) + '</td>' +
+          '<td>' + escHtml(c.name) + '</td>' +
+          '<td class="ac-email">' + escHtml(c.email) + '</td>' +
+          '<td>' + statusBadge(c.subscribed) + '</td>' +
+          '<td>' + listBadges(c.lists, c.email) + '</td>' +
+          '<td class="ac-date">' + escHtml(c.created_at) + '</td>';
+        tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll('.ac-list-more').forEach(function(btn) {
+        btn.addEventListener('click', function(e) {
+          e.stopPropagation();
+          openPopup(btn.dataset.key);
+        });
+      });
+
+      var start = (d.page - 1) * d.per_page + 1;
+      var end   = Math.min(d.page * d.per_page, d.total);
+      pageInfo.textContent = 'Showing ' + start + '–' + end + ' of ' + d.total;
+      pageNum.textContent  = d.page + ' / ' + d.pages;
+      pagBar.style.display = d.pages > 1 ? 'flex' : 'none';
+      setPageState(d.page > 1, d.page < d.pages);
+
+      PF.setCount(d.total, d.grand_total);
+
+      if (d.stats) {
+        document.getElementById('statTotal').textContent        = d.stats.total;
+        document.getElementById('statSubscribed').textContent   = d.stats.subscribed;
+        document.getElementById('statUnsubscribed').textContent = d.stats.unsubscribed;
+        document.getElementById('statNever').textContent        = d.stats.never_subscribed;
+        if (!_statsLoaded) {
+          document.getElementById('acStats').style.visibility = '';
+          _statsLoaded = true;
+        }
+      }
+    })
+    .catch(function(err) {
+      if (err.name === 'AbortError') return;
+      setLoading(false);
+      PF.showError(true, function() { loadPage(_page); });
+    });
+  }
+
+  prevBtn.addEventListener('click', function() {
+    if (!_loading && !prevBtn.classList.contains('disabled')) loadPage(_page - 1);
+  });
+  nextBtn.addEventListener('click', function() {
+    if (!_loading && !nextBtn.classList.contains('disabled')) loadPage(_page + 1);
+  });
+
+  /* ── PF filter wiring ─────────────────────────────────── */
+  PF.init({ debounce: 300, urlSync: true });
+  PF.restoreFromURL();
+  PF.wire(function () { loadPage(1); });
+
+  loadPage(1);
+
+})();
+</script>
+
+{% endblock %}

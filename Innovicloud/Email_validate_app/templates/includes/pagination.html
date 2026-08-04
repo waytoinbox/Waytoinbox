@@ -1,0 +1,42 @@
+{% comment %}
+Shared server-side pagination partial (Pattern B).
+Preserves all active filter params in every page link so filters survive navigation.
+
+Required context:
+  page_obj   — Django Paginator Page object
+
+Optional context (for filter preservation in links):
+  search     — current search string
+  status     — current status filter value
+  date_from  — current date_from string (YYYY-MM-DD)
+  date_to    — current date_to string (YYYY-MM-DD)
+{% endcomment %}
+{% if page_obj.paginator.num_pages > 1 %}
+<div class="cc-pagination">
+  <span class="cc-page-info">
+    Showing {{ page_obj.start_index }}–{{ page_obj.end_index }}
+    of {{ page_obj.paginator.count }}
+  </span>
+  <div class="cc-page-btns">
+    {% if page_obj.has_previous %}
+    <a class="cc-page-btn"
+       href="?search={{ search|default:'' }}&status={{ status|default:'' }}&date_from={{ date_from|default:'' }}&date_to={{ date_to|default:'' }}&page={{ page_obj.previous_page_number }}">
+      ← Prev
+    </a>
+    {% else %}
+    <span class="cc-page-btn disabled">← Prev</span>
+    {% endif %}
+
+    <span class="cc-page-current">{{ page_obj.number }} / {{ page_obj.paginator.num_pages }}</span>
+
+    {% if page_obj.has_next %}
+    <a class="cc-page-btn"
+       href="?search={{ search|default:'' }}&status={{ status|default:'' }}&date_from={{ date_from|default:'' }}&date_to={{ date_to|default:'' }}&page={{ page_obj.next_page_number }}">
+      Next →
+    </a>
+    {% else %}
+    <span class="cc-page-btn disabled">Next →</span>
+    {% endif %}
+  </div>
+</div>
+{% endif %}

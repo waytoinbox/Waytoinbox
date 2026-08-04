@@ -1,0 +1,101 @@
+{% extends 'admin/base.html' %}
+{% block title %}Edit {{ target_user.user_name }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_users' %}">Users</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_user_detail' target_user.pk %}">{{ target_user.user_name }}</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Edit</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Edit Profile</h1>
+    <p class="admin-page-subtitle">{{ target_user.user_email }}</p>
+  </div>
+  <a href="{% url 'admin_user_detail' target_user.pk %}" class="btn-admin btn-admin-outline">
+    <i class="fas fa-arrow-left"></i> Back to Profile
+  </a>
+</div>
+
+<div class="admin-card" style="max-width:640px;">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-pen" style="color:var(--teal);margin-right:6px;"></i>Edit User Profile</span>
+  </div>
+  <form id="editUserForm" style="padding:24px 24px 20px;">
+    {% csrf_token %}
+
+    <div class="admin-form-group">
+      <label class="admin-form-label" for="user_name">Display Name <span style="color:#ef4444;">*</span></label>
+      <input type="text" id="user_name" name="user_name" value="{{ target_user.user_name }}"
+        class="admin-input" maxlength="50" required/>
+    </div>
+
+    <div class="admin-form-group">
+      <label class="admin-form-label" for="company">Company</label>
+      <input type="text" id="company" name="company" value="{{ target_user.company|default:'' }}"
+        class="admin-input" maxlength="255" placeholder="Optional"/>
+    </div>
+
+    <div class="admin-form-group">
+      <label class="admin-form-label" for="role">Role / Title</label>
+      <input type="text" id="role" name="role" value="{{ target_user.role|default:'' }}"
+        class="admin-input" maxlength="100" placeholder="e.g. Marketing Manager"/>
+    </div>
+
+    <div class="admin-form-group">
+      <label class="admin-form-label" for="website">Website</label>
+      <input type="url" id="website" name="website" value="{{ target_user.website|default:'' }}"
+        class="admin-input" maxlength="255" placeholder="https://example.com"/>
+    </div>
+
+    <div class="admin-form-group">
+      <label class="admin-form-label" for="timezone">Timezone</label>
+      <input type="text" id="timezone" name="timezone" value="{{ target_user.timezone|default:'' }}"
+        class="admin-input" maxlength="100" placeholder="e.g. Asia/Kolkata"/>
+    </div>
+
+    <div id="editFormResult" style="font-size:13px;margin-bottom:12px;min-height:18px;"></div>
+
+    <div style="display:flex;gap:10px;">
+      <button type="submit" class="btn-admin btn-admin-primary">
+        <i class="fas fa-save"></i> Save Changes
+      </button>
+      <a href="{% url 'admin_user_detail' target_user.pk %}" class="btn-admin btn-admin-outline">
+        Cancel
+      </a>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('editUserForm').addEventListener('submit', function (e) {
+  e.preventDefault();
+  var btn = this.querySelector('[type="submit"]');
+  var resultEl = document.getElementById('editFormResult');
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+  var formData = new FormData(this);
+  WTI.apiFetch('{% url "admin_user_edit" target_user.pk %}', { method: 'POST', body: formData })
+    .then(function (res) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Changes';
+      if (res.ok) {
+        resultEl.style.color = 'var(--mint)';
+        resultEl.textContent = res.data.message || 'Saved.';
+        WTI.toast(res.data.message || 'Profile updated.', 'success');
+        setTimeout(function () { window.location.href = '{% url "admin_user_detail" target_user.pk %}'; }, 800);
+      } else {
+        resultEl.style.color = '#ef4444';
+        resultEl.textContent = res.data.message || 'Error saving profile.';
+      }
+    });
+});
+</script>
+{% endblock %}

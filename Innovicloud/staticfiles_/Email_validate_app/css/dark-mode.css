@@ -1,0 +1,309 @@
+/* ══════════════════════════════════════════════════════
+   dark-mode.css
+   Innovicloud — Dark Theme Overrides
+   Applied via [data-theme="dark"] on <html>
+   ══════════════════════════════════════════════════════ */
+
+/* ── Token overrides ─────────────────────────────────── */
+[data-theme="dark"] {
+  --ink:       #D8E8F5;
+  --ink-2:     #8AAEC8;
+  --ink-3:     #5B7A96;
+  --teal:      #22BBEE;
+  --teal-dk:   #0099CC;
+  --teal-lt:   rgba(34,187,238,.14);
+  --mint:      #00C6A2;
+  --mint-lt:   rgba(0,198,162,.14);
+  --warn:      #FF8855;
+  --bg:        #0E1929;
+  --bg-2:      #142236;
+  --bg-3:      #1C2E46;
+  --border:    rgba(255,255,255,.09);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.35);
+  --shadow-md: 0 4px 20px rgba(0,0,0,.45);
+  --shadow-lg: 0 12px 48px rgba(0,0,0,.55);
+  --shadow:    0 8px 40px rgba(0,0,0,.5);
+}
+
+/* ── Base ────────────────────────────────────────────── */
+[data-theme="dark"] body { background: var(--bg); color: var(--ink); }
+
+/* ── Topbar ──────────────────────────────────────────── */
+[data-theme="dark"] .topbar {
+  background: rgba(14,25,41,.96);
+  border-bottom-color: var(--border);
+}
+[data-theme="dark"] .topbar-page-title { color: var(--ink); }
+[data-theme="dark"] .topbar-menu-btn { background: var(--bg-2); color: var(--ink-3); }
+[data-theme="dark"] .topbar-menu-btn:hover { background: rgba(34,187,238,.15); color: var(--teal); }
+[data-theme="dark"] .topbar-user { background: var(--bg-2); border-color: var(--border); color: var(--ink-2); }
+[data-theme="dark"] .topbar-user:hover { border-color: rgba(255,100,60,.3); color: #FF8060; background: rgba(200,60,30,.12); }
+
+/* ── Sidebar (already dark — subtle tweak) ───────────── */
+[data-theme="dark"] .sidebar { background: #091420; }
+[data-theme="dark"] .sidebar-logo { border-bottom-color: rgba(255,255,255,.06); }
+[data-theme="dark"] .sidebar-footer { border-top-color: rgba(255,255,255,.06); }
+
+/* ── Theme toggle button ─────────────────────────────── */
+.theme-toggle-btn {
+  width: 34px; height: 34px;
+  border: 1px solid var(--border); background: var(--bg-2);
+  border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-2); font-size: 15px;
+  transition: all .18s; flex-shrink: 0;
+}
+.theme-toggle-btn:hover { background: var(--teal-lt); color: var(--teal); border-color: rgba(0,153,204,.3); }
+[data-theme="dark"] .theme-toggle-btn { background: var(--bg-2); border-color: var(--border); color: var(--ink-3); }
+[data-theme="dark"] .theme-toggle-btn:hover { background: rgba(34,187,238,.15); color: var(--teal); }
+
+/* ── Dashboard stat / chart / table cards ────────────── */
+[data-theme="dark"] .db-stat,
+[data-theme="dark"] .db-donut,
+[data-theme="dark"] .db-line { background: var(--bg-2); }
+[data-theme="dark"] .db-tbl  { background: var(--bg-2); }
+[data-theme="dark"] .db-tbl-hd { background: var(--bg-3); }
+[data-theme="dark"] .db-table thead th { background: var(--bg-3); }
+[data-theme="dark"] .db-table tbody tr:hover { background: var(--bg-3); }
+
+/* ── Dashboard chips (blocklist table) ───────────────── */
+[data-theme="dark"] .chip-bad { background: rgba(201,74,29,.18);  color: #FF8060; border-color: rgba(201,74,29,.3); }
+[data-theme="dark"] .chip-wrn { background: rgba(200,150,0,.16);  color: #FFB83F; border-color: rgba(200,150,0,.28); }
+[data-theme="dark"] .chip-pu  { background: rgba(120,80,220,.18); color: #B89BFF; border-color: rgba(120,80,220,.3); }
+
+/* ── Dashboard stat icon backgrounds ────────────────── */
+[data-theme="dark"] .ic-red    { background: rgba(201,74,29,.18); }
+[data-theme="dark"] .ic-purple { background: rgba(120,80,220,.18); }
+[data-theme="dark"] .ic-amber  { background: rgba(200,150,0,.16); }
+[data-theme="dark"] .ic-blue   { background: rgba(0,120,220,.16); }
+[data-theme="dark"] .ic-navy   { background: rgba(60,90,140,.2); }
+[data-theme="dark"] .ic-green  { background: rgba(0,180,130,.14); }
+
+/* ── Dashboard stat badge (down / negative) ──────────── */
+[data-theme="dark"] .sb-down { background: rgba(201,74,29,.18); color: #FF8060; }
+
+/* ── Profile page cards ──────────────────────────────── */
+[data-theme="dark"] .card        { background: var(--bg-2); }
+[data-theme="dark"] .plan-card   { background: linear-gradient(135deg, var(--bg-2) 0%, var(--bg-3) 100%); }
+[data-theme="dark"] .profile-hero { background: var(--bg-2); }
+[data-theme="dark"] .save-bar    { background: var(--bg-2); border-top-color: var(--border); }
+[data-theme="dark"] .tab.active  { background: var(--bg-3); }
+[data-theme="dark"] .tabs        { background: var(--bg-3); border-color: var(--border); }
+[data-theme="dark"] .avatar-edit { background: var(--bg-3); border-color: var(--border); }
+[data-theme="dark"] .toggle-track { background: #2A3F5C; border-color: #3A506B; }
+[data-theme="dark"] .danger-zone { background: rgba(220,38,38,.06); border-color: rgba(220,38,38,.22); }
+[data-theme="dark"] .danger-row  { border-bottom-color: rgba(220,38,38,.12); }
+[data-theme="dark"] .cp-input-wrap .input { background: var(--bg-3); }
+
+/* Select2 in dark mode */
+[data-theme="dark"] .select2-container--default .select2-selection--single { background: var(--bg-3); border-color: var(--border); }
+[data-theme="dark"] .select2-container--default .select2-selection--single .select2-selection__rendered { color: var(--ink); }
+[data-theme="dark"] .select2-dropdown { background: var(--bg-2); border-color: var(--border); box-shadow: 0 8px 24px rgba(0,0,0,.5); }
+[data-theme="dark"] .select2-container--default .select2-search--dropdown .select2-search__field { background: var(--bg-3); border-color: var(--border); color: var(--ink); }
+[data-theme="dark"] .select2-container--default .select2-results__option { color: var(--ink-2); }
+[data-theme="dark"] .select2-container--default .select2-results__option--highlighted { background: var(--bg-3); color: var(--ink); }
+
+/* ── Service page cards (single verify, bulk, etc.) ──── */
+[data-theme="dark"] .sv-card,
+[data-theme="dark"] .sv-table-card { background: var(--bg-2); }
+[data-theme="dark"] .sv-del-btn:hover { background: rgba(200,60,30,.15); }
+[data-theme="dark"] .sv-confirm-no  { background: rgba(200,60,30,.15); border-color: rgba(200,60,30,.3); color: #FF8060; }
+
+[data-theme="dark"] .bulk-upload-card,
+[data-theme="dark"] .bulk-filter-card { background: var(--bg-2); }
+[data-theme="dark"] .bulk-tab.active  { background: var(--bg-3); }
+
+/* ── DMARC cards ─────────────────────────────────────── */
+[data-theme="dark"] .dmarc-hero-card,
+[data-theme="dark"] .dmarc-domain-header,
+[data-theme="dark"] .dmarc-result-card,
+[data-theme="dark"] .dmarc-empty-state { background: var(--bg-2); }
+[data-theme="dark"] .dmarc-details pre { background: var(--bg-3); color: var(--ink-2); }
+[data-theme="dark"] .dmarc-input:focus { background: var(--bg-3); }
+[data-theme="dark"] .icon-fail         { background: rgba(201,74,29,.18); color: #FF8060; }
+[data-theme="dark"] .badge-fail        { background: rgba(201,74,29,.15); color: #FF8060; border-color: rgba(201,74,29,.3); }
+[data-theme="dark"] .dmarc-box--fail   { background: rgba(201,74,29,.1);  border-color: rgba(201,74,29,.25); color: #FF8060; }
+[data-theme="dark"] .badge-failed      { background: rgba(201,74,29,.15); color: #FF8060; }
+[data-theme="dark"] .bl-listed,
+[data-theme="dark"] .bl-status-listed  { background: rgba(201,74,29,.15); color: #FF8060; border-color: rgba(201,74,29,.4); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+[data-theme="dark"] .bl-listed:hover,
+[data-theme="dark"] .bl-status-listed:hover { background: rgba(201,74,29,.35); color: #FFB09A; }
+
+/* ── Blocklist cards ─────────────────────────────────── */
+[data-theme="dark"] .bl-add-card,
+[data-theme="dark"] .bl-form-card,
+[data-theme="dark"] .bl-table-card,
+[data-theme="dark"] .bl-results-card { background: var(--bg-2); }
+[data-theme="dark"] .bl-popup-box,
+[data-theme="dark"] .dl-popup-box,
+[data-theme="dark"] .bl-del-modal-box,
+[data-theme="dark"] .del-popup-box    { background: var(--bg-2); }
+
+/* Modal input styling for dark mode: ensure the typed-confirm input matches background and contrast */
+[data-theme="dark"] .bl-del-modal-input {
+  background: var(--bg-3);
+  border-color: var(--border);
+  color: var(--ink);
+}
+[data-theme="dark"] .bl-del-modal-input:focus {
+  background: var(--bg-3);
+  color: var(--ink);
+  border-color: var(--teal);
+}
+
+/* ── Header analysis cards ───────────────────────────── */
+[data-theme="dark"] .ha-card,
+[data-theme="dark"] #ha-result-area .ha-card,
+[data-theme="dark"] .ha-result-card  { background: var(--bg-2); border-color: var(--border); }
+[data-theme="dark"] .ha-card-head    { background: var(--bg-3); border-bottom-color: var(--border); }
+[data-theme="dark"] .ha-empty h4     { color: var(--ink); }
+[data-theme="dark"] .ha-empty        { color: var(--ink-3); }
+
+/* ── Billing / Receipt cards ─────────────────────────── */
+[data-theme="dark"] .receipt-card    { background: var(--bg-2); }
+[data-theme="dark"] .pay-confirm-box { background: var(--bg-2); }
+
+/* ── Input focus (hardcoded white) ───────────────────── */
+[data-theme="dark"] .login-input:focus,
+[data-theme="dark"] .signup-input:focus,
+[data-theme="dark"] .fp-input:focus,
+[data-theme="dark"] .rp-input:focus  { background: var(--bg-3); color: var(--ink); }
+
+/* ── Auth page cards ─────────────────────────────────── */
+[data-theme="dark"] .login-card,
+[data-theme="dark"] .signup-card,
+[data-theme="dark"] .fp-card,
+[data-theme="dark"] .rp-card  { background: var(--bg-2); }
+
+/* ── Clock topbar (profile page) ─────────────────────── */
+[data-theme="dark"] .clock-topbar { color: var(--ink-3); }
+[data-theme="dark"] .clock-topbar-dot { background: var(--teal); }
+
+/* ── Notification bell dropdown (already dark — keep) ── */
+/* .notif-dropdown is already dark (#131820), no change needed */
+
+/* ── Misc status flash messages ──────────────────────── */
+[data-theme="dark"] .ev-result--invalid { background: rgba(200,60,30,.1); border-color: rgba(200,60,30,.25); }
+[data-theme="dark"] .ev-result--risky   { background: rgba(200,160,0,.08); border-color: rgba(200,160,0,.2); }
+[data-theme="dark"] .pill-invalid       { background: rgba(201,74,29,.18); color: #FF8060; }
+[data-theme="dark"] .pill-risky         { background: rgba(200,160,0,.15); color: #FFB83F; }
+[data-theme="dark"] .dmarc-fail-reason  { background: rgba(200,60,30,.1); border-color: rgba(200,60,30,.2); color: #FF8060; }
+[data-theme="dark"] .bl-alert--warning  { background: rgba(200,160,0,.1); border-color: rgba(200,160,0,.2); }
+
+/* ══════════════════════════════════════════════════════
+   Home / public page overrides (layout-nav-hero.css)
+   ══════════════════════════════════════════════════════ */
+
+/* Nav bar */
+[data-theme="dark"] .nav {
+  background: rgba(14,25,41,.96);
+  border-bottom-color: var(--border);
+}
+[data-theme="dark"] .nav-logo { color: var(--ink); }
+[data-theme="dark"] .hamburger span { background: var(--ink); }
+
+/* Dropdown menus */
+[data-theme="dark"] .dropdown {
+  background: var(--bg-2);
+  border-color: var(--border);
+  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+}
+[data-theme="dark"] .mobile-nav {
+  background: var(--bg-2);
+  border-top-color: var(--border);
+}
+
+/* Hero — uses var(--bg) token, auto-updates ✓ */
+
+/* Demo tabs */
+[data-theme="dark"] .demo-tab-btn.active { background: var(--bg-3); }
+
+/* Service / Feature cards */
+[data-theme="dark"] .service-card,
+[data-theme="dark"] .feature-card { background: var(--bg-2); }
+
+/* Mock result rows - Verification Results */
+[data-theme="dark"] .mock-row,
+[data-theme="dark"] .dns-row { background: var(--bg-3); border-color: var(--border); }
+
+/* Mock status badges - Verification Results statuses */
+[data-theme="dark"] .st-valid   { background: rgba(0,198,162,.18); color: #00D9A3; }
+[data-theme="dark"] .st-invalid { background: rgba(201,74,29,.18);  color: #FF8060; }
+[data-theme="dark"] .st-risky   { background: rgba(200,160,0,.16);  color: #FFB83F; }
+
+/* DNS badges - DMARC / SPF / DKIM Audit */
+[data-theme="dark"] .dns-ok   { background: rgba(0,198,162,.18); color: #00D9A3; }
+[data-theme="dark"] .dns-fail { background: rgba(201,74,29,.18);  color: #FF8060; }
+
+/* Service icon - Domain Blacklist */
+[data-theme="dark"] .service-icon.amber { background: var(--teal-lt); }
+
+/* Inline styled warning/alert boxes (DKIM warning message) */
+[data-theme="dark"] div[style*="background:#FFF3EF"],
+[data-theme="dark"] div[style*="background: #FFF3EF"] { 
+  background: rgba(201,74,29,.15) !important;
+  border-color: rgba(201,74,29,.3) !important;
+  color: #FF8060 !important;
+}
+[data-theme="dark"] div[style*="background:#FFF3EF"] > div,
+[data-theme="dark"] div[style*="background: #FFF3EF"] > div { 
+  color: #FF8060 !important;
+}
+
+/* Inline styled success boxes (Deliverable count) */
+[data-theme="dark"] div[style*="background:var(--mint-lt)"],
+[data-theme="dark"] div[style*="background: var(--mint-lt)"] {
+  background: rgba(0,198,162,.12) !important;
+  border-color: rgba(0,198,162,.25) !important;
+}
+[data-theme="dark"] div[style*="background:var(--mint-lt)"] > div,
+[data-theme="dark"] div[style*="background: var(--mint-lt)"] > div {
+  color: #00D9A3 !important;
+}
+[data-theme="dark"] div[style*="background:var(--mint-lt)"] div[style*="color:#009977"],
+[data-theme="dark"] div[style*="background: var(--mint-lt)"] div[style*="color:#009977"] {
+  color: #00D9A3 !important;
+}
+
+/* Inline styled error boxes (Undeliverable count) */
+[data-theme="dark"] div[style*="rgba(255,107,53,.2)"] {
+  background: rgba(201,74,29,.15) !important;
+  border-color: rgba(201,74,29,.3) !important;
+}
+[data-theme="dark"] div[style*="rgba(255,107,53,.2)"] > div,
+[data-theme="dark"] div[style*="rgba(255,107,53,.2)"] div[style*="color:#C94A1D"],
+[data-theme="dark"] div[style*="rgba(255,107,53,.2)"] div[style*="color:#E05A28"] {
+  color: #FF8060 !important;
+}
+
+/* Inline styled warning boxes (Risky count) */
+[data-theme="dark"] div[style*="rgba(255,188,0,.2)"] {
+  background: rgba(200,160,0,.12) !important;
+  border-color: rgba(200,160,0,.25) !important;
+}
+[data-theme="dark"] div[style*="rgba(255,188,0,.2)"] > div,
+[data-theme="dark"] div[style*="rgba(255,188,0,.2)"] div[style*="color:#9A6800"] {
+  color: #FFB83F !important;
+}
+
+/* Social proof band — uses var(--ink) which becomes light in dark mode, hardcode */
+[data-theme="dark"] .proof-band { background: #040D1A; }
+
+/* Testimonial cards */
+[data-theme="dark"] .testi-card { background: var(--bg-2); }
+
+/* Pricing tabs & cards */
+[data-theme="dark"] .ptab.active  { background: var(--bg-3); }
+[data-theme="dark"] .sub-card     { background: var(--bg-2); }
+[data-theme="dark"] .payg-card    { background: var(--bg-2); }
+[data-theme="dark"] .pricing-table-wrap { background: var(--bg-2); }
+
+/* Support / payment popups */
+[data-theme="dark"] .support-contact { background: var(--bg-2); }
+[data-theme="dark"] .pay-card        { background: var(--bg-2); }
+
+/* Input focus on public pages */
+[data-theme="dark"] .payg-input:focus { background: var(--bg-3); color: var(--ink); }
+[data-theme="dark"] .payg-input { background: var(--bg-3); color: var(--ink); border-color: var(--border); }
+
+/* Footer — uses var(--bg) token, auto-updates ✓ */

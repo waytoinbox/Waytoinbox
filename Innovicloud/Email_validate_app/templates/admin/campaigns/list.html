@@ -1,0 +1,129 @@
+{% extends 'admin/base.html' %}
+{% block title %}Campaigns{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Campaigns</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Campaigns</h1>
+    <p class="admin-page-subtitle">{{ total }} campaign{{ total|pluralize }} total</p>
+  </div>
+</div>
+
+<!-- Filters -->
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ params.q }}" placeholder="Search name, email…"/>
+      </div>
+      <select name="status" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not params.status %}selected{% endif %}>All Status</option>
+        <option value="draft" {% if params.status == 'draft' %}selected{% endif %}>Draft</option>
+        <option value="scheduled" {% if params.status == 'scheduled' %}selected{% endif %}>Scheduled</option>
+        <option value="sending" {% if params.status == 'sending' %}selected{% endif %}>Sending</option>
+        <option value="sent" {% if params.status == 'sent' %}selected{% endif %}>Sent</option>
+        <option value="failed" {% if params.status == 'failed' %}selected{% endif %}>Failed</option>
+        <option value="cancelled" {% if params.status == 'cancelled' %}selected{% endif %}>Cancelled</option>
+        <option value="archived" {% if params.status == 'archived' %}selected{% endif %}>Archived</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;">
+        <i class="fas fa-search"></i> Search
+      </button>
+      {% if params.q or params.status %}
+        <a href="{% url 'admin_campaigns' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>
+      {% endif %}
+    </form>
+  </div>
+</div>
+
+<!-- Table -->
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Owner</th>
+          <th>List</th>
+          <th>Recipients</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th style="text-align:right;">Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for campaign in page_obj %}
+        <tr>
+          <td>
+            <div class="td-strong">{{ campaign.campaign_name }}</div>
+            <div style="font-size:12px;color:var(--ink-3);">{{ campaign.from_email }}</div>
+          </td>
+          <td style="font-size:12.5px;">{{ campaign.user.user_email }}</td>
+          <td style="font-size:12.5px;color:var(--ink-3);">{{ campaign.campaign_list.list_name|default:"—" }}</td>
+          <td>{{ campaign.total_recipients }}</td>
+          <td>
+            {% if campaign.deleted_at %}
+              <span class="badge badge-grey">Archived</span>
+            {% elif campaign.status == 'sent' %}
+              <span class="badge badge-success"><span class="badge-dot"></span>Sent</span>
+            {% elif campaign.status == 'sending' %}
+              <span class="badge badge-info"><span class="badge-dot"></span>Sending</span>
+            {% elif campaign.status == 'scheduled' %}
+              <span class="badge badge-warning"><span class="badge-dot"></span>Scheduled</span>
+            {% elif campaign.status == 'draft' %}
+              <span class="badge badge-grey">Draft</span>
+            {% elif campaign.status == 'failed' %}
+              <span class="badge badge-danger"><span class="badge-dot"></span>Failed</span>
+            {% elif campaign.status == 'cancelled' %}
+              <span class="badge badge-grey">Cancelled</span>
+            {% else %}
+              <span class="badge badge-grey">{{ campaign.status|capfirst }}</span>
+            {% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ campaign.created_at|date:"M j, Y" }}</td>
+          <td class="td-actions">
+            <a href="{% url 'admin_campaign_detail' campaign.pk %}" title="View"><i class="fas fa-eye"></i></a>
+            <a href="{% url 'admin_campaign_preview' campaign.pk %}" target="_blank" title="Preview"><i class="fas fa-external-link-alt"></i></a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="7">
+            <div class="admin-empty">
+              <i class="fas fa-paper-plane"></i>
+              <div class="admin-empty-title">No campaigns found</div>
+              <div class="admin-empty-sub">Try adjusting filters.</div>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}
+        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>
+      {% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
+          <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ num }}">{{ num }}</a>
+        {% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}
+        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

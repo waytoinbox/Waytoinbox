@@ -1,0 +1,118 @@
+/* filters.css v1.0 — Shared filter bar styles */
+
+/* ── Filter Bar ───────────────────────────────────────── */
+.pf-bar {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 16px; border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+}
+
+/* ── Search input ─────────────────────────────────────── */
+.pf-search-wrap {
+  position: relative; display: inline-flex; align-items: center;
+}
+.pf-search-icon {
+  position: absolute; left: 10px; color: var(--ink-3);
+  font-size: 12px; pointer-events: none;
+}
+.pf-input {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 6px 28px 6px 30px; font-size: 13px; color: var(--ink);
+  background: var(--bg); outline: none; transition: border .18s;
+  height: 34px; min-width: 180px;
+}
+.pf-input:focus { border-color: var(--teal); }
+.pf-input-clear {
+  position: absolute; right: 8px; background: none; border: none;
+  color: var(--ink-3); cursor: pointer; font-size: 15px;
+  line-height: 1; padding: 0; transition: color .15s;
+}
+.pf-input-clear:hover { color: var(--ink); }
+
+/* ── Status dropdown & date inputs ───────────────────── */
+.pf-select,
+.pf-date {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 6px 10px; font-size: 13px; color: var(--ink);
+  background: var(--bg); outline: none; transition: border .18s;
+  height: 34px;
+}
+.pf-select:focus,
+.pf-date:focus { border-color: var(--teal); }
+
+/* ── Date range labels ────────────────────────────────── */
+.pf-label {
+  font-size: 12px; color: var(--ink-3); white-space: nowrap;
+}
+
+/* ── Clear button ─────────────────────────────────────── */
+.pf-clear {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1.5px solid var(--border); background: var(--bg);
+  color: var(--ink-3); border-radius: var(--radius-sm);
+  padding: 6px 11px; font-size: 12.5px; cursor: pointer;
+  transition: all .18s; height: 34px;
+}
+.pf-clear:hover { border-color: #C94A1D; color: #C94A1D; }
+
+/* ── Result counter ───────────────────────────────────── */
+.pf-count {
+  font-size: 12.5px; color: var(--ink-3);
+  margin-left: auto; white-space: nowrap;
+}
+.pf-count strong { color: var(--ink); }
+
+/* ── Total badge (optional, shown at end of bar) ─────── */
+.pf-total-badge {
+  font-size: 12px; font-weight: 700; letter-spacing: .04em;
+  color: var(--ink-3); white-space: nowrap;
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 20px; padding: 3px 10px;
+}
+
+/* ── Loading spinner ──────────────────────────────────── */
+.pf-spinner {
+  display: none; width: 18px; height: 18px;
+  border: 2px solid var(--border); border-top-color: var(--teal);
+  border-radius: 50%; animation: pfSpin .7s linear infinite;
+  flex-shrink: 0;
+}
+@keyframes pfSpin { to { transform: rotate(360deg); } }
+.pf-loading { opacity: .45; pointer-events: none; }
+
+/* ── Empty state ──────────────────────────────────────── */
+.pf-empty {
+  text-align: center; padding: 48px 24px; color: var(--ink-3);
+}
+.pf-empty i    { font-size: 32px; margin-bottom: 12px; display: block; }
+.pf-empty strong { display: block; font-size: 14px; color: var(--ink); margin-bottom: 6px; }
+.pf-empty p    { font-size: 13.5px; margin: 0; }
+
+/* ── Error state ──────────────────────────────────────── */
+.pf-error {
+  text-align: center; padding: 32px 24px; color: #C94A1D;
+}
+.pf-error i    { font-size: 28px; margin-bottom: 10px; display: block; }
+.pf-error p    { font-size: 13.5px; margin: 0 0 12px; }
+.pf-error-btn  {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1.5px solid #C94A1D; background: none; color: #C94A1D;
+  border-radius: var(--radius-sm); padding: 6px 14px;
+  font-size: 12.5px; cursor: pointer; transition: all .18s;
+}
+.pf-error-btn:hover { background: #fff3ef; }
+
+/* ── Responsive ───────────────────────────────────────── */
+@media (max-width: 640px) {
+  .pf-bar { flex-direction: column; align-items: stretch; }
+  .pf-input { min-width: 0; width: 100%; }
+  .pf-select,
+  .pf-date  { width: 100%; }
+  .pf-count { margin-left: 0; }
+}
+
+/* ── Dark mode ────────────────────────────────────────── */
+[data-theme="dark"] .pf-input,
+[data-theme="dark"] .pf-select,
+[data-theme="dark"] .pf-date,
+[data-theme="dark"] .pf-clear { background: var(--bg-2); }

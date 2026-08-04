@@ -1,0 +1,277 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/template_builder.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/wti_builder.css' %}"/>
+<style>
+  /* Make the editor fill the remaining viewport exactly — layout locked */
+  body { overflow: hidden; }
+  .dash-main   { height: 100vh; overflow: hidden; min-height: unset !important; }
+  .main-content {
+    height: 100%; overflow: hidden; box-sizing: border-box;
+    display: flex; flex-direction: column; padding-bottom: 0 !important;
+  }
+  .tb-page { flex: 1 1 auto; height: auto !important; min-height: 0; }
+</style>
+{% endblock %}
+{% block content %}
+
+<div class="tb-page">
+
+  <!-- Header bar -->
+  <div class="tb-header">
+    <h2>{% if editing_template %}Edit Template{% else %}Create New Template{% endif %}</h2>
+    <div class="tb-form-group">
+      <label for="builderName">Template Name <span style="color:#C94A1D;">*</span></label>
+      <input type="text" id="builderName" maxlength="255" placeholder="e.g. Monthly Newsletter"
+             value="{{ editing_template.name|default:'' }}">
+    </div>
+    <div class="tb-form-group">
+      <label for="builderSubject">Email Subject</label>
+      <input type="text" id="builderSubject" maxlength="500" placeholder="e.g. Your June update is here"
+             value="{{ editing_template.subject|default:'' }}">
+    </div>
+    <div class="tb-actions">
+      <a href="#" class="btn btn-outline" id="builderCancelBtn">Cancel</a>
+      <button class="btn btn-primary" id="builderSaveBtn"><i class="fas fa-save"></i> Save Template</button>
+    </div>
+    <p class="tb-error" id="err-builder"></p>
+  </div>
+
+  <!-- Builder -->
+  <div class="tb-editor-wrap">
+    <div id="wtibEditor"></div>
+  </div>
+
+</div>
+
+<!-- Save-before-close popup (full-page mode) -->
+<div id="tbSaveModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(11,30,61,.45);backdrop-filter:blur(3px);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.22);padding:28px 28px 22px;width:100%;max-width:420px;margin:0 16px;">
+    <h3 style="margin:0 0 6px;font-family:var(--font-head);font-size:16px;font-weight:800;color:var(--ink);">Save Template</h3>
+    <p style="margin:0 0 18px;font-size:13.5px;color:var(--ink-2);">Enter a name for this template before closing.</p>
+    <label style="display:block;font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--ink-2);margin-bottom:6px;">Template Name <span style="color:#C94A1D;">*</span></label>
+    <input id="tbSaveModalName" type="text" maxlength="255" placeholder="e.g. Monthly Newsletter"
+      style="width:100%;box-sizing:border-box;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;color:var(--ink);font-family:var(--font-body);outline:none;margin-bottom:6px;">
+    <p id="tbSaveModalErr" style="display:none;color:#C94A1D;font-size:12px;margin:0 0 12px;"></p>
+    <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
+      <button id="tbSaveModalNoSave" class="btn btn-outline" style="min-width:110px;">Don't Save</button>
+      <button id="tbSaveModalSave"   class="btn btn-primary" style="min-width:110px;"><i class="fas fa-save"></i> Save</button>
+    </div>
+  </div>
+</div>
+
+{{ editing_template|json_script:"editingTemplateData" }}
+
+<script src="{% static 'Email_validate_app/js/wti_builder.js' %}"></script>
+
+<script>
+const CSRF                 = '{{ csrf_token }}';
+const SAVE_TEMPLATE_URL    = '{% url "save_user_template" %}';
+const IMAGE_UPLOAD_URL     = '{% url "upload_template_image" %}';
+const RETURN_CAMPAIGN_ID   = '{{ return_campaign_id }}';
+const FROM_TEMPLATES       = '{{ from_page }}' === 'templates';
+const FROM_CAMPAIGN        = '{{ from_page }}' === 'campaign';
+
+const editingTemplate = JSON.parse(document.getElementById('editingTemplateData').textContent);
+
+/* Full-page mode: ?fp=1 in URL → open builder maximised, no sidebar/topbar */
+var IS_FP = new URLSearchParams(window.location.search).get('fp') === '1';
+
+/* Cancel → return to Templates page or Create Campaign depending on where builder was opened from */
+document.getElementById('builderCancelBtn').addEventListener('click', function(e) {
+  e.preventDefault();
+  if (IS_FP) { window.close(); } else { window.location.href = returnUrl(); }
+});
+
+function returnUrl() {
+  if (FROM_TEMPLATES) {
+    return '{% url "templates_page" %}';
+  }
+  if (FROM_CAMPAIGN || RETURN_CAMPAIGN_ID) {
+    var base = '{% url "create_campaign" %}';
+    return RETURN_CAMPAIGN_ID ? (base + '?campaign_id=' + encodeURIComponent(RETURN_CAMPAIGN_ID)) : base;
+  }
+  return '{% url "templates_page" %}';
+}
+
+/* Init builder */
+var builder = new WTIBuilder('#wtibEditor');
+
+/* Auto-activate full-page mode if opened via Full Page button */
+if (IS_FP) {
+  document.body.classList.add('tb-fullpage');
+  builder.activateFullPage();
+  var hdr = document.querySelector('.tb-header');
+  if (hdr) hdr.style.display = 'none';
+}
+
+/* Load existing template if editing */
+if (editingTemplate) {
+  var design = editingTemplate.design_json;
+  if (design && Array.isArray(design.rows)) {
+    builder.load(design);
+  } else if (editingTemplate.html_content) {
+    builder.load({
+      global: { bgColor: '#f4f4f4', width: 600, fontFamily: 'Arial, sans-serif' },
+      rows: [{
+        id: 'r0', layout: '1', bgColor: '#ffffff',
+        pt: 20, pb: 20, pl: 20, pr: 20,
+        cols: [{ id: 'c0', frac: 1, bg: '', blocks: [{
+          id: 'b0', type: 'html', html: editingTemplate.html_content
+        }]}]
+      }]
+    });
+  }
+}
+
+
+/* ── Save-name modal (full-page mode, no name set) ────────── */
+var _saveModalCallback = null;
+
+(function() {
+  var modal   = document.getElementById('tbSaveModal');
+  var nameInp = document.getElementById('tbSaveModalName');
+  var errP    = document.getElementById('tbSaveModalErr');
+  var btnSave = document.getElementById('tbSaveModalSave');
+  var btnNo   = document.getElementById('tbSaveModalNoSave');
+
+  function openModal(onSave) {
+    _saveModalCallback = onSave;
+    nameInp.value = '';
+    errP.style.display = 'none';
+    modal.style.display = 'flex';
+    setTimeout(function() { nameInp.focus(); }, 80);
+  }
+  function closeModal() {
+    modal.style.display = 'none';
+    _saveModalCallback = null;
+  }
+
+  btnNo.addEventListener('click', function() {
+    closeModal();
+    window.close();
+  });
+
+  btnSave.addEventListener('click', function() {
+    var n = nameInp.value.trim();
+    if (!n) {
+      errP.textContent = 'Template name is required.';
+      errP.style.display = 'block';
+      nameInp.focus();
+      return;
+    }
+    errP.style.display = 'none';
+    document.getElementById('builderName').value = n;
+    closeModal();
+    if (_saveModalCallback) _saveModalCallback(n);
+  });
+
+  nameInp.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') btnSave.click();
+    if (e.key === 'Escape') { closeModal(); window.close(); }
+  });
+
+  window._openSaveModal = openModal;
+})();
+
+/* ── Shared save function ─────────────────────────────────── */
+function doSave(onSuccess, saveBtn) {
+  var name  = document.getElementById('builderName').value.trim();
+  var errEl = document.getElementById('err-builder');
+
+  if (!name) {
+    if (IS_FP) {
+      window._openSaveModal(function(enteredName) {
+        doSave(onSuccess, saveBtn);
+      });
+      return;
+    } else {
+      errEl.textContent = 'Template name is required.';
+      errEl.style.display = 'block';
+      return;
+    }
+  }
+
+  var design = builder.getDesign();
+  if (!design.rows || !design.rows.length) {
+    var msg = 'Please add at least one block before saving.';
+    WTI.toast(msg, 'error'); if (!IS_FP) { errEl.textContent = msg; errEl.style.display = 'block'; }
+    return;
+  }
+  if (errEl) errEl.style.display = 'none';
+
+  if (saveBtn) { saveBtn.disabled = true; saveBtn.innerHTML = '<span class="btn-spinner"></span> Saving…'; }
+
+  fetch(SAVE_TEMPLATE_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'X-CSRFToken': CSRF },
+    body: new URLSearchParams({
+      template_id:  editingTemplate ? editingTemplate.id : '',
+      name:         name,
+      subject:      document.getElementById('builderSubject').value.trim(),
+      html_content: builder.getHtml(),
+      design_json:  JSON.stringify(design),
+    }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status !== 'ok') {
+      var msg2 = d.message || 'Could not save template.';
+      WTI.toast(msg2, 'error'); if (!IS_FP) { errEl.textContent = msg2; errEl.style.display = 'block'; }
+      if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Template'; }
+      return;
+    }
+    if (onSuccess) onSuccess(d);
+  })
+  .catch(function() {
+    var msg3 = 'Network error. Please try again.';
+    WTI.toast(msg3, 'error'); if (!IS_FP) { errEl.textContent = msg3; errEl.style.display = 'block'; }
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Template'; }
+  });
+}
+
+/* Intercept Close Tab in FP mode — save first, then close */
+if (IS_FP) {
+  document.addEventListener('click', function(e) {
+    var btn = e.target.closest('#wtibFullPage');
+    if (!btn) return;
+    e.stopPropagation();
+    e.preventDefault();
+    WTI.toast('Saving…', 'info');
+    doSave(function(d) {
+      WTI.toast('Saved!', 'success');
+      setTimeout(function() {
+        if (window.opener && !window.opener.closed) {
+          var dest = returnUrl();
+          if (RETURN_CAMPAIGN_ID) dest += '&selected_template_id=' + d.template.id;
+          try { window.opener.location.href = dest; } catch(ex) {}
+        }
+        window.close();
+      }, 600);
+    });
+  }, true);
+}
+
+/* Save button inside full-page toolbar */
+document.getElementById('wtibSaveBtn').addEventListener('click', function() {
+  var btn = this;
+  doSave(function() {
+    WTI.toast('Template saved!', 'success');
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> Save';
+  }, btn);
+});
+
+/* Save button (normal mode) */
+document.getElementById('builderSaveBtn').addEventListener('click', function() {
+  var btn = this;
+  doSave(function(d) {
+    var dest = returnUrl();
+    if (RETURN_CAMPAIGN_ID) dest += '&selected_template_id=' + d.template.id;
+    window.location.href = dest;
+  }, btn);
+});
+</script>
+
+{% endblock %}

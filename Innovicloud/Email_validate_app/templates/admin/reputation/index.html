@@ -1,0 +1,89 @@
+{% extends 'admin/base.html' %}
+{% block title %}Domain Reputation{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Domain Reputation</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Domain Reputation</h1>
+    <p class="admin-page-subtitle">{{ total }} domain{{ total|pluralize }} tracked</p>
+  </div>
+</div>
+
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search domain or user…"/>
+      </div>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q %}<a href="{% url 'admin_reputation' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Owner</th>
+          <th>Status</th>
+          <th>Reputation</th>
+          <th>Spam Rate</th>
+          <th>Last Checked</th>
+          <th>Added</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for rep in page_obj %}
+        {% with result=results_map|default:{}  %}
+        <tr>
+          <td class="td-strong">{{ rep.domain }}</td>
+          <td style="font-size:12.5px;"><a href="{% url 'admin_user_detail' rep.user.pk %}" style="color:var(--teal);">{{ rep.user.user_email }}</a></td>
+          <td>{{ rep.status|default:"—" }}</td>
+          <td>
+            {% with r=results_map|default:{} %}
+            {% if rep.domain in results_map %}
+              {% with res=results_map|default:{}  %}
+              <span class="badge {% if 'HIGH' in results_map.domain_reputation|default:'' %}badge-success{% elif 'LOW' in results_map.domain_reputation|default:'' %}badge-danger{% else %}badge-grey{% endif %}">
+                {{ results_map.domain_reputation|default:"Unknown" }}
+              </span>
+              {% endwith %}
+            {% else %}
+              <span class="badge badge-grey">—</span>
+            {% endif %}
+            {% endwith %}
+          </td>
+          <td>—</td>
+          <td style="font-size:12px;color:var(--ink-3);">—</td>
+          <td style="font-size:12px;color:var(--ink-3);">{{ rep.created_at|date:"M j, Y" }}</td>
+        </tr>
+        {% endwith %}
+        {% empty %}
+        <tr><td colspan="7"><div class="admin-empty"><i class="fas fa-chart-line"></i><div class="admin-empty-title">No reputation records</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if q %}q={{ q }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if q %}q={{ q }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if q %}q={{ q }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

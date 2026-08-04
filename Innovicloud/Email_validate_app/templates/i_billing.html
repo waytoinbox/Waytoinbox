@@ -1,0 +1,298 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/billing.css' %}"/>
+{% endblock %}
+{% block content %}
+
+
+
+{% csrf_token %}
+<div class="receipt-page">
+
+  {% include 'partials/_toast_messages.html' %}
+
+  <!-- ── PAY-AS-YOU-GO ──────────────────────────────────── -->
+  <div class="receipt-card">
+    <div class="receipt-card-head">
+      <div class="receipt-card-head-left">
+        <div class="receipt-card-icon icon-payg">💳</div>
+        <h3>One-Time Payments</h3>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        {% if Receipt %}
+        <div class="bl-search-wrap">
+          <i class="fas fa-search bl-search-icon"></i>
+          <input type="text" id="paygSearch" class="bl-search-input" placeholder="Search…" autocomplete="off"/>
+          <button class="bl-search-clear" id="paygSearchClear" tabindex="-1"><i class="fas fa-times"></i></button>
+        </div>
+        {% endif %}
+        <span class="receipt-count" id="paygCount">{{ Receipt|length }} record{{ Receipt|length|pluralize }}</span>
+      </div>
+    </div>
+    <div class="receipt-table-wrap">
+      {% if Receipt %}
+      <table class="receipt-table" id="paygTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Transaction ID</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Invoice</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in Receipt %}
+          <tr data-record-id="{{ row.id }}">
+            <td data-label="Date"><span class="local-dt" data-utc="{{ row.payment_time|date:'c' }}">{{ row.payment_time }}</span></td>
+            <td data-label="Transaction ID">
+              <span class="receipt-order-id">{{ row.order_id }}</span>
+            </td>
+            <td data-label="Amount">
+              <span class="receipt-amount">${{ row.amount }}</span>
+            </td>
+            <td data-label="Status">
+              <span class="receipt-status">✓ Paid</span>
+            </td>
+            <td data-label="Invoice">
+              <a href="{% url 'generate_pdf' row.id %}" class="receipt-download">
+                <i class="fas fa-download"></i> Download
+              </a>
+            </td>
+            <td>
+              <button class="sv-del-btn" onclick="hideBillingRow({{ row.id }}, 'payg', this)" title="Remove from history">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% include 'partials/_pagination.html' with bar_id='paygPagBar' info_id='paygPagInfo' prev_id='paygPrevBtn' cur_id='paygPagNum' next_id='paygNextBtn' %}
+      {% else %}
+      <div class="receipt-empty">
+        <div class="receipt-empty-icon">🧾</div>
+        <h4>No pay-as-you-go payments yet</h4>
+        <p>Your pay-as-you-go transaction history will appear here.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- ── SUBSCRIPTION ───────────────────────────────────── -->
+  <div class="receipt-card">
+    <div class="receipt-card-head">
+      <div class="receipt-card-head-left">
+        <div class="receipt-card-icon icon-subs">📦</div>
+        <h3>Subscription Payments</h3>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        {% if SubsReceipt %}
+        <div class="bl-search-wrap">
+          <i class="fas fa-search bl-search-icon"></i>
+          <input type="text" id="subsSearch" class="bl-search-input" placeholder="Search…" autocomplete="off"/>
+          <button class="bl-search-clear" id="subsSearchClear" tabindex="-1"><i class="fas fa-times"></i></button>
+        </div>
+        {% endif %}
+        <span class="receipt-count" id="subsCount">{{ SubsReceipt|length }} record{{ SubsReceipt|length|pluralize }}</span>
+      </div>
+    </div>
+    <div class="receipt-table-wrap">
+      {% if SubsReceipt %}
+      <table class="receipt-table" id="subsTable">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Transaction ID</th>
+            <th>Amount</th>
+            <th>Status</th>
+            <th>Invoice</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in SubsReceipt %}
+          <tr data-record-id="{{ row.id }}">
+            <td data-label="Date"><span class="local-dt" data-utc="{{ row.payment_time|date:'c' }}">{{ row.payment_time }}</span></td>
+            <td data-label="Transaction ID">
+              <span class="receipt-order-id">{{ row.order_id }}</span>
+            </td>
+            <td data-label="Amount">
+              <span class="receipt-amount">${{ row.amount }}</span>
+            </td>
+            <td data-label="Status">
+              <span class="receipt-status">✓ Paid</span>
+            </td>
+            <td data-label="Invoice">
+              <a href="{% url 'generate_pdf' row.id %}" class="receipt-download">
+                <i class="fas fa-download"></i> Download
+              </a>
+            </td>
+            <td>
+              <button class="sv-del-btn" onclick="hideBillingRow({{ row.id }}, 'subs', this)" title="Remove from history">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% include 'partials/_pagination.html' with bar_id='subsPagBar' info_id='subsPagInfo' prev_id='subsPrevBtn' cur_id='subsPagNum' next_id='subsNextBtn' %}
+      {% else %}
+      <div class="receipt-empty">
+        <div class="receipt-empty-icon">📦</div>
+        <h4>No subscription payments yet</h4>
+        <p>Your subscription transaction history will appear here.</p>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+setTimeout(function() {
+  document.querySelectorAll('.receipt-alert').forEach(function(a) {
+    a.style.transition = 'opacity .5s';
+    a.style.opacity = '0';
+    setTimeout(function() { a.remove(); }, 500);
+  });
+}, 3000);
+
+function hideBillingRow(recordId, recordType, btn) {
+  var cell = btn.closest('td');
+  btn.style.display = 'none';
+  cell.insertAdjacentHTML('beforeend',
+    '<span class="sv-confirm">' +
+      'Remove? ' +
+      '<button class="sv-confirm-yes" onclick="doHideBillingRow(' + recordId + ',\'' + recordType + '\',this)">&#10003;</button>' +
+      '<button class="sv-confirm-no" onclick="cancelHideBillingRow(this)">&#10007;</button>' +
+    '</span>'
+  );
+}
+
+function cancelHideBillingRow(btn) {
+  var cell = btn.closest('td');
+  cell.querySelector('.sv-confirm').remove();
+  cell.querySelector('.sv-del-btn').style.display = '';
+}
+
+function doHideBillingRow(recordId, recordType, btn) {
+  var row  = btn.closest('tr');
+  var cell = btn.closest('td');
+  cell.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+  var fd = new FormData();
+  fd.append('record_id', recordId);
+  fd.append('record_type', recordType);
+  fd.append('csrfmiddlewaretoken', document.querySelector('[name=csrfmiddlewaretoken]') ? document.querySelector('[name=csrfmiddlewaretoken]').value : '');
+  fetch("{% url 'hide_billing_row' %}", { method: 'POST', body: fd })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        row.style.transition = 'opacity 0.3s';
+        row.style.opacity = '0';
+        setTimeout(function() {
+          var tbody = row.closest('tbody');
+          row.remove();
+          var tableId = tbody.closest('table').id;
+          var pag = _paginators[tableId];
+          if (pag) pag.refresh();
+        }, 300);
+      } else {
+        cell.querySelector('.sv-confirm').remove();
+        cell.querySelector('.sv-del-btn').style.display = '';
+      }
+    })
+    .catch(function() {
+      cell.querySelector('.sv-confirm').remove();
+      cell.querySelector('.sv-del-btn').style.display = '';
+    });
+}
+
+// ── Search + Pagination ──────────────────────────────────
+var ROWS_PER_PAGE = 3;
+var _paginators   = {};
+
+function makePaginator(tableId, prevId, nextId, infoId, numId, barId, searchId, clearId, countId) {
+  var table   = document.getElementById(tableId);
+  if (!table) return null;
+  var bar     = document.getElementById(barId);
+  var prevBtn = document.getElementById(prevId);
+  var nextBtn = document.getElementById(nextId);
+  var infoEl  = document.getElementById(infoId);
+  var numEl   = document.getElementById(numId);
+  var searchEl = document.getElementById(searchId);
+  var clearEl  = document.getElementById(clearId);
+  var countEl  = document.getElementById(countId);
+  var cur = 1;
+
+  function allRows() {
+    return Array.from(table.querySelectorAll('tbody tr'));
+  }
+  function visibleRows() {
+    return allRows().filter(function(r) { return r.dataset.filtered !== 'true'; });
+  }
+
+  function render() {
+    var rows  = visibleRows();
+    var total = rows.length;
+    var pages = Math.ceil(total / ROWS_PER_PAGE) || 1;
+    if (cur > pages) cur = pages;
+    var start = (cur - 1) * ROWS_PER_PAGE;
+    var end   = Math.min(start + ROWS_PER_PAGE, total);
+
+    allRows().forEach(function(r) { r.style.display = 'none'; });
+    rows.forEach(function(r, i) {
+      r.style.display = (i >= start && i < end) ? '' : 'none';
+    });
+
+    if (infoEl) infoEl.textContent = total ? 'Showing ' + (start + 1) + '–' + end + ' of ' + total : 'No results';
+    if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+    if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+    if (nextBtn) nextBtn.classList.toggle('disabled', cur >= pages);
+    if (bar) bar.style.display = total <= ROWS_PER_PAGE ? 'none' : '';
+    if (countEl) {
+      var all = allRows().length;
+      countEl.textContent = all + ' record' + (all === 1 ? '' : 's');
+    }
+  }
+
+  function applySearch() {
+    var q = searchEl ? searchEl.value.trim().toLowerCase() : '';
+    allRows().forEach(function(r) {
+      var match = !q || r.textContent.toLowerCase().indexOf(q) >= 0;
+      r.dataset.filtered = match ? 'false' : 'true';
+    });
+    if (clearEl) clearEl.style.display = q ? 'block' : 'none';
+    cur = 1;
+    render();
+  }
+
+  if (prevBtn) prevBtn.addEventListener('click', function() { if (cur > 1) { cur--; render(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function() {
+    if (cur < Math.ceil(visibleRows().length / ROWS_PER_PAGE)) { cur++; render(); }
+  });
+  if (searchEl) searchEl.addEventListener('input', applySearch);
+  if (clearEl) clearEl.addEventListener('click', function() {
+    searchEl.value = ''; applySearch(); searchEl.focus();
+  });
+
+  render();
+  return { refresh: function() { applySearch(); } };
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  _paginators['paygTable'] = makePaginator(
+    'paygTable', 'paygPrevBtn', 'paygNextBtn', 'paygPagInfo', 'paygPagNum', 'paygPagBar',
+    'paygSearch', 'paygSearchClear', 'paygCount'
+  );
+  _paginators['subsTable'] = makePaginator(
+    'subsTable', 'subsPrevBtn', 'subsNextBtn', 'subsPagInfo', 'subsPagNum', 'subsPagBar',
+    'subsSearch', 'subsSearchClear', 'subsCount'
+  );
+});
+</script>
+
+{% endblock %}

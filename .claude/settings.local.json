@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(python -m pip show python-dotenv 2>&1)",
+      "PowerShell(python -m pip install --force-reinstall python-dotenv)",
+      "PowerShell(python -c \"from dotenv import load_dotenv; print\\('dotenv ok'\\)\")"
+    ]
+  }
+}

@@ -1,0 +1,60 @@
+{% comment %}
+Shared filter bar partial — include in any page that uses the PF filter system.
+
+Required context:
+  (none required — all optional)
+
+Optional context:
+  pf_show_status        — True to render the status dropdown
+  pf_statuses           — list of (value, label) tuples for the status dropdown
+  pf_show_date          — False to hide date range inputs (default: shown)
+  pf_search_placeholder — placeholder text for the search input
+  search                — current search value (restores on server-side pages)
+  status                — current status value (restores on server-side pages)
+  date_from             — current date_from value (restores on server-side pages)
+  date_to               — current date_to value (restores on server-side pages)
+{% endcomment %}
+<div class="pf-bar" id="pfBar" role="search" aria-label="Filter records">
+
+  <div class="pf-search-wrap">
+    <i class="fas fa-search pf-search-icon" aria-hidden="true"></i>
+    <input id="pfSearch" type="text" class="pf-input"
+           placeholder="{{ pf_search_placeholder|default:'Search…' }}"
+           aria-label="Search" autocomplete="off"
+           value="{{ search|default:'' }}">
+    <button id="pfSearchClear" class="pf-input-clear"
+            style="display:{% if search %}inline{% else %}none{% endif %}"
+            aria-label="Clear search" type="button">&#x00D7;</button>
+  </div>
+
+  {% if pf_show_status and pf_statuses %}
+  <select id="pfStatus" class="pf-select" aria-label="Filter by status">
+    <option value="">All Status</option>
+    {% for val, label in pf_statuses %}
+    <option value="{{ val }}" {% if status == val %}selected{% endif %}>{{ label }}</option>
+    {% endfor %}
+  </select>
+  {% endif %}
+
+  {% if pf_show_date != False %}
+  <label class="pf-label" for="pfDateFrom">From</label>
+  <input id="pfDateFrom" type="date" class="pf-date" aria-label="From date"
+         value="{{ date_from|default:'' }}">
+  <label class="pf-label" for="pfDateTo">To</label>
+  <input id="pfDateTo" type="date" class="pf-date" aria-label="To date"
+         value="{{ date_to|default:'' }}">
+  {% endif %}
+
+  <div class="pf-spinner" id="pfSpinner" aria-label="Loading" role="status"></div>
+
+  <button id="pfClearBtn" class="pf-clear" type="button" aria-label="Clear all filters"
+          style="display:{% if search or status or date_from or date_to %}inline-flex{% else %}none{% endif %}">
+    <i class="fas fa-times" aria-hidden="true"></i> Clear
+  </button>
+
+  <span class="pf-count" id="pfCount" aria-live="polite"></span>
+
+  {% if pf_total is not None %}
+  <span class="pf-total-badge">{{ pf_total_label|default:"Total" }} ({{ pf_total }})</span>
+  {% endif %}
+</div>

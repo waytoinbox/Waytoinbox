@@ -1,0 +1,129 @@
+{% extends 'admin/base.html' %}
+{% block title %}System Monitor{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">System Monitor</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">System Monitor</h1>
+    <p class="admin-page-subtitle">Health checks &amp; live log viewer · {{ now|date:"M j, Y H:i:s" }} UTC</p>
+  </div>
+  <button class="btn-admin btn-admin-outline" onclick="runChecks()">
+    <i class="fas fa-sync-alt"></i> Refresh Checks
+  </button>
+</div>
+
+<!-- Health Checks -->
+<div class="stat-grid" style="margin-bottom:24px;">
+  {% for check in checks %}
+  <div class="stat-card" id="check-{{ check.name|lower }}">
+    <div class="stat-card-header">
+      <span class="stat-card-label">{{ check.name }}</span>
+      <div class="stat-card-icon {% if check.status == 'ok' %}mint{% elif check.status == 'warn' %}warn{% elif check.status == 'error' %}red{% else %}grey{% endif %}">
+        <i class="fas {{ check.icon }}"></i>
+      </div>
+    </div>
+    <div class="stat-card-value" style="font-size:18px;">
+      {% if check.status == 'ok' %}<span style="color:var(--green);">&#x2713; OK</span>
+      {% elif check.status == 'warn' %}<span style="color:var(--yellow);">&#x26A0; Warn</span>
+      {% elif check.status == 'error' %}<span style="color:var(--red);">&#x2715; Error</span>
+      {% else %}<span style="color:var(--ink-3);">&#x2013; Skip</span>{% endif %}
+    </div>
+    <div style="font-size:12px;color:var(--ink-3);margin-top:4px;">{{ check.detail }}</div>
+  </div>
+  {% endfor %}
+</div>
+
+<!-- Log Viewer -->
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-terminal" style="color:var(--teal);margin-right:6px;"></i>Live Log Viewer</span>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <select id="logLines" class="admin-filter-select" style="font-size:12px;padding:5px 8px;">
+        <option value="50">Last 50</option>
+        <option value="100" selected>Last 100</option>
+        <option value="200">Last 200</option>
+        <option value="500">Last 500</option>
+      </select>
+      <button class="btn-admin btn-admin-sm btn-admin-outline" onclick="loadLogs()">
+        <i class="fas fa-sync-alt"></i> Refresh
+      </button>
+      <label style="font-size:12px;color:var(--ink-3);display:flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="autoRefresh" onchange="toggleAutoRefresh(this)">
+        Auto (10s)
+      </label>
+    </div>
+  </div>
+  <div id="logViewer" style="
+    background:#0d1117;
+    color:#e6edf3;
+    font-family:monospace;
+    font-size:12px;
+    line-height:1.6;
+    padding:16px 20px;
+    max-height:500px;
+    overflow-y:auto;
+    border-radius:0 0 var(--radius-md) var(--radius-md);
+    white-space:pre-wrap;
+    word-break:break-all;">
+    <span style="color:#8b949e;">Loading logs…</span>
+  </div>
+</div>
+
+<script>
+let autoRefreshTimer = null;
+
+function loadLogs() {
+  const n = document.getElementById('logLines').value;
+  fetch(`{% url 'admin_system_logs' %}?n=${n}`, {
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(r => r.json())
+  .then(data => {
+    const viewer = document.getElementById('logViewer');
+    if (!data.lines || !data.lines.length) {
+      viewer.innerHTML = '<span style="color:#8b949e;">No log entries.</span>';
+      return;
+    }
+    const colored = data.lines.map(line => {
+      if (line.includes('ERROR') || line.includes('CRITICAL'))
+        return `<span style="color:#f85149;">${escHtml(line)}</span>`;
+      if (line.includes('WARNING') || line.includes('WARN'))
+        return `<span style="color:#d29922;">${escHtml(line)}</span>`;
+      if (line.includes('INFO'))
+        return `<span style="color:#58a6ff;">${escHtml(line)}</span>`;
+      if (line.includes('DEBUG'))
+        return `<span style="color:#8b949e;">${escHtml(line)}</span>`;
+      return escHtml(line);
+    });
+    viewer.innerHTML = colored.join('\n');
+    viewer.scrollTop = viewer.scrollHeight;
+  })
+  .catch(() => {
+    document.getElementById('logViewer').innerHTML = '<span style="color:#f85149;">Failed to load logs.</span>';
+  });
+}
+
+function escHtml(str) {
+  return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function toggleAutoRefresh(cb) {
+  clearInterval(autoRefreshTimer);
+  if (cb.checked) {
+    autoRefreshTimer = setInterval(loadLogs, 10000);
+  }
+}
+
+function runChecks() {
+  window.location.reload();
+}
+
+// Initial load
+loadLogs();
+</script>
+{% endblock %}

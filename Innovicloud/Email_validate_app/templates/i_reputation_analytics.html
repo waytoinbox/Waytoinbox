@@ -1,0 +1,457 @@
+{% extends 'i_index.html' %}
+{% load static humanize %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/analytics.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="ra-page">
+
+  <a href="{% url 'analytics_overview' %}" class="analytics-back-btn"><i class="fas fa-arrow-left"></i> Back to Insights</a>
+
+  <!-- ── PAGE HEADER + FILTERS ─────────────────────────────────────────── -->
+  <div class="ra-page-head">
+    <div>
+      <h1 class="ra-page-title">Reputation Analytics</h1>
+      <p class="ra-page-sub">Domain reputation, sender health, and risk level trends from Google Postmaster Tools.</p>
+    </div>
+
+    <div class="ra-filter-bar">
+      <div class="ra-filter-row">
+        <button class="ra-pill {% if preset == 'today' %}ra-pill--active{% endif %}" onclick="applyPreset('today')">Today</button>
+        <button class="ra-pill {% if preset == '7d'    %}ra-pill--active{% endif %}" onclick="applyPreset('7d')">Last 7 Days</button>
+        <button class="ra-pill {% if preset == '30d'   %}ra-pill--active{% endif %}" onclick="applyPreset('30d')">Last 30 Days</button>
+        <button class="ra-pill {% if preset == 'month' %}ra-pill--active{% endif %}" onclick="applyPreset('month')">This Month</button>
+        <button class="ra-pill {% if preset == 'custom'%}ra-pill--active{% endif %}" onclick="applyPreset('custom')">Custom</button>
+      </div>
+      <div class="ra-custom-dates {% if preset == 'custom' %}visible{% endif %}" id="customDates">
+        <input type="date" id="cfrom" class="ra-date-input" value="{{ date_from }}"/>
+        <span style="color:var(--muted);font-size:12px;">to</span>
+        <input type="date" id="cto"   class="ra-date-input" value="{{ date_to }}"/>
+        <button class="ra-date-apply" onclick="applyCustom()">Apply</button>
+      </div>
+      <div class="ra-filter-row">
+        <select class="ra-select" id="analysisSelect" onchange="fetchData()">
+          <option value="all"    {% if analysis_type == 'all'    %}selected{% endif %}>All Types</option>
+          <option value="domain" {% if analysis_type == 'domain' %}selected{% endif %}>Domain Reputation</option>
+          <option value="ip"     {% if analysis_type == 'ip'     %}selected{% endif %}>IP Reputation</option>
+        </select>
+        <select class="ra-select" id="riskSelect" onchange="fetchData()">
+          <option value="all"      {% if risk_level == 'all'      %}selected{% endif %}>All Risk Levels</option>
+          <option value="good"     {% if risk_level == 'good'     %}selected{% endif %}>Good (HIGH)</option>
+          <option value="medium"   {% if risk_level == 'medium'   %}selected{% endif %}>Medium</option>
+          <option value="poor"     {% if risk_level == 'poor'     %}selected{% endif %}>Poor (LOW)</option>
+          <option value="critical" {% if risk_level == 'critical' %}selected{% endif %}>Critical (BAD)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── HEALTH BANNER ─────────────────────────────────────────────────── -->
+  <div class="ra-banner">
+    <div class="ra-banner-ring">
+      <svg width="96" height="96" viewBox="0 0 96 96">
+        <circle class="ra-ring-bg" cx="48" cy="48" r="40"/>
+        <circle class="ra-ring-val {% if health_score >= 75 %}ra-ring-val--good{% elif health_score >= 50 %}ra-ring-val--warn{% else %}ra-ring-val--bad{% endif %}"
+          id="healthRing" cx="48" cy="48" r="40"
+          stroke-dasharray="251.3" stroke-dashoffset="251.3"/>
+      </svg>
+      <div class="ra-ring-label" id="healthPct">{{ health_score }}</div>
+    </div>
+    <div>
+      <p class="ra-banner-title">Overall Reputation Health Score</p>
+      <p class="ra-banner-sub">Average score: HIGH=100 · MEDIUM=75 · LOW=50 · BAD=25</p>
+      <span class="ra-banner-pill {% if health_score >= 75 %}ra-pill--good{% elif health_score >= 50 %}ra-pill--warn{% else %}ra-pill--bad{% endif %}" id="healthBadge">
+        {% if health_score >= 75 %}Good{% elif health_score >= 50 %}At Risk{% else %}Critical{% endif %}
+      </span>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:24px;flex-wrap:wrap;">
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#10B981" id="hs-good">{{ good|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">Good (HIGH)</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#F59E0B" id="hs-medium">{{ medium|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">Medium</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#EF4444" id="hs-poor">{{ poor|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">Poor (LOW)</div>
+      </div>
+      <div style="text-align:center;">
+        <div style="font-family:var(--font-head);font-size:20px;font-weight:700;color:#B91C1C" id="hs-critical">{{ critical|intcomma }}</div>
+        <div style="font-size:11px;color:var(--muted);font-weight:600;">Critical (BAD)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── SUMMARY CARDS ─────────────────────────────────────────────────── -->
+  <div class="ra-cards-grid">
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--total"><i class="fas fa-globe"></i></div>
+      <div class="ra-card-val" id="s-total">{{ total_checks|intcomma }}</div>
+      <div class="ra-card-label">Total Domains Checked</div>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--score"><i class="fas fa-star"></i></div>
+      <div class="ra-card-val" id="s-avg">{{ avg_score }}</div>
+      <div class="ra-card-label">Avg Reputation Score</div>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--good"><i class="fas fa-check-circle"></i></div>
+      <div class="ra-card-val" id="s-good">{{ good|intcomma }}</div>
+      <div class="ra-card-label">Good Reputation</div>
+      <span class="ra-card-pct ra-pct--good" id="s-good-pct">HIGH</span>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--medium"><i class="fas fa-exclamation-circle"></i></div>
+      <div class="ra-card-val" id="s-medium">{{ medium|intcomma }}</div>
+      <div class="ra-card-label">Medium Risk</div>
+      <span class="ra-card-pct ra-pct--medium" id="s-medium-pct">MED</span>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--poor"><i class="fas fa-times-circle"></i></div>
+      <div class="ra-card-val" id="s-poor">{{ poor|intcomma }}</div>
+      <div class="ra-card-label">Poor Reputation</div>
+      <span class="ra-card-pct ra-pct--poor" id="s-poor-pct">LOW</span>
+    </div>
+    <div class="ra-card">
+      <div class="ra-card-icon ra-icon--critical"><i class="fas fa-exclamation-triangle"></i></div>
+      <div class="ra-card-val" id="s-critical">{{ critical|intcomma }}</div>
+      <div class="ra-card-label">Critical Issues</div>
+      <span class="ra-card-pct ra-pct--critical" id="s-critical-pct">BAD</span>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 1 ───────────────────────────────────────────────────── -->
+  <div class="ra-charts-row">
+    <div class="ra-chart-box">
+      <div class="ra-loading" id="load-dist"><div class="ra-spinner"></div></div>
+      <div class="ra-chart-head">
+        <h3 class="ra-chart-title">Reputation Score Distribution</h3>
+        <p class="ra-chart-sub">Good · Medium · Poor · Critical</p>
+      </div>
+      <div class="ra-canvas-wrap ra-canvas-wrap--donut"><canvas id="chartDist"></canvas></div>
+    </div>
+    <div class="ra-chart-box">
+      <div class="ra-loading" id="load-trend"><div class="ra-spinner"></div></div>
+      <div class="ra-chart-head">
+        <h3 class="ra-chart-title">Reputation Trend</h3>
+        <p class="ra-chart-sub">Average reputation score over time</p>
+      </div>
+      <div class="ra-canvas-wrap"><canvas id="chartTrend"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── CHARTS ROW 2 ───────────────────────────────────────────────────── -->
+  <div class="ra-charts-row">
+    <div class="ra-chart-box">
+      <div class="ra-loading" id="load-type"><div class="ra-spinner"></div></div>
+      <div class="ra-chart-head">
+        <h3 class="ra-chart-title">Domain vs IP Reputation</h3>
+        <p class="ra-chart-sub">Data points by reputation type</p>
+      </div>
+      <div class="ra-canvas-wrap"><canvas id="chartType"></canvas></div>
+    </div>
+    <div class="ra-chart-box">
+      <div class="ra-loading" id="load-risk"><div class="ra-spinner"></div></div>
+      <div class="ra-chart-head">
+        <h3 class="ra-chart-title">Risk Trend</h3>
+        <p class="ra-chart-sub">Daily Good · Medium · Poor · Critical</p>
+      </div>
+      <div class="ra-canvas-wrap"><canvas id="chartRisk"></canvas></div>
+    </div>
+  </div>
+
+  <!-- ── REPUTATION TABLE ───────────────────────────────────────────────── -->
+  <div class="ra-table-section">
+    <div class="ra-table-head">
+      <h3 class="ra-chart-title">Reputation Overview</h3>
+      <p class="ra-chart-sub" style="margin:2px 0 0;">Monitored domains with latest reputation data</p>
+    </div>
+    {% if table_rows %}
+    <div class="ra-table-wrap">
+      <table class="ra-table">
+        <thead>
+          <tr>
+            <th>Target</th>
+            <th>Type</th>
+            <th>Score</th>
+            <th>Risk Level</th>
+            <th>Status</th>
+            <th>Checked Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in table_rows %}
+          <tr>
+            <td><strong>{{ row.target }}</strong></td>
+            <td><span class="ra-badge ra-b-domain">{{ row.type }}</span></td>
+            <td>
+              <div style="display:flex;align-items:center;gap:8px;">
+                <div style="width:50px;height:6px;border-radius:3px;background:var(--border);">
+                  <div style="height:6px;border-radius:3px;width:{{ row.score }}%;background:{% if row.score >= 75 %}#10B981{% elif row.score >= 50 %}#F59E0B{% else %}#EF4444{% endif %};"></div>
+                </div>
+                <span style="font-weight:700;font-size:12px;">{{ row.score }}</span>
+              </div>
+            </td>
+            <td>
+              <span class="ra-badge {% if row.risk == 'Good' %}ra-b-good{% elif row.risk == 'Medium' %}ra-b-medium{% elif row.risk == 'Poor' %}ra-b-poor{% elif row.risk == 'Critical' %}ra-b-critical{% else %}ra-b-unverified{% endif %}">
+                {{ row.risk }}
+              </span>
+            </td>
+            <td><span class="ra-badge ra-b-{{ row.status }}">{{ row.status }}</span></td>
+            <td style="color:var(--muted);white-space:nowrap;">{{ row.date }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="ra-empty">
+      <i class="fas fa-globe ra-empty-icon"></i>
+      <p>No reputation data found. Add domains via Reputation Analysis to start monitoring.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const ANALYTICS_URL = "{% url 'reputation_analytics' %}";
+const CHART_DATA    = {{ chart_data_json|safe }};
+const CIRC = 251.3;
+
+const C_GOOD     = '#10B981';
+const C_MEDIUM   = '#F59E0B';
+const C_POOR     = '#EF4444';
+const C_CRITICAL = '#B91C1C';
+const C_DOMAIN   = '#3B82F6';
+const C_IP       = '#8B5CF6';
+const C_LINE     = '#6366F1';
+
+function fmtDate(d) {
+  if (!d) return d;
+  const p = d.split('-');
+  if (p.length !== 3) return d;
+  const mo = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return mo[parseInt(p[1],10)-1] + ' ' + parseInt(p[2],10);
+}
+function fmtNum(n) { return Number(n).toLocaleString(); }
+
+// Animate ring
+(function() {
+  const score  = parseFloat('{{ health_score }}') || 0;
+  const offset = CIRC - (score / 100) * CIRC;
+  const ring   = document.getElementById('healthRing');
+  if (ring) setTimeout(() => ring.style.strokeDashoffset = offset, 50);
+})();
+
+function loading(show) {
+  ['dist','trend','type','risk'].forEach(id => {
+    document.getElementById('load-' + id).classList.toggle('active', show);
+  });
+}
+
+// Chart 1: Doughnut — distribution
+const distChart = new Chart(document.getElementById('chartDist').getContext('2d'), {
+  type: 'doughnut',
+  data: {
+    labels: ['Good','Medium','Poor','Critical'],
+    datasets: [{
+      data: [CHART_DATA.distribution.good, CHART_DATA.distribution.medium, CHART_DATA.distribution.poor, CHART_DATA.distribution.critical],
+      backgroundColor: [C_GOOD, C_MEDIUM, C_POOR, C_CRITICAL],
+      borderWidth: 2, borderColor: '#fff', hoverOffset: 6,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false, cutout: '68%',
+    plugins: {
+      legend: { position:'bottom', labels:{ usePointStyle:true, padding:16, font:{size:11} } },
+      tooltip: { callbacks: { label: ctx => ' ' + ctx.label + ': ' + fmtNum(ctx.parsed) } },
+    },
+  },
+});
+
+// Chart 2: Line — trend
+const trendChart = new Chart(document.getElementById('chartTrend').getContext('2d'), {
+  type: 'line',
+  data: {
+    labels: CHART_DATA.trend.labels.map(fmtDate),
+    datasets: [{
+      label: 'Avg Score',
+      data: CHART_DATA.trend.data,
+      borderColor: C_LINE, backgroundColor: 'rgba(99,102,241,.08)',
+      borderWidth: 2, tension: 0.4, pointRadius: 3, pointBackgroundColor: C_LINE, fill: true,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' Score: ' + ctx.parsed.y } } },
+    scales: {
+      x: { ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { beginAtZero:true, max:100, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 3: Bar — Domain vs IP
+const typeChart = new Chart(document.getElementById('chartType').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: ['Domain Reputation','IP Reputation'],
+    datasets: [{
+      label: 'Data Points',
+      data: [CHART_DATA.type.domain, CHART_DATA.type.ip],
+      backgroundColor: [C_DOMAIN, C_IP],
+      borderRadius: 6, borderSkipped: false,
+    }],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ display:false }, tooltip:{ callbacks:{ label: ctx => ' ' + fmtNum(ctx.parsed.y) + ' records' } } },
+    scales: {
+      x: { grid:{ display:false }, ticks:{ font:{size:11} } },
+      y: { beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Chart 4: Stacked Bar — risk trend
+const riskChart = new Chart(document.getElementById('chartRisk').getContext('2d'), {
+  type: 'bar',
+  data: {
+    labels: CHART_DATA.risk.labels.map(fmtDate),
+    datasets: [
+      { label:'Good',     data: CHART_DATA.risk.good,     backgroundColor: C_GOOD,     stack:'r' },
+      { label:'Medium',   data: CHART_DATA.risk.medium,   backgroundColor: C_MEDIUM,   stack:'r' },
+      { label:'Poor',     data: CHART_DATA.risk.poor,     backgroundColor: C_POOR,     stack:'r' },
+      { label:'Critical', data: CHART_DATA.risk.critical, backgroundColor: C_CRITICAL, stack:'r' },
+    ],
+  },
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend:{ position:'bottom', labels:{ usePointStyle:true, padding:14, font:{size:11} } }, tooltip:{ callbacks:{ label: ctx => ' ' + ctx.dataset.label + ': ' + fmtNum(ctx.parsed.y) } } },
+    scales: {
+      x: { stacked:true, ticks:{ maxTicksLimit:10, font:{size:11} }, grid:{ display:false } },
+      y: { stacked:true, beginAtZero:true, ticks:{ precision:0, font:{size:11} } },
+    },
+  },
+});
+
+// Filters
+let activePreset = '{{ preset }}';
+function applyPreset(preset) {
+  if (preset === 'custom') {
+    document.querySelectorAll('.ra-pill').forEach(b => b.classList.remove('ra-pill--active'));
+    document.querySelector('[onclick="applyPreset(\'custom\')"]').classList.add('ra-pill--active');
+    document.getElementById('customDates').classList.add('visible');
+    activePreset = 'custom'; return;
+  }
+  document.getElementById('customDates').classList.remove('visible');
+  activePreset = preset; localStorage.setItem('analytics_preset', preset); fetchData();
+}
+function applyCustom() {
+  const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+  if (!from || !to) { alert('Please select both dates.'); return; }
+  if (from > to) { alert('From date must be before To date.'); return; }
+  localStorage.setItem('analytics_preset', 'custom');
+  localStorage.setItem('analytics_date_from', from);
+  localStorage.setItem('analytics_date_to', to);
+  fetchData();
+}
+async function fetchData() {
+  const preset = activePreset;
+  const at = document.getElementById('analysisSelect').value;
+  const rl = document.getElementById('riskSelect').value;
+  loading(true);
+  document.querySelectorAll('.ra-pill').forEach(b => b.classList.remove('ra-pill--active'));
+  const pm = {today:0,'7d':1,'30d':2,month:3,custom:4};
+  const pills = document.querySelectorAll('.ra-pill');
+  if (pm[preset] !== undefined) pills[pm[preset]].classList.add('ra-pill--active');
+  let url = ANALYTICS_URL + '?preset=' + preset + '&analysis_type=' + at + '&risk_level=' + rl + '&format=json';
+  if (preset === 'custom') {
+    const from = document.getElementById('cfrom').value, to = document.getElementById('cto').value;
+    if (from && to) url += '&date_from=' + from + '&date_to=' + to;
+  }
+  try {
+    const res = await fetch(url, { headers:{ 'X-Requested-With':'XMLHttpRequest' } });
+    const data = await res.json();
+    updateCards(data.summary); updateHealth(data.summary); updateCharts(data.charts);
+  } catch(e) { console.error('Reputation analytics error:', e); }
+  finally { loading(false); }
+}
+function updateCards(s) {
+  document.getElementById('s-total').textContent    = fmtNum(s.total_checks);
+  document.getElementById('s-avg').textContent      = s.avg_score;
+  document.getElementById('s-good').textContent     = fmtNum(s.good);
+  document.getElementById('s-medium').textContent   = fmtNum(s.medium);
+  document.getElementById('s-poor').textContent     = fmtNum(s.poor);
+  document.getElementById('s-critical').textContent = fmtNum(s.critical);
+}
+function updateHealth(s) {
+  const score  = s.health_score || 0;
+  const offset = CIRC - (score / 100) * CIRC;
+  const ring   = document.getElementById('healthRing');
+  const pct    = document.getElementById('healthPct');
+  const badge  = document.getElementById('healthBadge');
+  if (ring) ring.style.strokeDashoffset = offset;
+  if (pct)  pct.textContent  = score;
+  document.getElementById('hs-good').textContent     = fmtNum(s.good);
+  document.getElementById('hs-medium').textContent   = fmtNum(s.medium);
+  document.getElementById('hs-poor').textContent     = fmtNum(s.poor);
+  document.getElementById('hs-critical').textContent = fmtNum(s.critical);
+  if (badge) {
+    badge.className = 'ra-banner-pill';
+    if (score >= 75) { badge.classList.add('ra-pill--good'); badge.textContent = 'Good'; }
+    else if (score >= 50) { badge.classList.add('ra-pill--warn'); badge.textContent = 'At Risk'; }
+    else { badge.classList.add('ra-pill--bad'); badge.textContent = 'Critical'; }
+  }
+}
+function updateCharts(c) {
+  distChart.data.datasets[0].data = [c.distribution.good, c.distribution.medium, c.distribution.poor, c.distribution.critical];
+  distChart.update();
+  trendChart.data.labels           = c.trend.labels.map(fmtDate);
+  trendChart.data.datasets[0].data = c.trend.data;
+  trendChart.update();
+  typeChart.data.datasets[0].data = [c.type.domain, c.type.ip];
+  typeChart.update();
+  riskChart.data.labels              = c.risk.labels.map(fmtDate);
+  riskChart.data.datasets[0].data    = c.risk.good;
+  riskChart.data.datasets[1].data    = c.risk.medium;
+  riskChart.data.datasets[2].data    = c.risk.poor;
+  riskChart.data.datasets[3].data    = c.risk.critical;
+  riskChart.update();
+}
+
+// ── Sync filter with localStorage ────────────────────────────────────────
+(function () {
+  const PKEY = 'analytics_preset', FKEY = 'analytics_date_from', TKEY = 'analytics_date_to';
+  const urlP = new URLSearchParams(location.search).get('preset');
+  if (urlP) {
+    localStorage.setItem(PKEY, urlP);
+    if (urlP === 'custom') {
+      const p = new URLSearchParams(location.search);
+      localStorage.setItem(FKEY, p.get('date_from') || '');
+      localStorage.setItem(TKEY, p.get('date_to')   || '');
+    }
+  } else {
+    const saved = localStorage.getItem(PKEY);
+    if (saved && saved !== '{{ preset }}') {
+      const from = localStorage.getItem(FKEY) || '';
+      const to   = localStorage.getItem(TKEY) || '';
+      if (saved === 'custom' && from) {
+        document.getElementById('cfrom').value = from;
+        document.getElementById('cto').value   = to;
+        activePreset = 'custom';
+        document.getElementById('customDates').classList.add('visible');
+      } else { activePreset = saved; }
+      fetchData();
+    }
+  }
+})();
+</script>
+{% endblock %}
