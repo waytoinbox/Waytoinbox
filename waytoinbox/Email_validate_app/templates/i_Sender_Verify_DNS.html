@@ -1,0 +1,213 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaigns.css' %}"/>
+{% endblock %}
+
+{% block content %}
+<div class="ec-page">
+
+  <!-- Breadcrumb -->
+  <div class="cd-breadcrumb">
+    <a href="{% url 'sender_verify' %}"><i class="fas fa-shield-alt"></i> Sender Verify</a>
+    <span class="sep"><i class="fas fa-chevron-right" style="font-size:10px;"></i></span>
+    <span class="cur">DNS Records — {{ domain }}</span>
+  </div>
+
+  <!-- Header -->
+  <div class="ec-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">🔑</div>
+      <div>
+        <h2>DNS Records</h2>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:4px;">
+          <span style="font-size:13.5px;color:var(--ink-3);">Domain:</span>
+          <span style="font-family:monospace;font-size:13.5px;color:var(--ink);font-weight:600;">{{ domain }}</span>
+          {% if db_row.status == 'verified' %}
+            <span class="sv-badge verified"><i class="fas fa-check-circle"></i> Verified</span>
+          {% elif db_row.status == 'pending' %}
+            <span class="sv-badge pending"><i class="fas fa-clock"></i> Pending</span>
+          {% else %}
+            <span class="sv-badge failed"><i class="fas fa-times-circle"></i> Failed</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button onclick="downloadDnsRecords()" class="sv-action-btn" style="cursor:pointer;border:none;background:var(--teal,#0d9488);color:#fff;">
+        <i class="fas fa-download"></i> Download
+      </button>
+      <a href="{% url 'sender_verify' %}" class="sv-action-btn" style="text-decoration:none;">
+        <i class="fas fa-arrow-left"></i> Back
+      </a>
+    </div>
+  </div>
+
+  <!-- Info notice -->
+  <div class="sv-migration-notice">
+    <i class="fas fa-info-circle"></i>
+    DNS changes can take up to <strong>72 hours</strong> to propagate. Go back and click <strong>Refresh</strong> to check verification status.
+  </div>
+
+  <!-- Provider 1 Records -->
+  <div class="ec-card">
+    <div class="sv-section-title">
+      <span><i class="fas fa-server" style="color:var(--teal);"></i> &nbsp;Provider 1 <span style="font-size:11px;font-weight:400;color:var(--ink-3);">(add once)</span></span>
+    </div>
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
+      {% if ses_records %}
+        {% for rec in ses_records %}
+        <div class="sv-rec-card">
+          <div class="sv-rec-header">
+            <span class="sv-rec-label">{{ rec.record_type }} Record {{ forloop.counter }}</span>
+            <span class="sv-rec-type">{{ rec.record_type }}</span>
+          </div>
+          <div class="sv-rec-rows">
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Name</span>
+              <span class="sv-rec-val" id="ses-{{ forloop.counter }}-n">{{ rec.name }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('ses-{{ forloop.counter }}-n', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Value</span>
+              <span class="sv-rec-val" id="ses-{{ forloop.counter }}-v">{{ rec.value }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('ses-{{ forloop.counter }}-v', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            {% if rec.priority %}
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Priority</span>
+              <span class="sv-rec-val" id="ses-{{ forloop.counter }}-p">{{ rec.priority }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('ses-{{ forloop.counter }}-p', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="sv-rec-section-empty"><i class="fas fa-exclamation-circle"></i> No records found for Provider 1.</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Provider 2 Records -->
+  <div class="ec-card">
+    <div class="sv-section-title">
+      <span><i class="fas fa-server" style="color:var(--teal);"></i> &nbsp;Provider 2 <span style="font-size:11px;font-weight:400;color:var(--ink-3);">(add once)</span></span>
+    </div>
+    <div style="padding:20px 24px;display:flex;flex-direction:column;gap:12px;">
+      {% if mg_records %}
+        {% for rec in mg_records %}
+        <div class="sv-rec-card">
+          <div class="sv-rec-header">
+            <span class="sv-rec-label">{{ rec.record_type }} Record {{ forloop.counter }}</span>
+            <span class="sv-rec-type">{{ rec.record_type }}</span>
+          </div>
+          <div class="sv-rec-rows">
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Name</span>
+              <span class="sv-rec-val" id="mg-{{ forloop.counter }}-n">{{ rec.name }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('mg-{{ forloop.counter }}-n', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Value</span>
+              <span class="sv-rec-val" id="mg-{{ forloop.counter }}-v">{{ rec.value }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('mg-{{ forloop.counter }}-v', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            {% if rec.priority %}
+            <div class="sv-rec-row">
+              <span class="sv-rec-key">Priority</span>
+              <span class="sv-rec-val" id="mg-{{ forloop.counter }}-p">{{ rec.priority }}</span>
+              <button class="sv-copy-btn" onclick="svCopy('mg-{{ forloop.counter }}-p', this)"><i class="fas fa-copy"></i> Copy</button>
+            </div>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="sv-rec-section-empty"><i class="fas fa-exclamation-circle"></i> No records found for Provider 2.</div>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+function svCopy(id, btn) {
+  var text = document.getElementById(id).textContent.trim();
+  navigator.clipboard.writeText(text).then(function() {
+    btn.innerHTML = '<i class="fas fa-check"></i> Copied';
+    btn.classList.add('copied');
+    setTimeout(function() {
+      btn.innerHTML = '<i class="fas fa-copy"></i> Copy';
+      btn.classList.remove('copied');
+    }, 2000);
+  });
+}
+
+function downloadDnsRecords() {
+  var domain = '{{ domain|escapejs }}';
+  var lines = [];
+
+  lines.push('DNS Records — ' + domain);
+  lines.push('Generated: ' + new Date().toLocaleString());
+  lines.push('');
+  lines.push('Add these records in your DNS provider (e.g. Cloudflare, GoDaddy, Namecheap).');
+  lines.push('DNS changes can take up to 72 hours to propagate.');
+
+  function collectSection(title, prefix) {
+    var cards = document.querySelectorAll('[id^="' + prefix + '"]');
+    if (!cards.length) return;
+
+    // Find all unique counter numbers used for this prefix
+    var counters = {};
+    cards.forEach(function(el) {
+      var parts = el.id.split('-');   // e.g. ses-1-n → ['ses','1','n']
+      counters[parts[1]] = true;
+    });
+
+    var nums = Object.keys(counters).sort();
+    if (!nums.length) return;
+
+    lines.push('');
+    lines.push('================================================================');
+    lines.push(title);
+    lines.push('================================================================');
+
+    nums.forEach(function(num) {
+      var nameEl  = document.getElementById(prefix + num + '-n');
+      var valEl   = document.getElementById(prefix + num + '-v');
+      var priEl   = document.getElementById(prefix + num + '-p');
+
+      // Determine record type from the card header label
+      var card = nameEl ? nameEl.closest('.sv-rec-card') : null;
+      var typeEl = card ? card.querySelector('.sv-rec-type') : null;
+      var recType = typeEl ? typeEl.textContent.trim() : 'CNAME';
+
+      lines.push('');
+      lines.push('Record ' + num + ' (' + recType + ')');
+      lines.push('  Name  : ' + (nameEl  ? nameEl.textContent.trim()  : ''));
+      lines.push('  Value : ' + (valEl   ? valEl.textContent.trim()   : ''));
+      if (priEl) {
+        lines.push('  Priority: ' + priEl.textContent.trim());
+      }
+    });
+  }
+
+  collectSection('PROVIDER 1 RECORDS', 'ses-');
+  collectSection('PROVIDER 2 RECORDS', 'mg-');
+
+  lines.push('');
+  lines.push('================================================================');
+
+  var blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+  var url  = URL.createObjectURL(blob);
+  var a    = document.createElement('a');
+  a.href     = url;
+  a.download = 'dns-records-' + domain + '.txt';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

@@ -1,0 +1,184 @@
+================================================================
+WAYTOINBOX — SYSTEM WORKFLOWS
+================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 1. BULK EMAIL VERIFY WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+User uploads CSV file on /services/
+        │
+        ▼
+[View] Validate file
+  - Size ≤ 50 MB?
+  - Extension .csv / .xlsx / .json / .txt?
+        │
+        ▼
+Save file → private_uploads/
+        │
+        ▼
+Create ListFiles record (job_status = "Pending")
+Create dynamic MySQL table → WIN_<id>_YYYY_MM_DD
+        │
+        ▼
+Dispatch validate_email_list_task → Celery queue
+Return "Job started" to user
+        │
+        ▼
+[Celery] validate_email_list_task
+  - Set job_status = "Processing", started_at = now
+  - Read CSV in chunks of 500 rows
+        │
+        ▼
+Split into N chunks → dispatch all validate_chunk_task
+(all chunks run in PARALLEL)
+        │
+     ┌──┴───────────────────────────┐
+     ▼                              ▼
+validate_chunk_task #1    validate_chunk_task #N
+50 threads per chunk      50 threads per chunk
+
+Each email goes through:
+  1. Format check
+  2. Role-based check      (admin@, info@ → Others)
+  3. Disposable check      (mailinator, etc. → Risky)
+  4. Blacklisted check     (blocked domains → Others)
+  5. Suspicious check      (test, fake, noreply → Risky)
+  6. MX record lookup      (cached in Redis 1 hour)
+  7. Catch-all SMTP probe  (random address test → Risky)
+  8. SMTP handshake        (250=Valid, 550=Invalid, 450=Risky)
+
+Returns: { email → Valid / Invalid / Risky / Others }
+     └──────────┬───────────────────┘
+                │
+                ▼
+All chunks done → chord callback fires
+                │
+                ▼
+[Celery] finalize_validation_task
+  - Merge all results
+  - Write results back to CSV file
+  - Bulk upsert → AllEmails table
+  - Update ListFiles:
+      valid_count, invalid_count, total_count
+      job_status = "Complete", completed_at = now
+  - Send in-app notification
+  - Send email to user (if enabled)
+        │
+        ▼
+User sees job card → status = Complete
+        │
+        ▼
+User clicks Download
+  - Check VC credits ≥ (valid + invalid count)
+  - Deduct VC credits (atomic, locked)
+  - Serve filtered CSV (All / Valid / Invalid)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 2. CAMPAIGN EMAIL SEND WORKFLOW
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+     ┌─────────────────┬──────────────────────┐
+     │   SEND NOW       │   SCHEDULED SEND     │
+     │                  │                      │
+     ▼                  ▼                      │
+User clicks         User sets date/time        │
+Send Now            and clicks Schedule        │
+     │                  │                      │
+     │            campaign.status              │
+     │            = "scheduled"                │
+     │                  │                      │
+     │            Beat task runs               │
+     │            every 1 minute               │
+     │            Finds due campaigns          │
+     │            Atomic DB claim:             │
+     │            scheduled → sending          │
+     └──────────────────┘
+                │
+                ▼
+[Celery] send_campaign_emails_task
+                │
+                ▼
+Acquire Redis lock → send_campaign:<id>
+  Already locked? → SKIP (another worker is sending)
+                │
+                ▼
+Idempotency check
+  status = "sent" or "failed"? → SKIP (already done)
+                │
+                ▼
+Count subscribed recipients from contact list
+                │
+                ▼
+Check CC credits ≥ recipient count
+        │               │
+       NO              YES
+        │               │
+        ▼               ▼
+status = "failed"   Send emails in batches of 500
+Notify user         (batches run ONE BY ONE)
+                         │
+                    ┌────┴──────────────────────┐
+                    │  For each batch of 500:   │
+                    │                           │
+                    │  Per email:               │
+                    │  - Build email message    │
+                    │  - Inject unsubscribe     │
+                    │    link (signed token)    │
+                    │  - Send via SES/Mailgun   │
+                    │    (up to 3 retries)      │
+                    │                           │
+                    │  Wait 60s between batches │
+                    └────────────────────────────┘
+                         │
+                         ▼
+                  All batches complete
+                         │
+                ┌────────┴────────┐
+                │                 │
+            Sent > 0          Sent = 0
+                │                 │
+                ▼                 ▼
+        UPDATE campaign     UPDATE campaign
+        status = "sent"     status = "failed"
+        sent_at = now       Notify user
+                │
+                ▼
+        Deduct CC credits (1 per recipient, atomic)
+                │
+                ▼
+        Send in-app notification + email to user
+                │
+                ▼
+        Trigger CloudWatch sync
+        (fetch open/click/bounce events every 5 min)
+                │
+                ▼
+        Release Redis lock (always, even on error)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ CAMPAIGN STATUS VALUES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  draft      →  Created, not sent yet
+  scheduled  →  Waiting for send time
+  sending    →  Celery worker is processing it now
+  sent       →  All emails delivered successfully
+  failed     →  Error (no credits / send error / crash)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SEND TIME REFERENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  List size    Batches    Approx time
+  ─────────    ───────    ───────────
+    500           1        < 1 minute
+  1,000           2        ~ 1 minute
+  5,000          10        ~ 10 minutes
+  10,000         20        ~ 20 minutes
+
+================================================================

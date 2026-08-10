@@ -1,0 +1,808 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">{% endblock %}
+{% block content %}
+
+
+
+<div class="bulk-page">
+
+  <div id="bulk-alert-area"></div>
+
+  <!-- ── UPLOAD CARD ──────────────────────────────────── -->
+  <div class="bulk-upload-card">
+    <div class="bulk-card-head">
+      <div class="bulk-card-icon">&#128203;</div>
+      <div>
+        <h2>Bulk Email Verify</h2>
+        <p>Upload a CSV file and verify thousands of emails at once.</p>
+      </div>
+    </div>
+
+    <form id="mainForm" novalidate>
+      {% csrf_token %}
+      <div class="upload-area" id="uploadArea">
+        <input type="file" id="file" name="file_" accept=".csv,.txt,.xlsx" required/>
+        <div class="upload-icon">&#128193;</div>
+        <h4>Drop your file here or click to browse</h4>
+        <p>Supports CSV, TXT, XLSX &#8212; up to 500K addresses per batch</p>
+        <div class="upload-file-name" id="uploadFileName">&#8212;</div>
+      </div>
+      <div class="upload-actions">
+        <button type="submit" class="upload-btn" id="uploadBtn">
+          <i class="fas fa-upload"></i> Upload
+        </button>
+        <span class="upload-hint">Credits only deducted for definitive results</span>
+      </div>
+    </form>
+  </div>
+
+  <!-- ── JOB LIST CARD ────────────────────────────────── -->
+  <div class="bulk-filter-card">
+    <div class="bulk-filter-head">
+      <h3>Verification Jobs</h3>
+      <div class="bulk-tabs">
+        <button class="bulk-tab active" onclick="fetchData('all', this)">
+          All <span class="bulk-tab-count" id="all-count-display">0</span>
+        </button>
+        <button class="bulk-tab" onclick="fetchData('Completed', this)">
+          Completed <span class="bulk-tab-count" id="Completed-count-display">0</span>
+        </button>
+        <button class="bulk-tab" onclick="fetchData('Processing', this)">
+          Processing <span class="bulk-tab-count" id="Processing-count-display">0</span>
+        </button>
+        <button class="bulk-tab" onclick="fetchData('Unpurchased', this)">
+          Unpurchased <span class="bulk-tab-count" id="Unpurchased-count-display">0</span>
+        </button>
+      </div>
+    </div>
+    <div class="pf-bar" id="bulkPfBar">
+      <div class="pf-search-wrap">
+        <i class="fas fa-search pf-search-icon"></i>
+        <input id="jobSearchInput" type="text" class="pf-input" placeholder="Search jobs…" autocomplete="off">
+        <button id="jobSearchClear" class="pf-input-clear" style="display:none" type="button">×</button>
+      </div>
+      <label class="pf-label" for="bulkDateFrom">From</label>
+      <input id="bulkDateFrom" type="date" class="pf-date">
+      <label class="pf-label" for="bulkDateTo">To</label>
+      <input id="bulkDateTo" type="date" class="pf-date">
+      <button id="bulkClearFilter" class="pf-clear" type="button" style="display:none">
+        <i class="fas fa-times"></i> Clear
+      </button>
+      <span class="pf-count" id="bulkPfCount"></span>
+    </div>
+    <div class="bulk-data" id="data-container">
+      <div style="text-align:center;padding:40px 0;">
+        <div class="verify-spinner" style="margin:0 auto 12px;"></div>
+        <p style="color:var(--ink-3);font-size:13px;">Loading jobs…</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── DOWNLOAD POPUP ───────────────────────────────────── -->
+<div class="dl-popup" id="popupForm">
+  <div class="dl-popup-box">
+    <button class="ev-result__close" onclick="closePopup()" style="position:absolute;top:16px;right:16px">&#10005;</button>
+    <h3>Download Results</h3>
+    <p>Choose which results you'd like to export as a CSV.</p>
+    <div id="dl-msg-area"></div>
+    <form id="popupInnerForm" novalidate>
+      {% csrf_token %}
+      <input type="hidden" name="table_name" id="tableName-Input"/>
+      <div class="dl-options">
+        <label class="dl-option" id="opt-valid">
+          <input type="radio" name="result" value="valid"/>
+          <div class="dl-option-dot"></div>
+          <div>
+            <div class="dl-option-text">&#10003; Deliverable only</div>
+            <div class="dl-option-sub">Valid, confirmed email addresses</div>
+          </div>
+        </label>
+        <label class="dl-option" id="opt-invalid">
+          <input type="radio" name="result" value="invalid"/>
+          <div class="dl-option-dot"></div>
+          <div>
+            <div class="dl-option-text">&#10007; Undeliverable only</div>
+            <div class="dl-option-sub">Invalid or bouncing addresses</div>
+          </div>
+        </label>
+        <label class="dl-option" id="opt-all">
+          <input type="radio" name="result" value="All"/>
+          <div class="dl-option-dot"></div>
+          <div>
+            <div class="dl-option-text">All results</div>
+            <div class="dl-option-sub">Complete list with all statuses</div>
+          </div>
+        </label>
+      </div>
+      <button type="submit" class="dl-submit-btn" id="dlSubmitBtn">
+        <i class="fas fa-download"></i> Download CSV
+      </button>
+    </form>
+  </div>
+</div>
+
+<!-- ── DELETE POPUP ─────────────────────────────────────── -->
+<div class="del-popup" id="del-popup">
+  <div class="del-popup-box">
+    <h3>Delete this job?</h3>
+    <p class="del-warning">&#9888; This action is irreversible.</p>
+    <form id="deleteForm" novalidate>
+      {% csrf_token %}
+      <p>Deleting <strong id="file_Input"></strong> will permanently remove all associated data. Type <strong>delete</strong> to confirm.</p>
+      <input class="del-input" type="text" id="confirmationInput" placeholder="Type delete to confirm"/>
+      <input type="hidden" name="table_name_" id="tableNameInput"/>
+      <input type="hidden" name="file_name" id="fileNameInput"/>
+      <div class="del-actions">
+        <button type="button" class="del-cancel" onclick="closePopup_()">Cancel</button>
+        <button type="submit" class="del-confirm" id="deleteButton" disabled>Delete</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+
+/* ── File input ──────────────────────────────────────── */
+document.getElementById('file').addEventListener('change', function() {
+  var area     = document.getElementById('uploadArea');
+  var nameEl   = document.getElementById('uploadFileName');
+  var fileName = this.files[0] ? this.files[0].name : null;
+  if (fileName) {
+    area.classList.add('has-file');
+    nameEl.textContent = fileName;
+  } else {
+    area.classList.remove('has-file');
+    nameEl.textContent = '&#8212;';
+  }
+});
+
+/* ── Upload via fetch ────────────────────────────────── */
+document.getElementById('mainForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var fileInput = document.getElementById('file');
+  if (!fileInput.files.length) {
+    WTI.toast('Please select a file first.', 'error');
+    return;
+  }
+  var btn = document.getElementById('uploadBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Uploading...';
+
+  try {
+    var res  = await fetch('{% url "upload" %}', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body: new FormData(this)
+    });
+    var data = await res.json();
+
+    if (data.status === 'ok') {
+      WTI.toast('File uploaded successfully. Processing will begin shortly.', 'success');
+      this.reset();
+      document.getElementById('uploadArea').classList.remove('has-file');
+      document.getElementById('uploadFileName').textContent = '&#8212;';
+      fetchData('all', null);
+    } else {
+      WTI.toast(data.message || 'Upload failed.', 'error');
+    }
+  } catch (err) {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-upload"></i> Upload';
+  }
+});
+
+/* ── CSRF ────────────────────────────────────────────── */
+function getCSRFToken() {
+  return document.querySelector('[name=csrfmiddlewaretoken]').value;
+}
+
+/* ── Tab switch ──────────────────────────────────────── */
+function fetchData(status, btn) {
+  if (btn) {
+    document.querySelectorAll('.bulk-tab').forEach(function(t) { t.classList.remove('active'); });
+    btn.classList.add('active');
+  }
+  $.ajax({
+    url: '/get_data/',
+    type: 'POST',
+    contentType: 'application/json',
+    headers: {'X-CSRFToken': getCSRFToken()},
+    data: JSON.stringify({status: 'all'}),
+    success: function(response) {
+      if (Array.isArray(response.data)) {
+        updateTable(response.data, status);
+      } else {
+        updateTable([], status);
+      }
+      $('.credit-count').text(response.current_credits);
+    },
+    error: function(xhr) { console.error('AJAX Error:', xhr.responseText); }
+  });
+}
+
+/* ── Verify via fetch ────────────────────────────────── */
+function startVerify(tableName, btn) {
+  btn.disabled = true;
+  var originalHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="btn-spinner"></span> Starting...';
+
+  fetch('/verify_emails/?table_name=' + encodeURIComponent(tableName), {
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.status === 'ok') {
+      setTimeout(function() { fetchData('all', null); }, 800);
+    } else if (data.status === 'need_credits') {
+      openPayConfirm(data);
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    } else {
+      WTI.toast(data.message || 'Failed to start verification.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  })
+  .catch(function() {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  });
+}
+
+/* ── Analyze My List ─────────────────────────────────── */
+function startAnalyze(tableName, btn) {
+  btn.disabled = true;
+  var originalHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="btn-spinner"></span> Analyzing...';
+
+  fetch('/Analyze/?table_name=' + encodeURIComponent(tableName), {
+    headers: {'X-Requested-With': 'XMLHttpRequest'}
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if (data.status === 'ok') {
+      setTimeout(function() { fetchData('all', null); }, 800);
+    } else {
+      WTI.toast(data.message || 'Analysis failed. Please try again.', 'error');
+      btn.disabled = false;
+      btn.innerHTML = originalHtml;
+    }
+  })
+  .catch(function() {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  });
+}
+
+/* ── Format date ─────────────────────────────────────── */
+function formatDate(dateString) {
+  var d = new Date(dateString);
+  if (isNaN(d)) return dateString || '';
+  return d.toLocaleString(undefined, {dateStyle:'medium', timeStyle:'short'});
+}
+
+/* ── Job filter state ────────────────────────────────── */
+var _bulkAllData      = [];
+var _bulkActiveStatus = 'all';
+
+/* ── Auto-poll while Processing jobs exist ──────────── */
+var _bulkPollTimer = null;
+
+function _bulkHasProcessing() {
+  return !!document.querySelector('.job-card--processing');
+}
+
+function _startBulkPoll() {
+  if (_bulkPollTimer) return;
+  _bulkPollTimer = setInterval(function() {
+    fetchData(_bulkActiveStatus, null);
+  }, 10000);
+}
+
+function _stopBulkPoll() {
+  if (_bulkPollTimer) { clearInterval(_bulkPollTimer); _bulkPollTimer = null; }
+}
+
+function applyBulkFilters() {
+  var q    = document.getElementById('jobSearchInput').value.trim().toLowerCase();
+  var from = document.getElementById('bulkDateFrom').value;
+  var to   = document.getElementById('bulkDateTo').value;
+  var hasFilters = q || from || to;
+  var clearBtn = document.getElementById('bulkClearFilter');
+  if (clearBtn) clearBtn.style.display = hasFilters ? '' : 'none';
+  var sc = document.getElementById('jobSearchClear');
+  if (sc) sc.style.display = q ? '' : 'none';
+
+  var filtered = _bulkAllData.filter(function(item) {
+    var matchQ = !q || (item.file_name  || '').toLowerCase().includes(q)
+                    || (item.table_name || '').toLowerCase().includes(q);
+    var dateStr = (item.insert_date || '').slice(0, 10);
+    var matchDate = (!from || dateStr >= from) && (!to || dateStr <= to);
+    return matchQ && matchDate;
+  });
+  renderCards(filtered, _bulkActiveStatus);
+
+  var countEl = document.getElementById('bulkPfCount');
+  if (countEl) {
+    var totalAll = _bulkAllData.length;
+    countEl.innerHTML = (hasFilters && filtered.length !== totalAll)
+      ? 'Showing <strong>' + filtered.length + '</strong> of <strong>' + totalAll + '</strong>'
+      : '';
+  }
+}
+
+var _bulkSearchTimer = null;
+document.getElementById('jobSearchInput').addEventListener('input', function() {
+  clearTimeout(_bulkSearchTimer);
+  _bulkSearchTimer = setTimeout(applyBulkFilters, 250);
+});
+document.getElementById('jobSearchClear').addEventListener('click', function() {
+  document.getElementById('jobSearchInput').value = '';
+  applyBulkFilters();
+  document.getElementById('jobSearchInput').focus();
+});
+document.getElementById('bulkDateFrom').addEventListener('change', applyBulkFilters);
+document.getElementById('bulkDateTo').addEventListener('change', applyBulkFilters);
+document.getElementById('bulkClearFilter').addEventListener('click', function() {
+  document.getElementById('jobSearchInput').value = '';
+  document.getElementById('bulkDateFrom').value   = '';
+  document.getElementById('bulkDateTo').value     = '';
+  applyBulkFilters();
+});
+
+/* ── Chart instances ─────────────────────────────────── */
+var chartInstances = {};
+
+function initializeCharts(data) {
+  data.forEach(function(i) {
+    var id     = 'myPieChart-' + i.table_name;
+    var canvas = document.getElementById(id);
+    if (!canvas) return;
+    if (chartInstances[id]) chartInstances[id].destroy();
+    chartInstances[id] = new Chart(canvas.getContext('2d'), {
+      type: 'pie',
+      data: {
+        datasets: [{
+          data: [
+            i.valid_percentage   || 0,
+            i.invalid_percentage || 0,
+            i.unknown_percentage || 0,
+            i.others_percentage  || 0
+          ],
+          backgroundColor: ['#00C6A2','#FF6B35','#FFBC00','#0099CC'],
+          borderColor: '#fff', borderWidth: 2,
+        }]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          tooltip: {
+            callbacks: {
+              label: function(t) { return t.label + ': ' + t.raw.toFixed(2) + '%'; }
+            }
+          }
+        }
+      }
+    });
+  });
+}
+
+/* ── Build a single job card HTML ────────────────────── */
+function buildJobCard(item) {
+  var isProcessing = item.file_name && item.table_name &&
+    (item.valid_count == null || item.invalid_count == null || item.unknown_count == null);
+
+  var analyzeSection = item.free_analyze !== null && item.free_analyze >= 0 ?
+    '<div class="job-analyze">' +
+      '<h5>Free Analyze Results</h5>' +
+      '<p style="font-size:11px;color:var(--ink-3);margin-bottom:6px;">Based on Domain DNS &amp; MX record check</p>' +
+      '<p style="font-size:13px;color:var(--ink-2)">Estimated Bounce Rate: ' +
+        '<strong style="color:' + (item.free_analyze < 4 ? '#007A5E' : '#C94A1D') + '">' +
+          'Less than ' + item.free_analyze + '%' +
+        '</strong>' +
+      '</p>' +
+    '</div>'
+    : item.free_analyze === -1 ?
+    '<div class="job-analyze"><h5>Analyzing</h5><div class="analyze-loader"></div></div>'
+    : item.free_analyze === -2 ?
+    '<div class="job-analyze">' +
+      '<h5 style="color:#C94A1D;">&#9888; Analysis Stopped</h5>' +
+      '<p style="font-size:12px;color:var(--ink-3);margin-bottom:8px;">The analysis was interrupted — this can happen due to a DNS timeout or server issue.</p>' +
+      '<button class="analyze-link" onclick="startAnalyze(\'' + item.table_name + '\', this)">' +
+        '<i class="fas fa-redo"></i> Re-Analyze' +
+      '</button>' +
+    '</div>'
+    :
+    '<div class="job-analyze">' +
+      '<h5>Free Analysis</h5>' +
+      '<button class="analyze-link" onclick="startAnalyze(\'' + item.table_name + '\', this)">' +
+        '<i class="fas fa-chart-pie"></i> Analyze My List (Free)' +
+      '</button>' +
+      '<p style="font-size:12px;color:var(--ink-3);margin-top:8px">See the health of your list before verifying.</p>' +
+    '</div>';
+
+  var verifyBtn = item.job_status === 'Stopped'
+    ? '<button class="job-action-btn btn-verify" onclick="startVerify(\'' + item.table_name + '\', this)">' +
+        '<i class="fas fa-redo"></i> Retry Verify' +
+      '</button>'
+    : item.job_status === 'Processing'
+    ? '<p><span class="job-status-badge badge-processing">&#8987; Processing</span></p>'
+    : '<button class="job-action-btn btn-verify" onclick="startVerify(\'' + item.table_name + '\', this)">' +
+        '<i class="fas fa-play-circle"></i> Verify' +
+      '</button>';
+
+  var card = isProcessing ?
+    '<div class="job-card job-card--processing">' +
+      '<div class="job-card-body">' +
+        '<div class="job-info">' +
+          '<strong>' + item.file_name + '</strong>' +
+          '<p><i class="fas fa-calendar"></i> ' + formatDate(item.insert_date) + '</p>' +
+          '<p><i class="fas fa-hashtag"></i> ' + item.table_name + '</p>' +
+        '</div>' +
+        analyzeSection +
+      '</div>' +
+      (item.job_status === 'Processing' ?
+        '<div class="job-processing-msg"><div class="verify-spinner"></div>Verification in progress &#8212; check back in a few minutes.</div>'
+        : item.job_status === 'Stopped' ?
+        '<div class="job-processing-msg"><div class="verify-spinner"></div>Validation failed. Click Retry to try again.</div>'
+        : '') +
+      '<div class="job-card-footer">' +
+        verifyBtn +
+        '<button class="job-action-btn btn-delete" onclick="showPopup(\'' + item.table_name + '\',\'' + item.file_name + '\')">' +
+          '<i class="fas fa-trash"></i> Delete' +
+        '</button>' +
+      '</div>' +
+    '</div>'
+    :
+    '<div class="job-card job-card--completed">' +
+      '<div class="job-card-header">' +
+        '<div>' +
+          '<div class="job-card-title">' + item.file_name + '</div>' +
+          '<div class="job-card-meta">' +
+            '<span class="job-meta-item"><i class="fas fa-calendar"></i> ' + formatDate(item.insert_date) + '</span>' +
+            '<span class="job-meta-item"><i class="fas fa-hashtag"></i> ' + item.table_name + '</span>' +
+            '<span class="job-meta-item"><i class="fas fa-list"></i> ' + item.total_count + ' records</span>' +
+          '</div>' +
+        '</div>' +
+        '<span class="job-status-badge badge-completed">&#10003; Completed</span>' +
+      '</div>' +
+      '<div class="job-card-body">' +
+        analyzeSection +
+        '<div class="job-results">' +
+          '<h5>Validation Results</h5>' +
+          '<div class="results-grid">' +
+            '<div class="result-stat"><div class="result-stat-val">' + (item.valid_count || 0) + '</div><div class="result-stat-pct">' + (item.valid_percentage || 0) + '%</div><div class="result-stat-lbl lbl-valid">&#10003; Valid</div></div>' +
+            '<div class="result-stat"><div class="result-stat-val">' + (item.invalid_count || 0) + '</div><div class="result-stat-pct">' + (item.invalid_percentage || 0) + '%</div><div class="result-stat-lbl lbl-invalid">&#10007; Invalid</div></div>' +
+            '<div class="result-stat"><div class="result-stat-val">' + (item.unknown_count || 0) + '</div><div class="result-stat-pct">' + (item.unknown_percentage || 0) + '%</div><div class="result-stat-lbl lbl-unknown">? Risky</div></div>' +
+            '<div class="result-stat"><div class="result-stat-val">' + (item.others_count || 0) + '</div><div class="result-stat-pct">' + (item.others_percentage || 0) + '%</div><div class="result-stat-lbl lbl-others">&#9679; Others</div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="job-chart"><canvas id="myPieChart-' + item.table_name + '"></canvas></div>' +
+      '</div>' +
+      '<div class="job-card-footer">' +
+        '<button class="job-action-btn btn-download" onclick="openPopup(\'' + item.table_name + '\')">' +
+          '<i class="fas fa-download"></i> Download Results' +
+        '</button>' +
+        '<button class="job-action-btn btn-delete" onclick="showPopup(\'' + item.table_name + '\',\'' + item.file_name + '\')">' +
+          '<i class="fas fa-trash"></i> Delete' +
+        '</button>' +
+      '</div>' +
+    '</div>';
+
+  return { card: card, isProcessing: isProcessing };
+}
+
+/* ── Render cards for a given dataset + status ───────── */
+function renderCards(data, status) {
+  var parts = {all: '', Completed: '', Processing: '', Unpurchased: ''};
+  data.forEach(function(item) {
+    var r = buildJobCard(item);
+    parts.all += r.card;
+    if (r.isProcessing) parts.Processing += r.card;
+    else {
+      parts.Completed += r.card;
+      if (item.credite_status !== 'Credited') parts.Unpurchased += r.card;
+    }
+  });
+
+  var activeHtml = status === 'Completed'   ? parts.Completed
+                 : status === 'Processing'  ? parts.Processing
+                 : status === 'Unpurchased' ? parts.Unpurchased
+                 : parts.all;
+
+  var container = document.getElementById('data-container');
+  container.style.transition = 'opacity 0.15s';
+  container.style.opacity = '0';
+  setTimeout(function() {
+    container.innerHTML = activeHtml ||
+      '<div class="bulk-empty">' +
+        '<div class="bulk-empty-icon">&#128205;</div>' +
+        '<h4>No jobs found</h4>' +
+        '<p>No jobs match your search.</p>' +
+      '</div>';
+    container.style.opacity = '1';
+    setTimeout(function() {
+      initializeCharts(data.filter(function(i) {
+        return i.valid_percentage != null || i.invalid_percentage != null;
+      }));
+    }, 100);
+  }, 120);
+}
+
+/* ── Update table (counts + render) ─────────────────── */
+function updateTable(data, status) {
+  _bulkAllData      = data;
+  _bulkActiveStatus = status;
+
+  var counts = {all: 0, Completed: 0, Processing: 0, Unpurchased: 0};
+  data.forEach(function(item) {
+    var isProcessing = item.file_name && item.table_name &&
+      (item.valid_count == null || item.invalid_count == null || item.unknown_count == null);
+    counts.all++;
+    if (isProcessing) counts.Processing++;
+    else {
+      counts.Completed++;
+      if (item.credite_status !== 'Credited') counts.Unpurchased++;
+    }
+  });
+
+  document.getElementById('all-count-display').textContent         = counts.all;
+  document.getElementById('Completed-count-display').textContent   = counts.Completed;
+  document.getElementById('Processing-count-display').textContent  = counts.Processing;
+  document.getElementById('Unpurchased-count-display').textContent = counts.Unpurchased;
+
+  applyBulkFilters();
+
+  if (_bulkHasProcessing()) {
+    _startBulkPoll();
+  } else {
+    _stopBulkPoll();
+  }
+}
+
+/* ── Download popup ──────────────────────────────────── */
+function openPopup(tableName) {
+  document.getElementById('popupForm').classList.add('show');
+  document.getElementById('tableName-Input').value = tableName;
+  document.getElementById('dl-msg-area').innerHTML = '';
+  document.querySelectorAll('.dl-option').forEach(function(o) { o.classList.remove('selected'); });
+  document.querySelectorAll('input[name="result"]').forEach(function(r) { r.checked = false; });
+  document.getElementById('dlSubmitBtn').classList.remove('show');
+}
+function closePopup() {
+  document.getElementById('popupForm').classList.remove('show');
+}
+
+document.querySelectorAll('.dl-option').forEach(function(opt) {
+  opt.addEventListener('click', function() {
+    document.querySelectorAll('.dl-option').forEach(function(o) { o.classList.remove('selected'); });
+    this.classList.add('selected');
+    this.querySelector('input[type="radio"]').checked = true;
+    document.getElementById('dlSubmitBtn').classList.add('show');
+  });
+});
+
+/* ── Download via fetch ──────────────────────────────── */
+document.getElementById('popupInnerForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('dlSubmitBtn');
+  var msgArea = document.getElementById('dl-msg-area');
+  msgArea.innerHTML = '';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Preparing...';
+
+  var tableName = document.getElementById('tableName-Input').value;
+  var result    = (this.querySelector('input[name="result"]:checked') || {}).value || 'All';
+
+  try {
+    var res = await fetch('{% url "download_results" %}', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body: new FormData(this)
+    });
+
+    var cd = res.headers.get('Content-Disposition');
+    if (cd && cd.includes('attachment')) {
+      var blob = await res.blob();
+      var url  = URL.createObjectURL(blob);
+      var a    = document.createElement('a');
+      a.href     = url;
+      a.download = tableName + '_' + result + '.csv';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      closePopup();
+      WTI.toast('CSV downloaded successfully.', 'success');
+    } else {
+      var data = await res.json();
+      if (data.status === 'need_credits') {
+        closePopup();
+        openPayConfirm(data);
+      } else {
+        msgArea.innerHTML =
+          '<div class="ev-flash ev-flash--error" style="margin:10px 0">' + (data.message || 'Download failed.') + '</div>';
+      }
+    }
+  } catch (err) {
+    msgArea.innerHTML = '<div class="ev-flash ev-flash--error" style="margin:10px 0">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-download"></i> Download CSV';
+  }
+});
+
+/* ── Delete popup ────────────────────────────────────── */
+function showPopup(tableName, fileName) {
+  document.getElementById('del-popup').classList.add('show');
+  document.getElementById('tableNameInput').value    = tableName;
+  document.getElementById('fileNameInput').value     = fileName;
+  document.getElementById('file_Input').textContent  = fileName;
+  document.getElementById('confirmationInput').value = '';
+  document.getElementById('deleteButton').disabled   = true;
+}
+function closePopup_() {
+  document.getElementById('del-popup').classList.remove('show');
+}
+
+document.getElementById('confirmationInput').addEventListener('input', function() {
+  document.getElementById('deleteButton').disabled = this.value.trim() !== 'delete';
+});
+
+/* ── Delete via fetch ────────────────────────────────── */
+document.getElementById('deleteForm').addEventListener('submit', async function(e) {
+  e.preventDefault();
+  var btn = document.getElementById('deleteButton');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Deleting...';
+
+  try {
+    var res  = await fetch('{% url "delete_query" %}', {
+      method: 'POST',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+      body: new FormData(this)
+    });
+    var data = await res.json();
+
+    if (data.status === 'ok') {
+      closePopup_();
+      fetchData('all', null);
+      WTI.toast(data.message || 'File deleted.', 'success');
+    } else {
+      WTI.toast(data.message || 'Delete failed.', 'error');
+      closePopup_();
+    }
+  } catch (err) {
+    WTI.toast('Something went wrong. Please try again.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Delete';
+  }
+});
+
+/* ── Init ────────────────────────────────────────────── */
+$(document).ready(function() { fetchData('all', null); });
+</script>
+
+<script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script>
+/* ── Payment confirmation modal ──────────────────────── */
+var _pendingOrder = null;
+
+function openPayConfirm(order) {
+  _pendingOrder = order;
+  document.getElementById('pcName').textContent    = order.user_name  || '—';
+  document.getElementById('pcEmail').textContent   = order.user_email || '—';
+  document.getElementById('pcOrderId').textContent = order.order_id   || '—';
+  document.getElementById('pcPlan').textContent    = order.credit + ' credits';
+  document.getElementById('pcAmount').textContent  = '$' + (order.amount / 100).toFixed(2) + ' ' + (order.currency || 'USD');
+  document.getElementById('payConfirmModal').classList.add('show');
+}
+
+function closePayConfirm() {
+  document.getElementById('payConfirmModal').classList.remove('show');
+  _pendingOrder = null;
+}
+
+function proceedToPay() {
+  var order = _pendingOrder;
+  if (!order) return;
+  closePayConfirm();
+  openRazorpay(order);
+}
+
+document.getElementById('payConfirmModal').addEventListener('click', function(e) {
+  if (e.target === this) closePayConfirm();
+});
+
+function openRazorpay(order) {
+  var options = {
+    key:         order.key_id,
+    amount:      order.amount,
+    currency:    order.currency,
+    name:        order.user_name,
+    description: 'Email Credits Purchase',
+    order_id:    order.order_id,
+    handler: async function(response) {
+      var fd = new FormData();
+      fd.append('csrfmiddlewaretoken', getCSRFToken());
+      fd.append('payment_id',         response.razorpay_payment_id);
+      fd.append('order_id',           order.order_id);
+      fd.append('razorpay_signature', response.razorpay_signature);
+      fd.append('amount',             order.amount);
+      fd.append('credits',            order.credit);
+      fd.append('user_email',         order.user_email);
+      fd.append('user_name',          order.user_name);
+      fd.append('currency',   order.currency);
+      fd.append('plan',       order.plan || '');
+      fd.append('description', 'Credits purchase');
+      try {
+        var res  = await fetch('{% url "payment" %}', {
+          method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd
+        });
+        var data = await res.json();
+        if (data.status === 'ok') {
+          WTI.toast('Payment successful! ' + order.credit + ' credits added. Please download again.', 'success');
+        } else {
+          WTI.toast(data.message || 'Payment finalisation failed.', 'error');
+        }
+      } catch (err) {
+        WTI.toast('Something went wrong finalising payment. Please contact support.', 'error');
+      }
+    },
+    theme: { color: '#3399cc' }
+  };
+  var rzp = new Razorpay(options);
+  rzp.on('payment.failed', function(response) {
+    WTI.toast('Payment failed: ' + (response.error.description || 'Unknown error.'), 'error');
+  });
+  rzp.open();
+}
+</script>
+
+<!-- ── PAYMENT CONFIRMATION MODAL ───────────────────── -->
+<div class="pay-confirm-modal" id="payConfirmModal">
+  <div class="pay-confirm-box">
+    <button class="pay-confirm-close" onclick="closePayConfirm()">&#10005;</button>
+    <div class="pay-confirm-icon">&#128274;</div>
+    <h3>Order Summary</h3>
+    <p class="pay-confirm-sub">Not enough credits — purchase below to download.</p>
+    <div class="pay-confirm-rows">
+      <div class="pay-confirm-row">
+        <span class="pay-confirm-label">Name</span>
+        <span class="pay-confirm-val" id="pcName"></span>
+      </div>
+      <div class="pay-confirm-row">
+        <span class="pay-confirm-label">Email</span>
+        <span class="pay-confirm-val" id="pcEmail"></span>
+      </div>
+      <div class="pay-confirm-row">
+        <span class="pay-confirm-label">Order ID</span>
+        <span class="pay-confirm-val pay-confirm-mono" id="pcOrderId"></span>
+      </div>
+      <div class="pay-confirm-row">
+        <span class="pay-confirm-label">Credits</span>
+        <span class="pay-confirm-val" id="pcPlan"></span>
+      </div>
+      <div class="pay-confirm-row pay-confirm-row--total">
+        <span class="pay-confirm-label">Total</span>
+        <span class="pay-confirm-val" id="pcAmount"></span>
+      </div>
+    </div>
+    <div class="pay-confirm-actions">
+      <button class="pay-confirm-cancel" onclick="closePayConfirm()">Cancel</button>
+      <button class="pay-confirm-pay" onclick="proceedToPay()">&#128274; Proceed to Pay</button>
+    </div>
+    <p class="pay-confirm-secure">Secured by Razorpay &middot; 256-bit SSL encryption</p>
+  </div>
+</div>
+
+{% endblock %}
