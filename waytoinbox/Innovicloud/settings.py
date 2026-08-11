@@ -401,11 +401,8 @@ MAILGUN_DOMAIN  = os.environ.get('MAILGUN_DOMAIN', '')
 MAILGUN_BASE_URL = os.environ.get('MAILGUN_BASE_URL', 'https://api.mailgun.net')
 
 # ── Email Campaign Batch Configuration ──────────────────
-EMAIL_BATCH_SIZE             = int(os.environ.get('EMAIL_BATCH_SIZE',             '500'))
-EMAIL_BATCH_DELAY            = int(os.environ.get('EMAIL_BATCH_DELAY',            '60'))
-EMAIL_MAX_CONCURRENT_BATCHES = int(os.environ.get('EMAIL_MAX_CONCURRENT_BATCHES', '1'))
-EMAIL_BATCH_RETRY_COUNT      = int(os.environ.get('EMAIL_BATCH_RETRY_COUNT',      '3'))
-EMAIL_BATCH_RETRY_DELAY      = int(os.environ.get('EMAIL_BATCH_RETRY_DELAY',      '30'))
+EMAIL_BATCH_SIZE  = int(os.environ.get('EMAIL_BATCH_SIZE',  '500'))
+EMAIL_BATCH_DELAY = int(os.environ.get('EMAIL_BATCH_DELAY', '60'))
 
 # ── Bulk Email Validation Configuration ─────────────────
 EMAIL_VALIDATION_CONCURRENCY = int(os.environ.get('EMAIL_VALIDATION_CONCURRENCY', '150'))
