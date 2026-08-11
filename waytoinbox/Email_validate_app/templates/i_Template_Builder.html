@@ -66,9 +66,9 @@
 <script src="{% static 'Email_validate_app/js/wti_builder.js' %}"></script>
 
 <script>
-const CSRF                 = '{{ csrf_token }}';
-const SAVE_TEMPLATE_URL    = '{% url "save_user_template" %}';
-const IMAGE_UPLOAD_URL     = '{% url "upload_template_image" %}';
+var CSRF                 = '{{ csrf_token }}';
+var SAVE_TEMPLATE_URL    = '{% url "save_user_template" %}';
+var IMAGE_UPLOAD_URL     = '{% url "upload_template_image" %}';
 const RETURN_CAMPAIGN_ID   = '{{ return_campaign_id }}';
 const FROM_TEMPLATES       = '{{ from_page }}' === 'templates';
 const FROM_CAMPAIGN        = '{{ from_page }}' === 'campaign';
