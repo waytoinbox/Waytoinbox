@@ -79,6 +79,7 @@ def save_user_template(request):
 
     import json as _json
     from premailer import transform as _inline_css
+    from django.conf import settings as _settings
     from Email_validate_app.models import UserTemplate
     user_id = get_user_id(request)
 
@@ -96,7 +97,13 @@ def save_user_template(request):
     # html_content arrives as GrapesJS HTML + a <style> block. Inline the CSS
     # here so the stored copy is production-ready for SES/Gmail/Outlook.
     try:
-        html_content = _inline_css(html_content, remove_classes=False, keep_style_tags=False)
+        _site_url = getattr(_settings, 'SITE_URL', '').rstrip('/')
+        html_content = _inline_css(
+            html_content,
+            base_url=_site_url or None,
+            remove_classes=False,
+            keep_style_tags=False,
+        )
     except Exception:
         pass  # fall back to the un-inlined HTML rather than failing the save
 
@@ -246,8 +253,10 @@ def upload_template_image(request):
     img = TemplateImage(user_id=user_id, original_name=file.name)
     img.file.save(file.name, file, save=True)
 
-    url = request.build_absolute_uri(img.file.url)
-    return JsonResponse({'status': 'ok', 'url': url})
+    # Return a relative URL so the builder preview works on any host.
+    # premailer's base_url in save_user_template converts it to absolute
+    # before the HTML is stored in the DB, so email clients get a full URL.
+    return JsonResponse({'status': 'ok', 'url': img.file.url})
 
 
 @_require_POST
