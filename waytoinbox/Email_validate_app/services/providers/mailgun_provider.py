@@ -141,6 +141,13 @@ class MailgunProvider(EmailProvider):
         except Exception:
             pass
 
+        if not domain:
+            logger.warning(
+                'fetch_campaign_events: cannot resolve domain for campaign %s — skipping.',
+                campaign_id,
+            )
+            return []
+
         events = []
         errors = []
         for mg_event in _EVENT_TYPE_MAP:
