@@ -118,6 +118,10 @@ def send_campaign_emails_task(self, campaign_id):
 
         if send_count > 0:
             try:
+                # Refresh the connection — it may have gone stale during the
+                # long email-sending sleep (gevent + CONN_MAX_AGE interaction).
+                from django.db import close_old_connections
+                close_old_connections()
                 Campaign.objects.filter(id=campaign_id).update(
                     status='sent',
                     sent_at=timezone.now(),

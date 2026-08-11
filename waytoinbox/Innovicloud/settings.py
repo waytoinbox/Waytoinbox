@@ -266,6 +266,10 @@ CELERY_BEAT_SCHEDULE = {
     },
 
     # ── Every 5 minutes ─────────────────────────────────────────────────────
+    "recover_stuck_campaigns_every_5m": {
+        "task": "Email_validate_app.tasks.send_scheduled_campaigns.recover_stuck_campaigns",
+        "schedule": crontab(minute="*/5"),
+    },
     "sync_campaigns_cloudwatch_every_5m": {
         "task": "Email_validate_app.tasks.sync_campaigns_cloudwatch.sync_pending_campaigns",
         "schedule": crontab(minute="*/5"),
