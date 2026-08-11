@@ -112,15 +112,27 @@ def send_campaign_emails_task(self, campaign_id):
             return {'status': 'failed', 'reason': 'insufficient_cc_credits'}
 
         send_count, errors = send_campaign_emails(campaign)
+        # ── After this point emails may already be in recipients' inboxes.
+        # Any exception must NOT trigger a Celery retry — that would re-run
+        # send_campaign_emails and send every contact a duplicate.
 
         if send_count > 0:
-            # Use .update() instead of .save() — avoids stale-object exceptions
-            # that would otherwise trigger a Celery retry and re-send the campaign.
-            Campaign.objects.filter(id=campaign_id).update(
-                status='sent',
-                sent_at=timezone.now(),
-                sent_via=getattr(settings, 'EMAIL_PROVIDER', 'ses').lower(),
-            )
+            try:
+                Campaign.objects.filter(id=campaign_id).update(
+                    status='sent',
+                    sent_at=timezone.now(),
+                    sent_via=getattr(settings, 'EMAIL_PROVIDER', 'ses').lower(),
+                )
+            except Exception as db_exc:
+                # Emails were already delivered. Log and continue — do NOT
+                # re-raise (which would trigger a retry and duplicate sends).
+                # recover_stuck_campaigns will reset 'sending' → 'failed' in
+                # 15 min if this keeps failing, so the user can resend cleanly.
+                logger.error(
+                    "send_campaign_emails_task: status update failed for campaign %s "
+                    "(emails WERE sent — not retrying to avoid duplicates): %s",
+                    campaign_id, db_exc,
+                )
             logger.info(
                 "send_campaign_emails_task: campaign %s sent to %d recipient(s).",
                 campaign_id, send_count,
