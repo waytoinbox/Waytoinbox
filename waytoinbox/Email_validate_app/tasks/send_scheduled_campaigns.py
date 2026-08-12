@@ -26,6 +26,46 @@ logger = logging.getLogger(__name__)
 _SEND_LOCK_TIMEOUT = 600   # 10 minutes
 
 
+def _write_campaign_sent_status(campaign_id):
+    """
+    Write status='sent' after a successful send, retrying up to 3 times with
+    a forced reconnect on each attempt. Emails are already in recipients'
+    inboxes at this point so this must never raise — a failure here is logged
+    and swallowed; recover_stuck_campaigns will eventually flip the status.
+    """
+    from django.db import connections, close_old_connections
+    from Email_validate_app.models import Campaign
+
+    for attempt in range(1, 4):
+        try:
+            close_old_connections()
+            Campaign.objects.filter(id=campaign_id).update(
+                status='sent',
+                sent_at=timezone.now(),
+                sent_via=getattr(settings, 'EMAIL_PROVIDER', 'ses').lower()[:20],
+            )
+            logger.info(
+                "_write_campaign_sent_status: campaign %s marked sent (attempt %d).",
+                campaign_id, attempt,
+            )
+            return
+        except Exception as exc:
+            logger.warning(
+                "_write_campaign_sent_status: attempt %d failed for campaign %s: %s",
+                attempt, campaign_id, exc,
+            )
+            try:
+                connections['default'].close()
+            except Exception:
+                pass
+
+    logger.error(
+        "_write_campaign_sent_status: all 3 attempts failed for campaign %s — "
+        "status left as 'sending'; recover_stuck_campaigns will reset it.",
+        campaign_id,
+    )
+
+
 @shared_task(
     bind=True,
     name="Email_validate_app.tasks.send_scheduled_campaigns.send_campaign_emails_task",
@@ -117,26 +157,7 @@ def send_campaign_emails_task(self, campaign_id):
         # send_campaign_emails and send every contact a duplicate.
 
         if send_count > 0:
-            try:
-                # Refresh the connection — it may have gone stale during the
-                # long email-sending sleep (gevent + CONN_MAX_AGE interaction).
-                from django.db import close_old_connections
-                close_old_connections()
-                Campaign.objects.filter(id=campaign_id).update(
-                    status='sent',
-                    sent_at=timezone.now(),
-                    sent_via=getattr(settings, 'EMAIL_PROVIDER', 'ses').lower(),
-                )
-            except Exception as db_exc:
-                # Emails were already delivered. Log and continue — do NOT
-                # re-raise (which would trigger a retry and duplicate sends).
-                # recover_stuck_campaigns will reset 'sending' → 'failed' in
-                # 15 min if this keeps failing, so the user can resend cleanly.
-                logger.error(
-                    "send_campaign_emails_task: status update failed for campaign %s "
-                    "(emails WERE sent — not retrying to avoid duplicates): %s",
-                    campaign_id, db_exc,
-                )
+            _write_campaign_sent_status(campaign_id)
             logger.info(
                 "send_campaign_emails_task: campaign %s sent to %d recipient(s).",
                 campaign_id, send_count,
