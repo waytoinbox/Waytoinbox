@@ -312,7 +312,7 @@ document.querySelectorAll('.tpl-tab').forEach(function(tab) {
     .then(function(d) {
       if (d.status === 'ok') {
         warnModal.classList.remove('open');
-        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates';
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates&is_new_duplicate=1';
       } else {
         WTI.toast(d.message || 'Could not duplicate template.', 'error');
         btnDuplicate.disabled = false;
@@ -344,7 +344,7 @@ document.querySelectorAll('.tpl-used-edit-btn').forEach(function(btn) {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.status === 'ok') {
-        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates';
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template_id + '&from=templates&is_new_duplicate=1';
       } else {
         WTI.toast(d.message || 'Could not duplicate template.', 'error');
         btn.disabled = false;
@@ -372,7 +372,7 @@ document.querySelectorAll('.tpl-use-btn').forEach(function(btn) {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.status === 'ok') {
-        window.location.href = '{% url "template_builder" %}?template_id=' + d.template.id + '&from=templates';
+        window.location.href = '{% url "template_builder" %}?template_id=' + d.template.id + '&from=templates&is_new_duplicate=1';
       } else {
         WTI.toast(d.message || 'Could not use template.', 'error');
         btn.disabled = false;

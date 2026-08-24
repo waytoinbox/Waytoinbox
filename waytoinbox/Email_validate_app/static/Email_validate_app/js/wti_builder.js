@@ -50,6 +50,17 @@
     '1-1-1-1': { label: 'Quarters',    fracs: [.25, .25, .25, .25] },
   };
 
+  /* ── Merge tag catalogue ──────────────────────────── */
+  const MERGE_TAGS = [
+    { label: 'First Name',      token: '{{first_name}}'      },
+    { label: 'Last Name',       token: '{{last_name}}'       },
+    { label: 'Full Name',       token: '{{full_name}}'       },
+    { label: 'Email',           token: '{{email}}'           },
+    { label: 'Company',         token: '{{company_name}}'    },
+    { label: 'Phone',           token: '{{phone}}'           },
+    { label: 'Unsubscribe URL', token: '{{unsubscribe_url}}' },
+  ];
+
   /* ── Default block factory ────────────────────────── */
   function mkBlock(type) {
     switch (type) {
@@ -247,7 +258,12 @@
               <option value="Tahoma, sans-serif">Tahoma</option>
             </select>
           </div>
-        </div>`;
+        </div>
+        <div class="wtib-panel-hd">Merge Tags</div>
+        <div class="wtib-tag-grid">${MERGE_TAGS.map(t =>
+          `<div class="wtib-tag-pill" data-mt="${t.token}" title="${t.token}">${t.label}</div>`
+        ).join('')}</div>
+        <p class="wtib-hint" style="margin:0 10px 10px;"><i class="fas fa-circle-info"></i>Select a text block, then click a tag to insert it.</p>`;
     }
 
     /* ── Toolbar HTML ───────────────────────────────── */
@@ -1265,8 +1281,10 @@
         if (chip) { this._drag = { src: 'panel', btype: chip.dataset.btype }; e.dataTransfer.effectAllowed = 'copy'; }
       });
 
-      /* Left panel — layout chips click */
+      /* Left panel — layout chips click + merge tag pill click */
       this._left.addEventListener('click', e => {
+        const pill = e.target.closest('[data-mt]');
+        if (pill) { this._insertMergeTag(pill.dataset.mt); return; }
         const chip = e.target.closest('[data-layout]');
         if (chip) {
           const row = mkRow(chip.dataset.layout);
@@ -1382,6 +1400,45 @@
     _syncHistoryBtns() {
       const u = document.getElementById('wtibUndo'); if (u) u.disabled = this._undo.length < 2;
       const r = document.getElementById('wtibRedo'); if (r) r.disabled = !this._redo.length;
+    }
+
+    /* ── Merge tag insertion ────────────────────────── */
+    _insertMergeTag(token) {
+      /* Path A: user is inline-editing a block — insert at caret position */
+      const editing = document.querySelector('.wtib-editing');
+      if (editing) {
+        editing.focus();
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount) {
+          const r = sel.getRangeAt(0);
+          r.deleteContents();
+          r.insertNode(document.createTextNode(token));
+          r.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+        return; /* blur handler saves block.text / block.html automatically */
+      }
+
+      /* Path B: block selected but not inline-editing — append to data model */
+      if (!this._sel || this._sel.type !== 'block') {
+        if (window.WTI) WTI.toast('Select a text block first, then click a merge tag.', 'warning');
+        return;
+      }
+      const block = this._findBlock(this._sel.id);
+      if (!block) return;
+
+      const key = (block.type === 'html') ? 'html' : 'text';
+      if (!(key in block)) return; /* image/divider/spacer/social — skip */
+
+      block[key] = (block[key] || '') + token;
+
+      /* Sync props-panel textarea/input if currently open */
+      const inp = this._props.querySelector(`[data-bp="${block.id}"][data-k="${key}"]`);
+      if (inp) inp.value = block[key];
+
+      this._refreshBlock(block.id);
+      this._snapshot();
     }
 
     /* ── Finders ────────────────────────────────────── */

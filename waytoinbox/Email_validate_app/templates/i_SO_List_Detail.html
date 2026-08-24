@@ -1,0 +1,1032 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaign_contacts.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}">
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_list_detail.css' %}">
+{% endblock %}
+{% block content %}
+
+<div class="cc-page">
+
+  <!-- Header -->
+  <div>
+    <a href="{% url 'so_lists' %}" class="cc-back">
+      <i class="fas fa-arrow-left sold-icon-sm"></i> Back to Lists
+    </a>
+    <div class="cc-header">
+      <div>
+        <h2>
+          {{ lst.name }}
+          <span class="badge-sub sold-list-status-badge {% if lst.status == 'active' %}yes{% else %}unsub{% endif %}">
+            {% if lst.status == 'active' %}Active{% else %}Inactive{% endif %}
+          </span>
+        </h2>
+        <p>
+          Prospects in this list &nbsp;·&nbsp; Created {{ lst.created_at|date:"M d, Y" }}
+          {% if lst.tags_list %}
+            &nbsp;·&nbsp;
+            {% for tag in lst.tags_list %}<span class="cc-tag">{{ tag }}</span>{% endfor %}
+          {% endif %}
+        </p>
+      </div>
+      <div class="cc-header-actions">
+        <a href="{% url 'so_list_download' lst.id %}" class="btn btn-outline btn-sm">
+          <i class="fas fa-download"></i> Download CSV
+        </a>
+        <button class="btn btn-outline btn-sm" id="openUploadProspects">
+          <i class="fas fa-upload"></i> Upload Prospects
+        </button>
+        <button class="btn btn-primary btn-sm" id="openAddProspect">
+          <i class="fas fa-user-plus"></i> Add Prospect
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="cc-stats">
+    <div class="cc-stat-card">
+      <div class="label">Total Prospects</div>
+      <div class="value" id="statTotal">—</div>
+    </div>
+    <div class="cc-stat-card">
+      <div class="label">Subscribed</div>
+      <div class="value sold-text-success" id="statSubscribed">—</div>
+    </div>
+    <div class="cc-stat-card">
+      <div class="label">Never Subscribed</div>
+      <div class="value sold-text-danger" id="statNeverSubbed">—</div>
+    </div>
+    <div class="cc-stat-card">
+      <div class="label">Unsubscribed</div>
+      <div class="value sold-text-warn" id="statUnsubbed">—</div>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <div class="cc-card">
+
+    {% include "includes/filter_bar.html" with pf_show_status=pf_show_status pf_statuses=pf_statuses pf_search_placeholder=pf_search_placeholder pf_show_date=True %}
+
+    <div class="cc-bulk-bar" id="bulkBar">
+      <span id="bulkCount">0 selected</span>
+      <button class="cc-bulk-btn" id="bulkRemoveBtn"><i class="fas fa-times"></i> Remove from list</button>
+    </div>
+
+    <table>
+      <thead>
+        <tr>
+          <th class="sold-th-check"><input type="checkbox" id="selectAll" class="sold-checkbox"/></th>
+          <th>#</th>
+          <th>Name</th>
+          <th>Email Address</th>
+          <th>Status</th>
+          <th>Date Added</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="prospectsBody">
+        <tr>
+          <td colspan="7">
+            <div class="cc-empty">
+              <span class="btn-spinner sold-spinner-md"></span>
+              Loading prospects…
+            </div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div class="cc-pagination" id="paginationBar" hidden>
+      <span class="cc-page-info" id="pageInfo"></span>
+      <div class="cc-page-btns">
+        <button class="cc-page-btn disabled" id="prevPageBtn">
+          <i class="fas fa-chevron-left"></i> Prev
+        </button>
+        <span class="cc-page-current" id="pageNum"></span>
+        <button class="cc-page-btn" id="nextPageBtn">
+          Next <i class="fas fa-chevron-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Add Prospect Modal -->
+<div class="cc-modal-overlay" id="addProspectModal">
+  <div class="cc-modal">
+    <button class="cc-modal-close" id="closeAddProspect">&times;</button>
+    <h3><i class="fas fa-user-plus sold-icon-teal-mr"></i>Add Prospect</h3>
+
+    <div class="cc-form-group">
+      <label for="ap-email">Email Address <span class="sold-text-danger">*</span></label>
+      <input type="email" id="ap-email" placeholder="e.g. john@example.com" maxlength="255"/>
+    </div>
+
+    <div class="cc-form-grid-2">
+      <div class="cc-form-group sold-form-tight">
+        <label for="ap-firstname">First Name</label>
+        <input type="text" id="ap-firstname" placeholder="First name" maxlength="100"/>
+      </div>
+      <div class="cc-form-group sold-form-tight">
+        <label for="ap-lastname">Last Name</label>
+        <input type="text" id="ap-lastname" placeholder="Last name" maxlength="100"/>
+      </div>
+    </div>
+
+    <div class="cc-form-grid-2 sold-form-row-spaced">
+      <div class="cc-form-group sold-form-tight">
+        <label for="ap-company">Company</label>
+        <input type="text" id="ap-company" placeholder="Company name" maxlength="255"/>
+      </div>
+      <div class="cc-form-group sold-form-tight">
+        <label for="ap-phone">Phone Number</label>
+        <input type="tel" id="ap-phone" placeholder="e.g. +1 555 000 0000" maxlength="50"/>
+      </div>
+    </div>
+
+    <div class="cc-consent-box">
+      <label>
+        <input type="checkbox" id="ap-consent"/>
+        <span class="ct">
+          <strong>Prospect has granted explicit consent to receive email outreach.</strong><br/>
+          <span class="sub">This will subscribe the prospect without a confirmation email. Prospects who previously unsubscribed stay unsubscribed.</span>
+        </span>
+      </label>
+    </div>
+
+    <p class="cc-error" id="ap-error"></p>
+    <div class="cc-form-actions">
+      <button class="cc-btn-cancel" id="cancelAddProspect">Cancel</button>
+      <button class="cc-btn-submit" id="submitAddProspect">
+        <i class="fas fa-user-plus"></i> Add Prospect
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Upload Prospects Wizard Modal -->
+<div class="cc-modal-overlay" id="uploadProspectsModal">
+  <div class="cc-modal sold-modal-wide">
+    <button class="cc-modal-close" id="closeUploadProspects">&times;</button>
+
+    <!-- Step indicator -->
+    <div class="wiz-steps" id="wizSteps">
+      <div class="wiz-step active" id="wstep1"><span>1</span> Upload File</div>
+      <div class="wiz-divider"></div>
+      <div class="wiz-step" id="wstep2"><span>2</span> Map Columns</div>
+      <div class="wiz-divider"></div>
+      <div class="wiz-step" id="wstep3"><span>3</span> Summary</div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="wizPanel1">
+      <h3 class="sold-h3-spaced"><i class="fas fa-upload sold-icon-success-mr"></i>Upload Prospects</h3>
+      <div class="upload-area" id="uploadArea">
+        <i class="fas fa-file-upload"></i>
+        <p class="sold-upload-hint">Click or drag &amp; drop a file here</p>
+        <p class="sold-upload-sub">Supported: <strong>CSV, XLSX, TXT</strong></p>
+        <input type="file" id="uc-file-input" accept=".csv,.xlsx,.txt" class="sold-file-input"/>
+      </div>
+      <p id="uc-file-name" class="sold-file-name" hidden></p>
+
+      <div class="uc-req-info">
+        <div class="uc-req-title"><i class="fas fa-info-circle sold-icon-mr-5"></i>Columns in your file</div>
+        <div class="uc-req-tags">
+          <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> email</span>
+          <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> first_name</span>
+          <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> last_name</span>
+          <span class="uc-req-tag opt">status</span>
+          <span class="uc-req-tag opt">company</span>
+          <span class="uc-req-tag opt">phone</span>
+        </div>
+        <div class="uc-req-note sold-req-note-tight">Email is required; at least one name column (first_name or last_name) is required.</div>
+        <div class="uc-req-note">Status values: <code>subscribed</code> &nbsp;·&nbsp; <code>unsubscribed</code> &nbsp;·&nbsp; <code>never_subscribed</code>. Omit the column and everyone imports as <code>subscribed</code>.</div>
+        <button type="button" id="uc-download-example" class="uc-example-btn">
+          <i class="fas fa-download"></i> Download example file
+        </button>
+      </div>
+
+      <p class="cc-error sold-error-spaced" id="uc-error1"></p>
+      <div class="cc-form-actions sold-actions-spaced">
+        <button class="cc-btn-cancel" id="cancelUploadProspects">Cancel</button>
+        <button class="cc-btn-submit" id="uc-next1" disabled>
+          Next <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="wizPanel2" hidden>
+      <h3 class="sold-h3-tight"><i class="fas fa-table sold-icon-success-mr"></i>Map Columns</h3>
+      <p class="sold-map-hint">Match your file columns to system fields. <strong>Email</strong> and at least one <strong>Name</strong> field are required.</p>
+      <div class="sold-scroll-x">
+        <table class="sold-map-table" id="uc-map-table">
+          <thead>
+            <tr>
+              <th class="sold-map-th">File Column</th>
+              <th class="sold-map-th">Map To</th>
+            </tr>
+          </thead>
+          <tbody id="uc-map-body"></tbody>
+        </table>
+      </div>
+      <p class="cc-error sold-error-spaced" id="uc-error2"></p>
+      <div class="cc-form-actions sold-actions-spaced">
+        <button class="cc-btn-cancel" id="uc-back2"><i class="fas fa-arrow-left"></i> Back</button>
+        <button class="cc-btn-submit" id="uc-import">
+          <i class="fas fa-file-import"></i> Import Prospects
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 2b: Conflict Review -->
+    <div id="wizPanel2b" hidden>
+      <h3><i class="fas fa-exclamation-triangle sold-icon-warn-mr"></i>Status Conflicts</h3>
+      <p id="uc-conflict-summary" class="sold-conflict-summary"></p>
+      <div class="sold-scroll-y-280">
+        <table class="uc-conflict-table">
+          <thead><tr><th>Email</th><th>Uploaded</th><th>Existing</th><th>Will Import As</th></tr></thead>
+          <tbody id="uc-conflict-body"></tbody>
+        </table>
+      </div>
+      <p class="cc-error sold-error-spaced" id="uc-error2b"></p>
+      <div class="cc-form-actions sold-actions-spaced">
+        <button class="cc-btn-cancel" id="uc-back2b"><i class="fas fa-arrow-left"></i> Back</button>
+        <button class="cc-btn-submit" id="uc-confirm-import">
+          <i class="fas fa-file-import"></i> Continue Import
+        </button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="wizPanel3" hidden>
+      <h3 class="sold-h3-spaced-lg"><i class="fas fa-check-circle sold-icon-success-mr"></i>Import Complete</h3>
+      <div id="uc-summary" class="sold-summary-wrap"></div>
+      <div class="cc-form-actions sold-actions-spaced-lg">
+        <button class="cc-btn-submit" id="uc-done">Done</button>
+      </div>
+    </div>
+
+    <!-- Step 4: Skipped rows -->
+    <div id="wizPanel4" hidden>
+      <div class="sold-row-between">
+        <h3 class="sold-h3-flush"><i class="fas fa-ban sold-icon-danger-mr"></i>Skipped Rows</h3>
+        <button type="button" id="uc-download-skipped" class="uc-example-btn">
+          <i class="fas fa-download"></i> Download CSV
+        </button>
+      </div>
+      <div class="sold-scroll-y-320">
+        <table class="uc-conflict-table">
+          <thead><tr><th>Row</th><th>Email</th><th>Uploaded Status</th><th>Reason</th></tr></thead>
+          <tbody id="uc-skipped-body"></tbody>
+        </table>
+      </div>
+      <div class="cc-form-actions sold-actions-spaced">
+        <button class="cc-btn-cancel" id="uc-back-skipped"><i class="fas fa-arrow-left"></i> Back to Summary</button>
+        <button class="cc-btn-submit" id="uc-done4">Done</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Prospect Detail Modal -->
+<div id="cdOverlay" class="cc-modal-overlay">
+  <div class="cc-modal sold-modal-medium">
+    <button class="cc-modal-close" id="cdClose">&times;</button>
+    <h3 class="cd-title">
+      <i class="fas fa-user-circle sold-icon-teal-lg"></i> Prospect Details
+    </h3>
+    <div id="cdBody"></div>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+const CSRF    = '{{ csrf_token }}';
+const LIST_ID = {{ lst.id }};
+const BASE    = '/Sales-Outreach/list/' + LIST_ID;
+
+function escHtml(s){
+  return String(s == null ? '' : s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── AJAX prospect table ────────────────────────────────── */
+var SOTable = (function () {
+  var tbody    = document.getElementById('prospectsBody');
+  var prevBtn  = document.getElementById('prevPageBtn');
+  var nextBtn  = document.getElementById('nextPageBtn');
+  var pageInfo = document.getElementById('pageInfo');
+  var pageNum  = document.getElementById('pageNum');
+  var pagBar   = document.getElementById('paginationBar');
+  var selectAll = document.getElementById('selectAll');
+  var bulkBar   = document.getElementById('bulkBar');
+  var bulkCount = document.getElementById('bulkCount');
+
+  var _curPage = 1;
+  var _loading = false;
+  var _abortCtrl = null;
+  var _selected  = new Set();
+
+  function statusBadge(s) {
+    if (s === 'subscribed')
+      return '<span class="badge-sub yes"><i class="fas fa-check-circle"></i> Subscribed</span>';
+    if (s === 'unsubscribed')
+      return '<span class="badge-sub unsub"><i class="fas fa-user-slash"></i> Unsubscribed</span>';
+    return '<span class="badge-sub no"><i class="fas fa-times-circle"></i> Never Subscribed</span>';
+  }
+
+  function setLoading(on) {
+    _loading = on;
+    PF.setLoading(on);
+    prevBtn.style.opacity = on ? '0.5' : '';
+    nextBtn.style.opacity = on ? '0.5' : '';
+  }
+
+  function updateStats(stats) {
+    if (!stats) return;
+    document.getElementById('statTotal').textContent       = stats.total            || '0';
+    document.getElementById('statSubscribed').textContent  = stats.subscribed       || '0';
+    document.getElementById('statNeverSubbed').textContent = stats.never_subscribed || '0';
+    document.getElementById('statUnsubbed').textContent    = stats.unsubscribed     || '0';
+  }
+
+  function refreshBulkBar() {
+    bulkCount.textContent = _selected.size + ' selected';
+    bulkBar.classList.toggle('show', _selected.size > 0);
+    var boxes = [...tbody.querySelectorAll('.row-check')];
+    selectAll.checked = boxes.length > 0 && boxes.every(function(b){ return b.checked; });
+  }
+
+  function loadPage(page) {
+    _curPage = page;
+    setLoading(true);
+    _selected.clear();
+    refreshBulkBar();
+
+    if (_abortCtrl) _abortCtrl.abort();
+    _abortCtrl = new AbortController();
+
+    var f = PF.getFilters();
+    var url = BASE + '/prospects/page/' +
+              '?page='      + page +
+              '&search='    + encodeURIComponent(f.search) +
+              '&status='    + encodeURIComponent(f.status) +
+              '&date_from=' + encodeURIComponent(f.dateFrom) +
+              '&date_to='   + encodeURIComponent(f.dateTo);
+
+    fetch(url, { signal: _abortCtrl.signal })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      setLoading(false);
+      PF.showError(false);
+
+      if (d.status !== 'ok') {
+        tbody.innerHTML = '<tr><td colspan="7"><div class="cc-empty">Error loading prospects.</div></td></tr>';
+        return;
+      }
+
+      updateStats(d.stats);
+      PF.setCount(d.total, d.grand_total);
+      _curPage = d.page;
+
+      tbody.innerHTML = '';
+      if (d.prospects.length === 0) {
+        tbody.innerHTML =
+          '<tr><td colspan="7"><div class="cc-empty">' +
+          '<i class="fas fa-filter"></i> No prospects match your filters.</div></td></tr>';
+        pagBar.hidden = true;
+        return;
+      }
+
+      d.prospects.forEach(function(p) {
+        var tr = document.createElement('tr');
+        tr.dataset.id = p.id;
+        tr.innerHTML =
+          '<td><input type="checkbox" class="row-check sold-checkbox" data-id="' + p.id + '"/></td>' +
+          '<td>' + p.row_num + '</td>' +
+          '<td>' + escHtml(p.name) + '</td>' +
+          '<td><span class="cd-email-link cd-mono" data-id="' + p.id + '">' + escHtml(p.email) + '</span></td>' +
+          '<td>' + statusBadge(p.status) + '</td>' +
+          '<td>' + escHtml(p.date) + '</td>' +
+          '<td><button class="cc-row-remove" data-remove="' + p.id + '" title="Remove from list"><i class="fas fa-times"></i></button></td>';
+        tbody.appendChild(tr);
+      });
+
+      pageInfo.textContent = 'Showing ' + d.start_index + '–' + d.end_index + ' of ' + d.total;
+      pageNum.textContent  = d.page + ' / ' + d.num_pages;
+      pagBar.hidden = !(d.num_pages > 1);
+      prevBtn.classList.toggle('disabled', !d.has_previous);
+      nextBtn.classList.toggle('disabled', !d.has_next);
+      refreshBulkBar();
+    })
+    .catch(function(err) {
+      if (err.name === 'AbortError') return;
+      setLoading(false);
+      PF.showError(true, function() { loadPage(_curPage); });
+    });
+  }
+
+  prevBtn.addEventListener('click', function() {
+    if (!_loading && !prevBtn.classList.contains('disabled')) loadPage(_curPage - 1);
+  });
+  nextBtn.addEventListener('click', function() {
+    if (!_loading && !nextBtn.classList.contains('disabled')) loadPage(_curPage + 1);
+  });
+
+  /* Selection */
+  selectAll.addEventListener('change', function() {
+    tbody.querySelectorAll('.row-check').forEach(function(b) {
+      b.checked = selectAll.checked;
+      if (b.checked) _selected.add(parseInt(b.dataset.id, 10));
+      else _selected.delete(parseInt(b.dataset.id, 10));
+    });
+    refreshBulkBar();
+  });
+  tbody.addEventListener('change', function(e) {
+    var box = e.target.closest('.row-check');
+    if (!box) return;
+    var id = parseInt(box.dataset.id, 10);
+    if (box.checked) _selected.add(id); else _selected.delete(id);
+    refreshBulkBar();
+  });
+
+  /* Remove */
+  function removeIds(ids, done) {
+    fetch(BASE + '/action/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({ action: 'remove_prospects', prospect_ids: ids }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status === 'ok') {
+        WTI.toast(ids.length + ' prospect(s) removed from this list.', 'success');
+        loadPage(_curPage);
+      } else {
+        WTI.toast(d.message || 'Could not remove.', 'error');
+      }
+      if (done) done();
+    })
+    .catch(function() { WTI.toast('Network error.', 'error'); if (done) done(); });
+  }
+
+  tbody.addEventListener('click', function(e) {
+    var btn = e.target.closest('[data-remove]');
+    if (!btn) return;
+    btn.disabled = true;
+    removeIds([parseInt(btn.dataset.remove, 10)], function() { btn.disabled = false; });
+  });
+
+  document.getElementById('bulkRemoveBtn').addEventListener('click', function() {
+    if (_selected.size === 0) return;
+    var btn = this;
+    btn.disabled = true;
+    removeIds([..._selected], function() { btn.disabled = false; });
+  });
+
+  /* PF filter wiring */
+  PF.init({ debounce: 300, urlSync: true });
+  PF.restoreFromURL();
+  PF.wire(function () { loadPage(1); });
+
+  loadPage(1);
+
+  return { reload: function() { loadPage(1); } };
+})();
+
+/* ── Add Prospect Modal ─────────────────────────────────── */
+(function () {
+  var modal     = document.getElementById('addProspectModal');
+  var openBtn   = document.getElementById('openAddProspect');
+  var closeBtn  = document.getElementById('closeAddProspect');
+  var cancelBtn = document.getElementById('cancelAddProspect');
+  var submitBtn = document.getElementById('submitAddProspect');
+  var emailEl   = document.getElementById('ap-email');
+  var firstEl   = document.getElementById('ap-firstname');
+  var lastEl    = document.getElementById('ap-lastname');
+  var companyEl = document.getElementById('ap-company');
+  var phoneEl   = document.getElementById('ap-phone');
+  var consentEl = document.getElementById('ap-consent');
+  var errorEl   = document.getElementById('ap-error');
+
+  function resetForm() {
+    emailEl.value = ''; firstEl.value = ''; lastEl.value = '';
+    companyEl.value = ''; phoneEl.value = ''; consentEl.checked = false;
+    errorEl.style.display = 'none';
+    submitBtn.disabled = false;
+    submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Add Prospect';
+  }
+  function openModal()  { modal.classList.add('open'); emailEl.focus(); }
+  function closeModal() { modal.classList.remove('open'); resetForm(); }
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', function(e) { if (e.target === modal) closeModal(); });
+
+  submitBtn.addEventListener('click', function () {
+    var email = emailEl.value.trim();
+    errorEl.style.display = 'none';
+
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      errorEl.textContent = 'A valid email address is required.';
+      errorEl.style.display = 'block';
+      emailEl.focus(); return;
+    }
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<span class="btn-spinner"></span> Adding…';
+
+    fetch(BASE + '/add-prospect/', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+      body: JSON.stringify({
+        email:      email,
+        first_name: firstEl.value.trim(),
+        last_name:  lastEl.value.trim(),
+        company:    companyEl.value.trim(),
+        phone:      phoneEl.value.trim(),
+        consent:    consentEl.checked ? '1' : '0',
+      }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      if (data.status === 'ok') {
+        var intended = consentEl.checked ? 'subscribed' : 'never_subscribed';
+        closeModal();
+        if (data.status_applied && data.status_applied !== intended) {
+          WTI.toast('Added as "' + data.status_applied.replace(/_/g, ' ') +
+                    '" — a lower consent state already applied to this address.', 'success');
+        } else {
+          WTI.toast('Prospect added.', 'success');
+        }
+        SOTable.reload();
+      } else {
+        errorEl.textContent = data.message || 'Something went wrong.';
+        errorEl.style.display = 'block';
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Add Prospect';
+      }
+    })
+    .catch(function() {
+      errorEl.textContent = 'Network error. Please try again.';
+      errorEl.style.display = 'block';
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = '<i class="fas fa-user-plus"></i> Add Prospect';
+    });
+  });
+})();
+
+/* ── Upload Prospects Wizard ────────────────────────────── */
+(function () {
+  var modal      = document.getElementById('uploadProspectsModal');
+  var openBtn    = document.getElementById('openUploadProspects');
+  var closeBtn   = document.getElementById('closeUploadProspects');
+  var cancelBtn  = document.getElementById('cancelUploadProspects');
+
+  var panel1     = document.getElementById('wizPanel1');
+  var panel2     = document.getElementById('wizPanel2');
+  var panel2b    = document.getElementById('wizPanel2b');
+  var panel3     = document.getElementById('wizPanel3');
+  var panel4     = document.getElementById('wizPanel4');
+
+  var uploadArea = document.getElementById('uploadArea');
+  var fileInput  = document.getElementById('uc-file-input');
+  var fileNameEl = document.getElementById('uc-file-name');
+  var err1       = document.getElementById('uc-error1');
+  var nextBtn    = document.getElementById('uc-next1');
+
+  var mapBody    = document.getElementById('uc-map-body');
+  var err2       = document.getElementById('uc-error2');
+  var backBtn    = document.getElementById('uc-back2');
+  var importBtn  = document.getElementById('uc-import');
+
+  var err2b      = document.getElementById('uc-error2b');
+  var back2bBtn  = document.getElementById('uc-back2b');
+  var confirmBtn = document.getElementById('uc-confirm-import');
+
+  var summaryEl  = document.getElementById('uc-summary');
+  var doneBtn    = document.getElementById('uc-done');
+
+  var _columns     = [];
+  var _file        = null;
+  var _skippedRows = [];
+
+  function showErr(el, msg) { el.textContent = msg; el.style.display = 'block'; }
+  function hideErr(el)      { el.style.display = 'none'; }
+
+  function setStep(n) {
+    [panel1, panel2, panel2b, panel3, panel4].forEach(function(p) { p.hidden = true; });
+    var steps = [document.getElementById('wstep1'), document.getElementById('wstep2'), document.getElementById('wstep3')];
+    var stepNum = (n === '2b') ? 2 : (n === 4 ? 3 : n);
+    steps.forEach(function(s, i) {
+      s.classList.remove('active', 'done');
+      if (i + 1 < stepNum)   s.classList.add('done');
+      if (i + 1 === stepNum) s.classList.add('active');
+    });
+    if (n === 1)    panel1.hidden  = false;
+    if (n === 2)    panel2.hidden  = false;
+    if (n === '2b') panel2b.hidden = false;
+    if (n === 3)    panel3.hidden  = false;
+    if (n === 4)    panel4.hidden  = false;
+    closeBtn.style.display = (n === 3 || n === 4) ? 'none' : '';
+  }
+
+  function resetWizard() {
+    fileInput.value = ''; fileNameEl.hidden = true; fileNameEl.textContent = '';
+    nextBtn.disabled = true; hideErr(err1); hideErr(err2); hideErr(err2b);
+    mapBody.innerHTML = ''; summaryEl.innerHTML = '';
+    importBtn.disabled = false;
+    importBtn.innerHTML = '<i class="fas fa-file-import"></i> Import Prospects';
+    confirmBtn.disabled = false;
+    confirmBtn.innerHTML = '<i class="fas fa-file-import"></i> Continue Import';
+    _columns = []; _file = null; _skippedRows = [];
+    setStep(1);
+  }
+
+  function openModal()  { modal.classList.add('open'); }
+  function closeModal() { modal.classList.remove('open'); resetWizard(); }
+
+  openBtn.addEventListener('click', openModal);
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+
+  if (new URLSearchParams(window.location.search).get('upload') === '1') {
+    openModal();
+    history.replaceState(null, '', window.location.pathname);
+  }
+
+  document.getElementById('uc-download-example').addEventListener('click', function() {
+    var csv = 'email,first_name,last_name,company,phone,status\r\n' +
+              'john.doe@example.com,John,Doe,Acme Inc,+1 555 000 0001,subscribed\r\n' +
+              'jane.smith@example.com,Jane,Smith,Globex,+1 555 000 0002,unsubscribed\r\n' +
+              'bob.jones@example.com,Bob,Jones,Initech,,subscribed\r\n';
+    var blob = new Blob([csv], { type: 'text/csv' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'prospects_example.csv';
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(a.href);
+  });
+
+  function finishImport() {
+    closeModal();
+    SOTable.reload();
+  }
+
+  doneBtn.addEventListener('click', finishImport);
+  backBtn.addEventListener('click', function() { setStep(1); });
+
+  uploadArea.addEventListener('click', function() { fileInput.click(); });
+  fileInput.addEventListener('change', function() {
+    if (fileInput.files.length) { _file = fileInput.files[0]; onFileChosen(); }
+  });
+  uploadArea.addEventListener('dragover', function(e) { e.preventDefault(); uploadArea.classList.add('drag-over'); });
+  uploadArea.addEventListener('dragleave', function() { uploadArea.classList.remove('drag-over'); });
+  uploadArea.addEventListener('drop', function(e) {
+    e.preventDefault(); uploadArea.classList.remove('drag-over');
+    var f = e.dataTransfer.files[0]; if (!f) return;
+    var ext = f.name.split('.').pop().toLowerCase();
+    if (!['csv','xlsx','txt'].includes(ext)) { showErr(err1, 'Only CSV, XLSX, or TXT files are supported.'); return; }
+    _file = f;
+    var dt = new DataTransfer(); dt.items.add(f); fileInput.files = dt.files;
+    onFileChosen();
+  });
+
+  function onFileChosen() {
+    var ext = _file.name.split('.').pop().toLowerCase();
+    if (!['csv','xlsx','txt'].includes(ext)) { showErr(err1, 'Only CSV, XLSX, or TXT files are supported.'); nextBtn.disabled = true; return; }
+    hideErr(err1);
+    fileNameEl.textContent = '✓ ' + _file.name;
+    fileNameEl.hidden = false;
+    nextBtn.disabled = false;
+  }
+
+  var EMAIL_ALIASES = ['email','emailaddress','mail','workemail'];
+  var FIRST_ALIASES = ['firstname','fname','first','givenname'];
+  var LAST_ALIASES  = ['lastname','lname','last','surname','familyname'];
+  var STATUS_ALIASES  = ['status','subscribed','subscription','subscriptionstatus','state'];
+  var COMPANY_ALIASES = ['company','organisation','organization','companyname','account'];
+  var PHONE_ALIASES   = ['phone','phonenumber','mobile','telephone','tel'];
+
+  nextBtn.addEventListener('click', function() {
+    hideErr(err1);
+    nextBtn.disabled = true;
+    nextBtn.innerHTML = '<span class="btn-spinner"></span> Reading…';
+
+    var fd = new FormData();
+    fd.append('file', _file);
+
+    fetch(BASE + '/parse-file/', {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = 'Next <i class="fas fa-arrow-right"></i>';
+      if (data.status !== 'ok') { showErr(err1, data.message || 'Could not read file.'); return; }
+
+      var colsNorm = data.columns.map(function(c) { return c.toLowerCase().replace(/[\s_\-]/g, ''); });
+      var missing = [];
+      if (!colsNorm.some(function(lc) { return EMAIL_ALIASES.includes(lc); })) missing.push('email');
+      var hasFirst = colsNorm.some(function(lc) { return FIRST_ALIASES.includes(lc); });
+      var hasLast  = colsNorm.some(function(lc) { return LAST_ALIASES.includes(lc); });
+      if (!hasFirst && !hasLast) missing.push('first_name or last_name');
+      if (missing.length) {
+        showErr(err1, 'Required column(s) missing in your file: ' + missing.join(', ') +
+                      '. Please fix your file or download the example file.');
+        return;
+      }
+      _columns = data.columns;
+      buildMapTable(_columns);
+      setStep(2);
+    })
+    .catch(function() {
+      nextBtn.disabled = false;
+      nextBtn.innerHTML = 'Next <i class="fas fa-arrow-right"></i>';
+      showErr(err1, 'Network error. Please try again.');
+    });
+  });
+
+  var SYSTEM_FIELDS = [
+    { value: '',           label: '— Skip —' },
+    { value: 'email',      label: 'Email *' },
+    { value: 'first_name', label: 'First Name' },
+    { value: 'last_name',  label: 'Last Name' },
+    { value: 'company',    label: 'Company' },
+    { value: 'phone',      label: 'Phone' },
+    { value: 'status',     label: 'Status' },
+  ];
+
+  function buildMapTable(cols) {
+    mapBody.innerHTML = '';
+    var taken = {};
+    var defaults = cols.map(function(col) {
+      var lc = col.toLowerCase().replace(/[\s_\-]/g, '');
+      var guess = '';
+      if      (!taken.email      && EMAIL_ALIASES.includes(lc))   { guess = 'email';      taken.email = true; }
+      else if (!taken.first_name && FIRST_ALIASES.includes(lc))   { guess = 'first_name'; taken.first_name = true; }
+      else if (!taken.last_name  && LAST_ALIASES.includes(lc))    { guess = 'last_name';  taken.last_name = true; }
+      else if (!taken.company    && COMPANY_ALIASES.includes(lc)) { guess = 'company';    taken.company = true; }
+      else if (!taken.phone      && PHONE_ALIASES.includes(lc))   { guess = 'phone';      taken.phone = true; }
+      else if (!taken.status     && STATUS_ALIASES.includes(lc))  { guess = 'status';     taken.status = true; }
+      return guess;
+    });
+
+    cols.forEach(function(col, i) {
+      var opts = SYSTEM_FIELDS.map(function(sf) {
+        var sel = defaults[i] === sf.value ? ' selected' : '';
+        return '<option value="' + sf.value + '"' + sel + '>' + sf.label + '</option>';
+      }).join('');
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="sold-map-td">' + escHtml(col) + '</td>' +
+        '<td class="sold-map-td-select">' +
+          '<select class="uc-map-select" data-col="' + escHtml(col) + '">' + opts + '</select>' +
+        '</td>';
+      mapBody.appendChild(tr);
+    });
+  }
+
+  function buildFd() {
+    var mapping = {};
+    mapBody.querySelectorAll('select.uc-map-select').forEach(function(sel) {
+      if (sel.value) mapping[sel.dataset.col] = sel.value;
+    });
+    var fd = new FormData();
+    fd.append('file', _file);
+    fd.append('mapping', JSON.stringify(mapping));
+    return fd;
+  }
+
+  function doImport(fd, errEl, btn, btnLabel) {
+    btn.disabled = true;
+    btn.innerHTML = '<span class="btn-spinner"></span> Importing…';
+    fetch(BASE + '/import/', {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF }, body: fd,
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      btn.disabled = false;
+      btn.innerHTML = btnLabel;
+      if (data.status === 'conflicts') { showConflictStep(data); return; }
+      if (data.status !== 'ok') { showErr(errEl, data.message || 'Import failed.'); return; }
+      renderSummary(data.summary);
+      setStep(3);
+    })
+    .catch(function() {
+      btn.disabled = false;
+      btn.innerHTML = btnLabel;
+      showErr(errEl, 'Network error. Please try again.');
+    });
+  }
+
+  function escCsv(v) {
+    var s = String(v == null ? '' : v);
+    if (s.search(/[",\r\n]/) >= 0) s = '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
+
+  function showConflictStep(data) {
+    var tbody = document.getElementById('uc-conflict-body');
+    tbody.innerHTML = '';
+    (data.conflicts || []).forEach(function(c) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="cd-mono sold-mono-sm">' + escHtml(c.email) + '</td>' +
+        '<td><span class="uc-status-badge uc-status-' + escHtml(c.uploaded) + '">' + escHtml(c.uploaded) + '</span></td>' +
+        '<td><span class="uc-status-badge uc-status-' + escHtml(c.existing) + '">' + escHtml(c.existing || '—') + '</span></td>' +
+        '<td><span class="uc-status-badge uc-status-' + escHtml(c.final)    + '">' + escHtml(c.final)    + '</span></td>';
+      tbody.appendChild(tr);
+    });
+    var extra = (data.total_conflicts || 0) - (data.conflicts || []).length;
+    document.getElementById('uc-conflict-summary').textContent =
+      (data.total_conflicts || 0) + ' prospect(s) will be imported with a different status than uploaded, ' +
+      'because a lower consent state already applies to those addresses.' +
+      (extra > 0 ? ' Showing first 100 of ' + data.total_conflicts + '.' : '');
+    hideErr(err2b);
+    setStep('2b');
+  }
+
+  function showSkippedPanel(skippedRows) {
+    _skippedRows = skippedRows || [];
+    var tbody = document.getElementById('uc-skipped-body');
+    tbody.innerHTML = '';
+    _skippedRows.slice(0, 200).forEach(function(r) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td class="sold-td-center">' + escHtml(r.row) + '</td>' +
+        '<td class="cd-mono sold-mono-sm">' + escHtml(r.email) + '</td>' +
+        '<td>' + escHtml(r.uploaded_status || '') + '</td>' +
+        '<td>' + escHtml(r.reason) + '</td>';
+      tbody.appendChild(tr);
+    });
+
+    document.getElementById('uc-download-skipped').onclick = function() {
+      var csv = 'row_number,email,status,reason\r\n';
+      _skippedRows.forEach(function(r) {
+        csv += escCsv(r.row) + ',' + escCsv(r.email) + ',' + escCsv(r.uploaded_status || '') + ',' + escCsv(r.reason) + '\r\n';
+      });
+      var blob = new Blob([csv], { type: 'text/csv' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'prospects_skipped.csv';
+      document.body.appendChild(a); a.click();
+      document.body.removeChild(a); URL.revokeObjectURL(a.href);
+    };
+
+    document.getElementById('uc-back-skipped').onclick = function() { setStep(3); };
+    document.getElementById('uc-done4').onclick = finishImport;
+    setStep(4);
+  }
+
+  importBtn.addEventListener('click', function() {
+    hideErr(err2);
+    var hasEmail = false, hasName = false;
+    mapBody.querySelectorAll('select.uc-map-select').forEach(function(sel) {
+      if (sel.value === 'email') hasEmail = true;
+      if (sel.value === 'first_name' || sel.value === 'last_name') hasName = true;
+    });
+    if (!hasEmail) { showErr(err2, 'You must map a column to Email.'); return; }
+    if (!hasName)  { showErr(err2, 'You must map at least one column to First Name or Last Name.'); return; }
+    doImport(buildFd(), err2, importBtn, '<i class="fas fa-file-import"></i> Import Prospects');
+  });
+
+  back2bBtn.addEventListener('click', function() { setStep(2); });
+
+  confirmBtn.addEventListener('click', function() {
+    hideErr(err2b);
+    var fd = buildFd();
+    fd.append('confirmed', '1');
+    doImport(fd, err2b, confirmBtn, '<i class="fas fa-file-import"></i> Continue Import');
+  });
+
+  function renderSummary(s) {
+    var by       = s.by_status || {};
+    var sub      = by.subscribed       || 0;
+    var unsub    = by.unsubscribed     || 0;
+    var neverSub = by.never_subscribed || 0;
+    var skipped  = s.skipped           || 0;
+
+    var html =
+      '<div class="uc-top-row">' +
+        '<div class="uc-big-card uc-big-card--accent">' +
+          '<div class="uc-big-num">' + (s.imported || 0) + '</div>' +
+          '<div class="uc-big-label">Prospects imported</div>' +
+        '</div>' +
+        '<div class="uc-big-card">' +
+          '<div class="uc-big-num">' + (s.total || 0) + '</div>' +
+          '<div class="uc-big-label">Total rows processed</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="uc-sub-row">' +
+        '<div class="uc-sub-card">' +
+          '<i class="fas fa-user-check uc-sub-icon sold-clr-success"></i>' +
+          '<div><div class="uc-sub-num sold-clr-success">' + sub + '</div>' +
+          '<div class="uc-sub-lbl">Subscribed</div></div>' +
+        '</div>' +
+        '<div class="uc-sub-card">' +
+          '<i class="fas fa-user-slash uc-sub-icon sold-clr-danger"></i>' +
+          '<div><div class="uc-sub-num sold-clr-danger">' + unsub + '</div>' +
+          '<div class="uc-sub-lbl">Unsubscribed</div></div>' +
+        '</div>' +
+        '<div class="uc-sub-card">' +
+          '<i class="fas fa-user-minus uc-sub-icon sold-text-muted"></i>' +
+          '<div><div class="uc-sub-num">' + neverSub + '</div>' +
+          '<div class="uc-sub-lbl">Never subscribed</div></div>' +
+        '</div>' +
+      '</div>';
+
+    if (skipped > 0) {
+      html += '<div class="uc-skipped-wrap">' +
+                '<div class="sold-row-between-pad">' +
+                  '<div class="uc-skipped-head">Skipped &mdash; ' + skipped + ' total</div>' +
+                  '<button type="button" class="uc-inv-toggle" id="uc-view-skipped">' +
+                    '<i class="fas fa-list"></i> View details' +
+                  '</button>' +
+                '</div>' +
+              '</div>';
+    }
+
+    summaryEl.innerHTML = html;
+
+    if (skipped > 0) {
+      document.getElementById('uc-view-skipped').addEventListener('click', function() {
+        showSkippedPanel(s.skipped_rows || []);
+      });
+    }
+  }
+})();
+
+/* ── Prospect Detail Modal ──────────────────────────────── */
+(function () {
+  var overlay = document.getElementById('cdOverlay');
+  var cdBody  = document.getElementById('cdBody');
+
+  function openCd()  { overlay.classList.add('open'); }
+  function closeCd() { overlay.classList.remove('open'); }
+
+  document.getElementById('cdClose').addEventListener('click', closeCd);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCd(); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeCd(); });
+
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.cd-email-link');
+    if (!link) return;
+    openProspectDetail(link.dataset.id);
+  });
+
+  function openProspectDetail(id) {
+    cdBody.innerHTML = '<p class="sold-loading-msg">' +
+      '<span class="btn-spinner sold-spinner-inline"></span>Loading…</p>';
+    openCd();
+    fetch('/Sales-Outreach/prospects/' + id + '/detail/', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status !== 'ok') { cdBody.innerHTML = '<p class="sold-text-danger">Could not load prospect details.</p>'; return; }
+      renderProspect(d.prospect);
+    })
+    .catch(function() { cdBody.innerHTML = '<p class="sold-text-danger">Network error.</p>'; });
+  }
+
+  function statusBadge(s) {
+    var labels = {
+      subscribed: 'Subscribed', unsubscribed: 'Unsubscribed', never_subscribed: 'Never Subscribed',
+    };
+    return '<span class="cd-badge cd-badge-' + escHtml(s) + '">' + escHtml(labels[s] || s) + '</span>';
+  }
+
+  var _empty = '<span class="sold-text-muted">—</span>';
+
+  function renderProspect(p) {
+    var rows = [
+      ['Email',        '<span class="cd-mono">' + escHtml(p.email) + '</span>'],
+      ['First Name',   escHtml(p.first_name) || _empty],
+      ['Last Name',    escHtml(p.last_name)  || _empty],
+      ['Status',       statusBadge(p.status)],
+      ['Company',      escHtml(p.company) || _empty],
+      ['Phone',        escHtml(p.phone)   || _empty],
+      ['Lists',        (p.lists && p.lists.length) ? p.lists.map(escHtml).join(', ') : _empty],
+      ['Added',        escHtml(p.created_at)],
+      ['Last Updated', escHtml(p.updated_at)],
+    ];
+    Object.entries(p.extra_data || {}).forEach(function(kv) {
+      var label = kv[0].replace(/_/g,' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+      rows.push([escHtml(label), escHtml(kv[1]) || _empty]);
+    });
+    var html = '<table class="cd-table">';
+    rows.forEach(function(r) {
+      html += '<tr><td class="cd-label">' + r[0] + '</td><td class="cd-value">' + r[1] + '</td></tr>';
+    });
+    html += '</table>';
+    cdBody.innerHTML = html;
+  }
+})();
+</script>
+
+{% endblock %}

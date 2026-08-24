@@ -1,0 +1,614 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaigns.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaign_contacts.css' %}"/>
+<style>
+/* ── Wizard page layout ─────────────────────────────────── */
+.aw-wrap {
+  max-width: 620px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+.aw-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 13px;
+  text-decoration: none;
+  margin-bottom: 18px;
+  transition: color .15s;
+}
+.aw-back:hover { color: var(--teal); }
+
+.aw-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 32px 32px 26px;
+}
+
+/* Step indicator */
+.aw-steps {
+  display: flex;
+  align-items: center;
+  margin-bottom: 28px;
+}
+.aw-step {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  color: var(--ink-3);
+  white-space: nowrap;
+}
+.aw-step span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--bg-2);
+  color: var(--ink-3);
+  border: 1.5px solid var(--border);
+  flex-shrink: 0;
+}
+.aw-step.active { color: var(--teal); }
+.aw-step.active span { background: var(--teal); color: #fff; border-color: var(--teal); }
+.aw-step.done span   { background: #00C6A2; color: #fff; border-color: #00C6A2; }
+.aw-step.done { color: var(--ink-2); }
+.aw-divider { flex: 1; height: 2px; background: var(--border); margin: 0 10px; }
+
+/* Panel heading */
+.aw-panel-title {
+  margin: 0 0 6px;
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+.aw-panel-sub {
+  margin: 0 0 22px;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+/* Provider / method cards */
+.aw-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+.aw-option {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 16px 18px;
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: border-color .18s, box-shadow .18s;
+  background: var(--bg);
+  text-align: center;
+  position: relative;
+}
+.aw-option:hover:not(.disabled) {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(0,122,94,.1);
+}
+.aw-option.disabled {
+  opacity: .5;
+  cursor: default;
+}
+.aw-option-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+.aw-option-icon.google    { background: #FEF3F2; color: #EA4335; }
+.aw-option-icon.microsoft { background: #EFF6FF; color: #0078D4; }
+.aw-option-icon.oauth     { background: var(--bg-2); color: var(--ink-3); }
+.aw-option-icon.apppass   { background: #F0FDF4; color: #16A34A; }
+.aw-option-label {
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.aw-option-sub {
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: -4px;
+}
+.aw-soon-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  background: var(--bg-2);
+  color: var(--ink-3);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 10px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  padding: 2px 7px;
+  letter-spacing: .04em;
+}
+
+/* Instructions */
+.aw-instructions {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+}
+.aw-instructions ol {
+  margin: 10px 0 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.aw-instructions li {
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.5;
+}
+.aw-instructions li strong { color: var(--ink); }
+.aw-tutorial-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 14px;
+  font-size: 13px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  color: var(--teal);
+  text-decoration: none;
+}
+.aw-tutorial-link:hover { text-decoration: underline; }
+
+/* Form */
+.aw-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 12px;
+  margin-bottom: 4px;
+}
+.aw-form-grid.full { grid-template-columns: 1fr; }
+.aw-field { display: flex; flex-direction: column; gap: 5px; }
+.aw-field label {
+  font-family: var(--font-head);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.aw-field label .req { color: #C94A1D; margin-left: 2px; }
+.aw-field input {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 13px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-body);
+  outline: none;
+  transition: border-color .15s;
+}
+.aw-field input:focus { border-color: var(--teal); }
+.aw-field-hint {
+  font-size: 11.5px;
+  color: var(--ink-3);
+  margin-top: 3px;
+}
+.aw-provider-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  margin-bottom: 20px;
+}
+.aw-provider-badge.google    { background: #FEF3F2; color: #B91C1C; border: 1px solid #FCA5A5; }
+.aw-provider-badge.microsoft { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+
+/* Footer actions */
+.aw-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 24px;
+  justify-content: flex-end;
+}
+.aw-btn-back {
+  padding: 10px 22px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-2);
+  font-size: 13.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.aw-btn-back:hover { border-color: var(--ink-2); }
+.aw-btn-next {
+  padding: 10px 22px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--teal);
+  color: #fff;
+  font-size: 13.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  transition: opacity .15s;
+}
+.aw-btn-next:disabled { opacity: .45; cursor: default; }
+.aw-err {
+  display: none;
+  color: #C94A1D;
+  font-size: 12.5px;
+  margin-top: 10px;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ec-page">
+  <div class="aw-wrap">
+
+    <a href="{% url 'email_accounts' %}" class="aw-back">
+      <i class="fas fa-arrow-left" style="font-size:11px;"></i> Back to Email Accounts
+    </a>
+
+    <div class="aw-card">
+
+      <!-- Step indicator -->
+      <div class="aw-steps">
+        <div class="aw-step active" id="awStep1"><span>1</span> Provider</div>
+        <div class="aw-divider"></div>
+        <div class="aw-step" id="awStep2"><span>2</span> Connection</div>
+        <div class="aw-divider"></div>
+        <div class="aw-step" id="awStep3"><span>3</span> Setup</div>
+        <div class="aw-divider"></div>
+        <div class="aw-step" id="awStep4"><span>4</span> Details</div>
+      </div>
+
+      <!-- ── Step 1: Choose Provider ─────────────────────── -->
+      <div id="wizPanel1">
+        <p class="aw-panel-title">Choose your provider</p>
+        <p class="aw-panel-sub">Select the email service you want to connect.</p>
+        <div class="aw-options">
+          <div class="aw-option" onclick="chooseProvider('google')">
+            <div class="aw-option-icon google"><i class="fab fa-google"></i></div>
+            <div>
+              <div class="aw-option-label">Google</div>
+              <div class="aw-option-sub">Gmail / G-Suite</div>
+            </div>
+          </div>
+          <div class="aw-option" onclick="chooseProvider('microsoft')">
+            <div class="aw-option-icon microsoft"><i class="fab fa-microsoft"></i></div>
+            <div>
+              <div class="aw-option-label">Microsoft 365</div>
+              <div class="aw-option-sub">Office 365 / Outlook</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Step 2: Connection Method ──────────────────── -->
+      <div id="wizPanel2" style="display:none;">
+        <p class="aw-panel-title">Select a connection option</p>
+        <p class="aw-panel-sub" id="step2Sub"></p>
+        <div class="aw-options">
+          <div class="aw-option disabled">
+            <div class="aw-soon-badge">Coming Soon</div>
+            <div class="aw-option-icon oauth"><i class="fas fa-key"></i></div>
+            <div>
+              <div class="aw-option-label">OAuth</div>
+              <div class="aw-option-sub" id="oauthSub">Sign in with Google</div>
+            </div>
+          </div>
+          <div class="aw-option" onclick="chooseMethod('apppassword')">
+            <div class="aw-option-icon apppass"><i class="fas fa-lock"></i></div>
+            <div>
+              <div class="aw-option-label">App Password</div>
+              <div class="aw-option-sub">Use a generated app password</div>
+            </div>
+          </div>
+        </div>
+        <div class="aw-actions">
+          <button class="aw-btn-back" onclick="goStep(1)">
+            <i class="fas fa-arrow-left"></i> Back
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Step 3: Instructions ────────────────────────── -->
+      <div id="wizPanel3" style="display:none;">
+        <p class="aw-panel-title" id="step3Title"></p>
+        <p class="aw-panel-sub" id="step3Sub">Follow the steps below to generate an App Password.</p>
+
+        <!-- Google instructions -->
+        <div id="instrGoogle">
+          <div class="aw-instructions">
+            <p style="margin:0;font-size:13px;font-weight:700;color:var(--ink);">
+              <i class="fas fa-shield-alt" style="color:var(--teal);margin-right:6px;"></i>
+              Enable 2-Step Verification &amp; generate an App Password
+            </p>
+            <ol>
+              <li>Go to your <strong>Google Account</strong> → <strong>Security</strong> settings</li>
+              <li>Under <em>"How you sign in to Google"</em>, enable <strong>2-Step Verification</strong></li>
+              <li>Return to Security → scroll down to <strong>App Passwords</strong></li>
+              <li>For App name enter <strong>Other (Custom name)</strong> → click <strong>Generate</strong></li>
+              <li>Copy the 16-character password shown — you'll enter it in the next step</li>
+            </ol>
+            <a class="aw-tutorial-link"
+               href="https://support.google.com/accounts/answer/185833"
+               target="_blank" rel="noopener">
+              <i class="fas fa-play-circle"></i> Watch tutorial / view guide
+            </a>
+          </div>
+        </div>
+
+        <!-- Microsoft instructions -->
+        <div id="instrMicrosoft" style="display:none;">
+          <div class="aw-instructions">
+            <p style="margin:0;font-size:13px;font-weight:700;color:var(--ink);">
+              <i class="fas fa-shield-alt" style="color:var(--teal);margin-right:6px;"></i>
+              Enable SMTP Auth &amp; generate an App Password
+            </p>
+            <ol>
+              <li>Sign in to <strong>Microsoft 365 Admin Center</strong> or your account settings</li>
+              <li>Go to <strong>Security</strong> → <strong>Multi-factor authentication</strong> and enable it</li>
+              <li>Go to <strong>My Account</strong> → <strong>Security info</strong> → <strong>Add sign-in method</strong> → choose <strong>App password</strong></li>
+              <li>Give it a name and click <strong>Next</strong> — copy the generated password</li>
+              <li>Make sure <strong>SMTP AUTH</strong> is enabled for your mailbox in the Admin Center</li>
+            </ol>
+            <a class="aw-tutorial-link"
+               href="https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification-d6dc8c6d-4bf7-4851-ad95-6d07799387e9"
+               target="_blank" rel="noopener">
+              <i class="fas fa-play-circle"></i> Watch tutorial / view guide
+            </a>
+          </div>
+        </div>
+
+        <div class="aw-actions">
+          <button class="aw-btn-back" onclick="goStep(2)">
+            <i class="fas fa-arrow-left"></i> Back
+          </button>
+          <button class="aw-btn-next" onclick="goStep(4)">
+            Next <i class="fas fa-arrow-right"></i>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Step 4: Account Details Form ───────────────── -->
+      <div id="wizPanel4" style="display:none;">
+        <p class="aw-panel-title">Connect your account</p>
+        <div id="providerBadge" class="aw-provider-badge google" style="margin-bottom:20px;">
+          <i id="providerIcon" class="fab fa-google"></i>
+          <span id="providerLabel">Google — Gmail / G-Suite</span>
+        </div>
+
+        <div class="aw-form-grid">
+          <div class="aw-field">
+            <label>First Name</label>
+            <input type="text" id="awFirst" placeholder="First name" maxlength="100" autocomplete="given-name"/>
+          </div>
+          <div class="aw-field">
+            <label>Last Name</label>
+            <input type="text" id="awLast" placeholder="Last name" maxlength="100" autocomplete="family-name"/>
+          </div>
+          <div class="aw-field" style="grid-column:1/-1;">
+            <label>Email <span class="req">*</span></label>
+            <input type="email" id="awEmail" placeholder="Email address to connect" maxlength="255" autocomplete="email"/>
+          </div>
+          <div class="aw-field" style="grid-column:1/-1;">
+            <label>App Password <span class="req">*</span></label>
+            <div style="position:relative;">
+              <input type="password" id="awPassword" placeholder="Enter your 16-character app password" maxlength="200" autocomplete="off" style="padding-right:40px;width:100%;box-sizing:border-box;"/>
+              <button type="button" id="awPwdToggle" tabindex="-1"
+                style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--ink-3);padding:4px;line-height:1;"
+                onclick="togglePwd()">
+                <i class="fas fa-eye" id="awPwdEyeIcon"></i>
+              </button>
+            </div>
+            <span class="aw-field-hint">Google shows the password as 4 groups of 4 letters — paste it as-is, spaces are removed automatically.</span>
+          </div>
+        </div>
+
+        <p class="aw-err" id="awErr"></p>
+        <div class="aw-actions">
+          <button class="aw-btn-back" onclick="goStep(3)">
+            <i class="fas fa-arrow-left"></i> Back
+          </button>
+          <button class="aw-btn-next" id="awSaveBtn" onclick="saveAccount()">
+            <i class="fas fa-save"></i> Save Account
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /.aw-card -->
+  </div><!-- /.aw-wrap -->
+</div>
+
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "email_accounts_action" %}';
+var LIST_URL   = '{% url "email_accounts" %}';
+
+var _provider = '';
+var _cur      = 1;
+
+/* ── Step navigation ──────────────────────────────────── */
+function goStep(n) {
+  [1, 2, 3, 4].forEach(function(i) {
+    document.getElementById('wizPanel' + i).style.display = (i === n) ? '' : 'none';
+  });
+  [1, 2, 3, 4].forEach(function(i) {
+    var el = document.getElementById('awStep' + i);
+    el.classList.remove('active', 'done');
+    if (i < n)  el.classList.add('done');
+    if (i === n) el.classList.add('active');
+  });
+  _cur = n;
+}
+
+/* ── Step 1: provider choice ─────────────────────────── */
+function chooseProvider(p) {
+  _provider = p;
+  // Update step 2 labels
+  var subEl     = document.getElementById('step2Sub');
+  var oauthSub  = document.getElementById('oauthSub');
+  if (p === 'google') {
+    subEl.textContent    = 'Connect your Gmail / G-Suite account.';
+    oauthSub.textContent = 'Sign in with Google';
+  } else {
+    subEl.textContent    = 'Connect your Office 365 / Outlook account.';
+    oauthSub.textContent = 'Sign in with Microsoft';
+  }
+  goStep(2);
+}
+
+/* ── Step 2: method choice ───────────────────────────── */
+function chooseMethod(method) {
+  // Only App Password supported for now
+  var t3 = document.getElementById('step3Title');
+  if (_provider === 'google') {
+    t3.textContent = 'Connect Your Google Account — Gmail / G-Suite';
+    document.getElementById('instrGoogle').style.display    = '';
+    document.getElementById('instrMicrosoft').style.display = 'none';
+  } else {
+    t3.textContent = 'Connect Your Microsoft 365 Account — Office 365 / Outlook';
+    document.getElementById('instrGoogle').style.display    = 'none';
+    document.getElementById('instrMicrosoft').style.display = '';
+  }
+  goStep(3);
+}
+
+/* ── Step 4: provider badge ──────────────────────────── */
+function updateProviderBadge() {
+  var badge    = document.getElementById('providerBadge');
+  var icon     = document.getElementById('providerIcon');
+  var label    = document.getElementById('providerLabel');
+  badge.className = 'aw-provider-badge ' + _provider;
+  if (_provider === 'google') {
+    icon.className  = 'fab fa-google';
+    label.textContent = 'Google — Gmail / G-Suite';
+  } else {
+    icon.className  = 'fab fa-microsoft';
+    label.textContent = 'Microsoft 365 — Office 365 / Outlook';
+  }
+}
+
+/* Intercept goStep(4) to update badge */
+var _origGoStep = goStep;
+goStep = function(n) {
+  _origGoStep(n);
+  if (n === 4) updateProviderBadge();
+};
+
+/* ── Step 4: save account ────────────────────────────── */
+function saveAccount() {
+  var first  = document.getElementById('awFirst').value.trim();
+  var last   = document.getElementById('awLast').value.trim();
+  var email  = document.getElementById('awEmail').value.trim();
+  var pwd    = document.getElementById('awPassword').value.replace(/\s/g, '');
+  var errEl  = document.getElementById('awErr');
+
+  errEl.style.display = 'none';
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    errEl.textContent = 'A valid email address is required.';
+    errEl.style.display = '';
+    document.getElementById('awEmail').focus();
+    return;
+  }
+  if (!pwd) {
+    errEl.textContent = 'App password is required.';
+    errEl.style.display = '';
+    document.getElementById('awPassword').focus();
+    return;
+  }
+
+  var btn = document.getElementById('awSaveBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="btn-spinner"></span> Saving…';
+
+  fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({
+      action:     'add',
+      provider:   _provider,
+      first_name: first,
+      last_name:  last,
+      email:      email,
+      password:   pwd,
+    }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status !== 'ok') {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save Account';
+      errEl.textContent = d.message || 'Could not save account. Please try again.';
+      errEl.style.display = '';
+      return;
+    }
+    WTI.toast('Account connected successfully!', 'success');
+    setTimeout(function() { window.location.href = LIST_URL; }, 700);
+  })
+  .catch(function() {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-save"></i> Save Account';
+    errEl.textContent = 'Network error. Please try again.';
+    errEl.style.display = '';
+  });
+}
+
+/* Password show/hide toggle */
+function togglePwd() {
+  var inp  = document.getElementById('awPassword');
+  var icon = document.getElementById('awPwdEyeIcon');
+  if (inp.type === 'password') {
+    inp.type = 'text';
+    icon.className = 'fas fa-eye-slash';
+  } else {
+    inp.type = 'password';
+    icon.className = 'fas fa-eye';
+  }
+}
+
+/* Enter key on password field triggers save */
+document.getElementById('awPassword').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter') saveAccount();
+});
+</script>
+{% endblock %}

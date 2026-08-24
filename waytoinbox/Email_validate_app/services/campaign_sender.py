@@ -5,6 +5,7 @@ Shared email-sending logic for bulk campaigns.
 Used by both views.py (immediate/test sends) and the Celery task (async sends).
 """
 
+import html as _html_lib
 import logging
 import time
 
@@ -20,6 +21,31 @@ def build_unsubscribe_link(email, campaign_id, test=False):
         payload['test'] = True
     token = signing.dumps(payload, salt='unsub')
     return f"{settings.SITE_URL}/unsubscribe/{token}/"
+
+
+def substitute_merge_tags(html, contact, unsubscribe_url):
+    """Replace {{tag}} tokens with per-contact data. All values are HTML-escaped."""
+    _e  = _html_lib.escape
+    _ea = lambda v: _html_lib.escape(v, quote=True)  # safe for href="..." attributes
+
+    first   = (contact.get('first_name') or '').strip() or 'Friend'
+    last    = (contact.get('last_name')  or '').strip()
+    full    = (first + ' ' + last).strip() if last else first
+    extra   = contact.get('extra_data') or {}
+    company = (extra.get('company') or '').strip()
+    phone   = (extra.get('phone')   or '').strip()
+
+    for tag, val in (
+        ('{{first_name}}',      _e(first)),
+        ('{{last_name}}',       _e(last)),
+        ('{{full_name}}',       _e(full)),
+        ('{{email}}',           _e(contact.get('email', ''))),
+        ('{{company_name}}',    _e(company)),
+        ('{{phone}}',           _e(phone)),
+        ('{{unsubscribe_url}}', _ea(unsubscribe_url)),
+    ):
+        html = html.replace(tag, val)
+    return html
 
 
 def inject_unsubscribe_link(html, link):
@@ -44,21 +70,27 @@ def send_campaign_emails(campaign):
 
     from Email_validate_app.services.segment_builder import get_segment_emails
 
-    email_set = set()
+    # contacts: email → {email, first_name, last_name, extra_data} — first-seen wins
+    contacts = {}
+
+    def _add_contacts(qs):
+        for row in qs:
+            if row['email'] not in contacts:
+                contacts[row['email']] = row
+
+    _CONTACT_FIELDS = ('email', 'first_name', 'last_name', 'extra_data')
 
     # Collect from M2M lists
     multi_lists = list(campaign.campaign_lists.all())
     if multi_lists:
         list_ids = [l.id for l in multi_lists]
-        qs = CampaignEmail.objects.filter(
+        _add_contacts(CampaignEmail.objects.filter(
             list_id__in=list_ids, deleted_at__isnull=True, subscribed='subscribed',
-        ).values_list('email', flat=True)
-        email_set.update(qs)
+        ).values(*_CONTACT_FIELDS))
     elif campaign.campaign_list_id:
-        qs = CampaignEmail.objects.filter(
+        _add_contacts(CampaignEmail.objects.filter(
             list_id=campaign.campaign_list_id, deleted_at__isnull=True, subscribed='subscribed',
-        ).values_list('email', flat=True)
-        email_set.update(qs)
+        ).values(*_CONTACT_FIELDS))
 
     # Collect from M2M segments
     multi_segments = list(campaign.campaign_segments.all())
@@ -66,11 +98,10 @@ def send_campaign_emails(campaign):
         multi_segments = [campaign.campaign_segment]
     for seg in multi_segments:
         seg_emails = get_segment_emails(seg, campaign.user_id)
-        valid = CampaignEmail.objects.filter(
+        _add_contacts(CampaignEmail.objects.filter(
             user_id=campaign.user_id, email__in=seg_emails,
             subscribed='subscribed', deleted_at__isnull=True,
-        ).values_list('email', flat=True)
-        email_set.update(valid)
+        ).values(*_CONTACT_FIELDS))
 
     # Subtract excluded lists/segments
     exclude_set = set()
@@ -83,9 +114,10 @@ def send_campaign_emails(campaign):
         )
     for seg in campaign.exclude_segments.all():
         exclude_set.update(get_segment_emails(seg, campaign.user_id))
-    email_set -= exclude_set
+    for addr in exclude_set:
+        contacts.pop(addr, None)
 
-    recipients = list(email_set)
+    recipients = list(contacts.keys())
     if not recipients:
         return 0, ['No subscribed recipients found for this campaign.']
 
@@ -120,8 +152,10 @@ def send_campaign_emails(campaign):
 
         for addr in batch:
             try:
-                link = build_unsubscribe_link(addr, campaign.id)
-                html = inject_unsubscribe_link(base_html, link)
+                contact = contacts[addr]
+                link    = build_unsubscribe_link(addr, campaign.id)
+                html    = substitute_merge_tags(base_html, contact, link)
+                html    = inject_unsubscribe_link(html, link)
 
                 msg = MIMEMultipart('alternative')
                 msg['From']                  = source
@@ -178,11 +212,19 @@ def send_test_campaign_emails(campaign, recipients):
     subject   = f"[TEST] {campaign.template.subject or campaign.campaign_name}"
     base_html = campaign.template.html_content
 
+    user_company = getattr(campaign.user, 'company', '') or ''
     sent, errors = 0, []
     for addr in recipients:
         try:
+            test_contact = {
+                'first_name': 'Friend',
+                'last_name':  '',
+                'email':      addr,
+                'extra_data': {'company': user_company},
+            }
             link = build_unsubscribe_link(addr, campaign.id, test=True)
-            html = inject_unsubscribe_link(base_html, link)
+            html = substitute_merge_tags(base_html, test_contact, link)
+            html = inject_unsubscribe_link(html, link)
 
             msg = MIMEMultipart('alternative')
             msg['From']                  = source

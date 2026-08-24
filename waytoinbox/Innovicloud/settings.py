@@ -114,6 +114,12 @@ DATABASES = {
         # INF-16: reuse DB connections across requests; reduces per-request connection
         # overhead and limits the blast radius of connection-flooding DoS attempts.
         'CONN_MAX_AGE': int(os.environ.get('DB_CONN_MAX_AGE', '60')),
+        # Every table/column here is already utf8mb4, but MySQLdb doesn't negotiate
+        # that on its own — without this the connection charset defaults to utf8mb3
+        # (3-byte), so any 4-byte character (most emoji, some CJK) is rejected with
+        # "Incorrect string value" on insert. Found via the Sales Outreach Unibox
+        # sync now storing full inbound mail bodies instead of only campaign replies.
+        'OPTIONS': {'charset': 'utf8mb4'},
     }
 }
 
@@ -305,7 +311,56 @@ CELERY_BEAT_SCHEDULE = {
         "task": "Email_validate_app.tasks.clearsessions.clearsessions_task",
         "schedule": crontab(hour=5, minute=0),        # 5 AM UTC
     },
+
+    # ── Sales Outreach ───────────────────────────────────────────────────────
+    "so_dispatch_scheduled_campaigns_every_minute": {
+        "task": "Email_validate_app.tasks.so_send_campaign.so_dispatch_scheduled_campaigns",
+        "schedule": crontab(minute="*"),
+    },
+    "so_dispatch_due_sequence_steps_every_minute": {
+        "task": "Email_validate_app.tasks.so_send_campaign.so_dispatch_due_sequence_steps",
+        "schedule": crontab(minute="*"),
+    },
+    "so_recover_stuck_campaigns_every_30m": {
+        "task": "Email_validate_app.tasks.so_send_campaign.so_recover_stuck_campaigns",
+        "schedule": crontab(minute="*/30"),
+    },
+    "so_sync_all_inboxes_every_5m": {
+        "task": "Email_validate_app.tasks.so_inbox_sync.so_sync_all_inboxes",
+        "schedule": crontab(minute="*/5"),
+    },
+    "so_dispatch_subsequence_branches_every_15m": {
+        "task": "Email_validate_app.tasks.so_subsequence.so_dispatch_subsequence_branches",
+        "schedule": crontab(minute="*/15"),
+    },
+
+    # ── Warmup ───────────────────────────────────────────────────────────────
+    "warmup_dispatch_sends_every_5m": {
+        "task": "Email_validate_app.tasks.warmup.warmup_dispatch_sends",
+        "schedule": crontab(minute="*/5"),
+    },
+    "warmup_dispatch_checks_every_5m": {
+        "task": "Email_validate_app.tasks.warmup.warmup_dispatch_checks",
+        "schedule": crontab(minute="*/5"),
+    },
+    "warmup_recover_stuck_every_30m": {
+        "task": "Email_validate_app.tasks.warmup.warmup_recover_stuck",
+        "schedule": crontab(minute="*/30"),
+    },
 }
+
+# ── Warmup configuration — tunable behavior constants, not secrets, so these
+# are proper settings (unlike the Google OAuth credentials/encryption key
+# below, which follow services/postmaster.py's existing convention of being
+# read lazily via os.environ inside the service that needs them, not at
+# Django startup, so the app keeps working for users who haven't configured
+# Warmup yet). ──────────────────────────────────────────────────────────────
+WARMUP_INITIAL_CHECK_DELAY_MINUTES = int(os.environ.get('WARMUP_INITIAL_CHECK_DELAY_MINUTES', 30))
+WARMUP_CHECK_BACKOFF_MINUTES = [
+    int(x) for x in os.environ.get('WARMUP_CHECK_BACKOFF_MINUTES', '15,45,120').split(',') if x.strip()
+]
+WARMUP_MAX_CHECK_ATTEMPTS = int(os.environ.get('WARMUP_MAX_CHECK_ATTEMPTS', 3))
+WARMUP_MAX_SEND_ATTEMPTS  = int(os.environ.get('WARMUP_MAX_SEND_ATTEMPTS', 3))
 
 
 
@@ -326,7 +381,9 @@ if ENVIRONMENT == "production":
     # INF-03: Encrypt the MySQL connection in production
     _db_ssl_ca = os.environ.get("DB_SSL_CA")
     if _db_ssl_ca:
-        DATABASES["default"]["OPTIONS"] = {"ssl_ca": _db_ssl_ca}
+        # Merge, don't replace — DATABASES["default"]["OPTIONS"] already carries
+        # the utf8mb4 charset setting above.
+        DATABASES["default"]["OPTIONS"]["ssl_ca"] = _db_ssl_ca
     else:
         import warnings as _warnings
         _warnings.warn(
@@ -397,6 +454,18 @@ AWS_SES_REGION = os.environ.get('AWS_SES_REGION', 'us-east-1')
 AWS_SES_SOURCE_EMAIL = os.environ.get('AWS_SES_SOURCE_EMAIL')
 AWS_SES_CONFIGURATION_SET = os.environ.get('AWS_SES_CONFIGURATION_SET', 'tracking-config')
 SITE_URL = os.environ.get('SITE_URL', 'https://waytoinbox.com')
+
+# Open/click tracking and the unsubscribe footer rewrite links to point at
+# SITE_URL — only meaningful where SITE_URL actually resolves to a deployment
+# with the /so/track/ and /so/unsubscribe/ routes live. Outside production
+# (local dev, staging without those routes deployed yet), rewriting would just
+# break the links themselves for whoever opens the email, so it's off by
+# default anywhere ENVIRONMENT isn't 'production'. Override explicitly via
+# ENABLE_EMAIL_TRACKING=1 if a non-production environment ever does have
+# those routes reachable.
+ENABLE_EMAIL_TRACKING = os.environ.get(
+    'ENABLE_EMAIL_TRACKING', '1' if ENVIRONMENT == 'production' else '0'
+) == '1'
 
 # Email provider: 'ses' (default) or 'mailgun'
 EMAIL_PROVIDER  = os.environ.get('EMAIL_PROVIDER', 'ses')

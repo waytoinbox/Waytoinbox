@@ -1,0 +1,504 @@
+{% extends 'i_index.html' %}
+{% load static segment_tags %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/segments.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_segment_builder.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="sgb-page">
+
+  <a href="{% url 'so_segments' %}" class="sgb-back"><i class="fas fa-arrow-left sgb-icon-sm"></i> Back to Segments</a>
+
+  <div class="sgb-header">
+    <h2>{% if editing %}Edit Segment{% else %}Create Segment{% endif %}</h2>
+    <p>Define filter conditions to build a dynamic prospect group.</p>
+  </div>
+
+  <div class="sgb-layout">
+
+    <!-- ── Left: Builder form ──────────────────────────────────── -->
+    <div>
+
+      <!-- Basic info -->
+      <div class="sgb-card sgb-mb-16">
+        <div class="sgb-form-group">
+          <label for="sgName">Segment Name <span class="req">*</span></label>
+          <input type="text" id="sgName" class="sgb-input" maxlength="255" placeholder="e.g. SaaS CTOs — Opened, No Reply"/>
+          <p class="sgb-error" id="err-name"></p>
+        </div>
+        <div class="sgb-form-group sgb-form-tight">
+          <label for="sgDesc">Description <span class="sgb-optional-label">(optional)</span></label>
+          <textarea id="sgDesc" class="sgb-textarea" placeholder="What is this segment for?"></textarea>
+        </div>
+      </div>
+
+      <!-- Status -->
+      <div class="sgb-card sgb-mb-16">
+        <div class="sgb-toggle-row">
+          <div class="sgb-toggle-section">
+            <span class="sgb-toggle-label">Status:</span>
+            <div class="sgb-radio-group">
+              <label class="sgb-radio"><input type="radio" name="sgStatus" value="active" checked> Active</label>
+              <label class="sgb-radio"><input type="radio" name="sgStatus" value="inactive"> Inactive</label>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Condition Groups -->
+      <div class="sgb-card">
+        <div class="sgb-section-title">
+          <span><i class="fas fa-filter"></i> &nbsp;Filter Conditions</span>
+          <span id="condCount" class="sgb-cond-count">0 / 20</span>
+        </div>
+
+        <div id="groupsContainer"></div>
+
+        <div class="sgb-add-group-wrap">
+          <button class="sgb-add-group-btn" id="addGroupBtn"><i class="fas fa-plus"></i> Add Group</button>
+        </div>
+
+        <p class="sgb-error" id="err-rules"></p>
+
+        <div class="sgb-save-bar">
+          <button class="sgb-save-btn primary" id="saveBtn"><i class="fas fa-save"></i> {% if editing %}Update Segment{% else %}Save Segment{% endif %}</button>
+          <a href="{% url 'so_segments' %}" class="sgb-save-btn secondary">Cancel</a>
+          <span id="saveMsg" class="sgb-save-msg"></span>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- ── Right: Live preview ─────────────────────────────────── -->
+    <div class="sgb-preview">
+      <div class="sgb-card">
+        <div class="sgb-section-title sgb-mb-12"><span><i class="fas fa-eye"></i> &nbsp;Live Preview</span></div>
+        <div class="sgb-preview-count">
+          <span class="sgb-count-num" id="previewCount">—</span>
+          <span class="sgb-count-label">matching prospects</span>
+        </div>
+        <div class="sgb-preview-spinner" id="previewSpinner"><i class="fas fa-circle-notch fa-spin"></i> Calculating…</div>
+        <div id="previewTable" class="sgb-scroll-x"></div>
+      </div>
+    </div>
+
+  </div><!-- /sgb-layout -->
+
+</div>
+
+<script>
+const CSRF      = '{{ csrf_token }}';
+const EDITING   = {{ editing|yesno:"true,false" }};
+const SEG_ID    = {% if segment %}{{ segment.id }}{% else %}null{% endif %};
+const SEG_DATA  = {% if segment %}{{ segment|safe_json }}{% else %}null{% endif %};
+const LISTS     = {{ lists|safe_json }};
+const CAMPAIGNS = {{ campaigns|safe_json }};
+
+/* ── Field / operator / value definitions ─────────────────────── */
+const FIELDS = [
+  { value:'email',             label:'Email' },
+  { value:'first_name',        label:'First Name' },
+  { value:'last_name',         label:'Last Name' },
+  { value:'company',           label:'Company' },
+  { value:'phone',             label:'Phone' },
+  { value:'job_title',         label:'Job Title' },
+  { value:'country',           label:'Country' },
+  { value:'subscribed',        label:'Subscription Status' },
+  { value:'email_domain',      label:'Email Domain' },
+  { value:'date_added',        label:'Date Added' },
+  { value:'list_membership',   label:'List Membership' },
+  { value:'campaign_activity', label:'Campaign Activity' },
+  { value:'delivery_status',   label:'Delivery Status' },
+];
+
+const TEXT_OPS = [
+  {v:'contains',label:'Contains'},{v:'not_contains',label:'Does Not Contain'},
+  {v:'equals',label:'Equals'},{v:'is_empty',label:'Is Empty'},{v:'is_not_empty',label:'Is Not Empty'},
+];
+
+const OPERATORS = {
+  email:            [{v:'contains',label:'Contains'},{v:'not_contains',label:'Does Not Contain'},{v:'equals',label:'Equals'},{v:'not_equals',label:'Not Equals'},{v:'starts_with',label:'Starts With'},{v:'ends_with',label:'Ends With'},{v:'is_empty',label:'Is Empty'},{v:'is_not_empty',label:'Is Not Empty'}],
+  first_name:       TEXT_OPS,
+  last_name:        TEXT_OPS,
+  company:          TEXT_OPS,
+  phone:            TEXT_OPS,
+  job_title:        TEXT_OPS,
+  country:          [{v:'equals',label:'Equals'},{v:'not_equals',label:'Not Equals'},{v:'contains',label:'Contains'}],
+  subscribed:       [{v:'equals',label:'Is'}],
+  email_domain:     [{v:'equals',label:'Is'},{v:'not_equals',label:'Is Not'}],
+  date_added:       [{v:'today',label:'Today'},{v:'yesterday',label:'Yesterday'},{v:'in_last_days',label:'In Last N Days'},{v:'before',label:'Before'},{v:'after',label:'After'},{v:'between',label:'Between'}],
+  list_membership:  [{v:'in_list',label:'In List'},{v:'not_in_list',label:'Not In List'}],
+  campaign_activity:[{v:'opened_any',label:'Opened Any Campaign'},{v:'not_opened_any',label:'Did Not Open Any'},{v:'opened_campaign',label:'Opened Campaign'},{v:'not_opened_campaign',label:'Did Not Open Campaign'},{v:'clicked_any',label:'Clicked Any Campaign'},{v:'not_clicked_any',label:'Did Not Click Any'},{v:'clicked_campaign',label:'Clicked Campaign'},{v:'not_clicked_campaign',label:'Did Not Click Campaign'},{v:'replied_any',label:'Replied To Any'},{v:'not_replied_any',label:'Did Not Reply To Any'}],
+  delivery_status:  [{v:'sent',label:'Sent'},{v:'delivered',label:'Delivered'},{v:'bounced',label:'Bounced'},{v:'complained',label:'Complained'}],
+};
+
+const NO_VALUE_OPS = new Set(['is_empty','is_not_empty','today','yesterday','opened_any','not_opened_any','clicked_any','not_clicked_any','replied_any','not_replied_any','sent','delivered','bounced','complained']);
+const CAMPAIGN_OPS = new Set(['opened_campaign','not_opened_campaign','clicked_campaign','not_clicked_campaign']);
+const LIST_OPS     = new Set(['in_list','not_in_list']);
+
+function esc(s){
+  return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+/* ── Value input HTML ─────────────────────────────────────────── */
+function buildValueInput(field, operator, existingValue){
+  if(NO_VALUE_OPS.has(operator)) return '<span class="sgb-no-value">No value needed</span>';
+
+  if(field === 'subscribed'){
+    const opts = [['subscribed','Subscribed'],['unsubscribed','Unsubscribed'],['never_subscribed','Never Subscribed']];
+    const o = opts.map(([v,l]) => `<option value="${v}"${existingValue===v?' selected':''}>${l}</option>`).join('');
+    return `<select class="sg-rule-value" name="value"><option value="">-- Select --</option>${o}</select>`;
+  }
+  if(field === 'email_domain'){
+    const domains = [['gmail.com','Gmail (@gmail.com)'],['yahoo.com','Yahoo (@yahoo.com)'],['outlook.com','Outlook (@outlook.com)'],['hotmail.com','Hotmail (@hotmail.com)']];
+    const isCustom = existingValue && !domains.find(d => d[0] === existingValue);
+    const o = domains.map(([v,l]) => `<option value="${v}"${existingValue===v?' selected':''}>${l}</option>`).join('');
+    return `<select class="sg-rule-value" name="value"><option value="">-- Select domain --</option>${o}<option value="_custom_"${isCustom?' selected':''}>Custom…</option></select>
+            <input type="text" class="sg-rule-value sg-custom-domain" name="value_custom" placeholder="e.g. company.com"${isCustom?'':' hidden'} value="${isCustom?esc(existingValue):''}"/>`;
+  }
+  if(LIST_OPS.has(operator)){
+    const o = LISTS.map(l => `<option value="${l.id}"${String(existingValue)===String(l.id)?' selected':''}>${esc(l.name)} (${l.total_count})</option>`).join('');
+    return `<select class="sg-rule-value" name="value"><option value="">-- Select list --</option>${o}</select>`;
+  }
+  if(CAMPAIGN_OPS.has(operator)){
+    const o = CAMPAIGNS.map(c => `<option value="${c.id}"${String(existingValue)===String(c.id)?' selected':''}>${esc(c.name)}</option>`).join('');
+    return `<select class="sg-rule-value" name="value"><option value="">-- Select campaign --</option>${o}</select>`;
+  }
+  if(operator === 'in_last_days'){
+    return `<input type="number" class="sg-rule-value" name="value" placeholder="e.g. 30" min="1" max="3650" value="${esc(existingValue)}"/>`;
+  }
+  if(operator === 'between'){
+    const parts = (existingValue||'').split(',');
+    return `<div class="sgb-date-range-row">
+      <input type="date" class="sg-rule-value sg-date-from" name="value_from" value="${esc((parts[0]||'').trim())}"/>
+      <span class="sgb-date-to-label">to</span>
+      <input type="date" class="sg-rule-value sg-date-to" name="value_to" value="${esc((parts[1]||'').trim())}"/>
+    </div>`;
+  }
+  if(operator === 'before' || operator === 'after'){
+    return `<input type="date" class="sg-rule-value" name="value" value="${esc(existingValue)}"/>`;
+  }
+  return `<input type="text" class="sg-rule-value" name="value" placeholder="Enter value…" value="${esc(existingValue)}"/>`;
+}
+
+/* ── Rule row ─────────────────────────────────────────────────── */
+function buildRuleRow(field, operator, value){
+  field    = field    || 'email';
+  operator = operator || 'contains';
+  value    = value    || '';
+
+  const ops     = OPERATORS[field] || OPERATORS.email;
+  const opOpts  = ops.map(o => `<option value="${o.v}"${o.v===operator?' selected':''}>${o.label}</option>`).join('');
+  const fldOpts = FIELDS.map(f => `<option value="${f.value}"${f.value===field?' selected':''}>${f.label}</option>`).join('');
+
+  const row = document.createElement('div');
+  row.className = 'sg-rule-row';
+  row.innerHTML = `
+    <select class="sg-rule-field">${fldOpts}</select>
+    <select class="sg-rule-op">${opOpts}</select>
+    <div class="sg-rule-val-wrap">${buildValueInput(field, operator, value)}</div>
+    <button class="sg-rule-del" title="Remove condition"><i class="fas fa-times"></i></button>
+  `;
+
+  const fldSel = row.querySelector('.sg-rule-field');
+  const opSel  = row.querySelector('.sg-rule-op');
+
+  fldSel.addEventListener('change', function(){
+    const f    = this.value;
+    const ops2 = OPERATORS[f] || OPERATORS.email;
+    opSel.innerHTML = ops2.map(o => `<option value="${o.v}">${o.label}</option>`).join('');
+    refreshValWrap(row);
+    schedulePreview();
+  });
+  opSel.addEventListener('change', () => { refreshValWrap(row); schedulePreview(); });
+  row.querySelector('.sg-rule-del').addEventListener('click', () => {
+    row.remove();
+    updateCondCount();
+    schedulePreview();
+  });
+  row.addEventListener('change', schedulePreview);
+  row.addEventListener('input',  schedulePreview);
+  wireDomainToggle(row, field);
+  return row;
+}
+
+function refreshValWrap(row){
+  const f  = row.querySelector('.sg-rule-field').value;
+  const op = row.querySelector('.sg-rule-op').value;
+  row.querySelector('.sg-rule-val-wrap').innerHTML = buildValueInput(f, op, '');
+  wireDomainToggle(row, f);
+}
+
+function wireDomainToggle(row, field){
+  if(field !== 'email_domain') return;
+  const sel = row.querySelector('select[name="value"]');
+  if(!sel) return;
+  sel.addEventListener('change', function(){
+    const ci = row.querySelector('.sg-custom-domain');
+    if(ci) ci.hidden = this.value !== '_custom_';
+  });
+}
+
+/* ── Groups ───────────────────────────────────────────────────── */
+let _gc = 0;
+
+function addGroup(groupData){
+  const gid       = ++_gc;
+  const mt        = (groupData && groupData.match_type) || 'all';
+  const connector = (groupData && groupData.connector)  || 'and';
+
+  const groupEl = document.createElement('div');
+  groupEl.className = 'sgb-group';
+  groupEl.dataset.gid       = gid;
+  groupEl.dataset.connector = connector;
+  groupEl.innerHTML = `
+    <div class="sgb-group-header">
+      <span class="sgb-group-num">Group ${gid}</span>
+      <div class="sgb-group-match">
+        <span class="sgb-group-match-lbl">Within group:</span>
+        <label class="sgb-radio-sm"><input type="radio" name="gmt_${gid}" value="all"${mt==='all'?' checked':''}> <strong>ALL</strong></label>
+        <label class="sgb-radio-sm"><input type="radio" name="gmt_${gid}" value="any"${mt==='any'?' checked':''}> <strong>ANY</strong></label>
+      </div>
+      <button class="sgb-group-del" title="Remove group"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="sgb-conditions"></div>
+    <button class="sgb-add-cond-btn"><i class="fas fa-plus"></i> Add Condition</button>
+  `;
+
+  const condsEl = groupEl.querySelector('.sgb-conditions');
+  const conds   = (groupData && groupData.conditions) || [];
+  if(conds.length){
+    conds.forEach(c => condsEl.appendChild(buildRuleRow(c.field, c.operator, c.value)));
+  } else {
+    condsEl.appendChild(buildRuleRow());
+  }
+
+  groupEl.querySelector('.sgb-add-cond-btn').addEventListener('click', () => {
+    if(document.querySelectorAll('.sg-rule-row').length >= 20){
+      WTI.toast('Maximum 20 conditions reached.', 'warning'); return;
+    }
+    condsEl.appendChild(buildRuleRow());
+    updateCondCount();
+    schedulePreview();
+  });
+
+  groupEl.querySelector('.sgb-group-del').addEventListener('click', () => {
+    if(document.querySelectorAll('.sgb-group').length <= 1){
+      WTI.toast('At least one group is required.', 'warning'); return;
+    }
+    groupEl.remove();
+    refreshConnectors();
+    updateCondCount();
+    schedulePreview();
+  });
+
+  groupEl.querySelectorAll(`input[name="gmt_${gid}"]`).forEach(r => r.addEventListener('change', schedulePreview));
+
+  document.getElementById('groupsContainer').appendChild(groupEl);
+  refreshConnectors();
+  updateCondCount();
+}
+
+function _makeConnectorPill(nextGroupEl){
+  const val  = nextGroupEl.dataset.connector || 'and';
+  const isOr = val === 'or';
+  const conn = document.createElement('div');
+  conn.className = 'sgb-connector';
+  conn.innerHTML = `
+    <span class="sgb-connector-line"></span>
+    <button class="sgb-connector-tag${isOr?' or-tag':''}" type="button">${isOr?'OR':'AND'}</button>
+    <span class="sgb-connector-line"></span>`;
+  conn.querySelector('.sgb-connector-tag').addEventListener('click', () => {
+    const cur  = nextGroupEl.dataset.connector || 'and';
+    const next = cur === 'and' ? 'or' : 'and';
+    nextGroupEl.dataset.connector = next;
+    const btn = conn.querySelector('.sgb-connector-tag');
+    btn.textContent = next.toUpperCase();
+    btn.classList.toggle('or-tag', next === 'or');
+    schedulePreview();
+  });
+  return conn;
+}
+
+function refreshConnectors(){
+  document.querySelectorAll('.sgb-connector').forEach(c => c.remove());
+  const groups = Array.from(document.querySelectorAll('.sgb-group'));
+  groups.forEach((g, i) => {
+    g.querySelector('.sgb-group-num').textContent = `Group ${i + 1}`;
+    g.querySelector('.sgb-group-del').style.display = groups.length > 1 ? '' : 'none';
+    if(i > 0) g.insertAdjacentElement('beforebegin', _makeConnectorPill(g));
+  });
+}
+
+function updateCondCount(){
+  const n = document.querySelectorAll('.sg-rule-row').length;
+  document.getElementById('condCount').textContent = `${n} / 20`;
+}
+
+/* ── Collect rules ────────────────────────────────────────────── */
+function collectRules(){
+  const groups = [];
+  document.querySelectorAll('.sgb-group').forEach((groupEl, i) => {
+    const gid = groupEl.dataset.gid;
+    const gmt = groupEl.querySelector(`input[name="gmt_${gid}"]:checked`)?.value || 'all';
+    const conditions = [];
+    groupEl.querySelectorAll('.sg-rule-row').forEach(row => {
+      const field = row.querySelector('.sg-rule-field').value;
+      const op    = row.querySelector('.sg-rule-op').value;
+      let value   = '';
+      if(!NO_VALUE_OPS.has(op)){
+        if(op === 'between'){
+          const from = (row.querySelector('.sg-date-from')?.value||'').trim();
+          const to   = (row.querySelector('.sg-date-to')?.value||'').trim();
+          value = `${from},${to}`;
+        } else if(field === 'email_domain'){
+          const sel = row.querySelector('select[name="value"]')?.value || '';
+          value = sel === '_custom_' ? (row.querySelector('.sg-custom-domain')?.value||'').trim() : sel;
+        } else {
+          value = (row.querySelector('[name="value"]')?.value||'').trim();
+        }
+      }
+      conditions.push({ field, operator: op, value });
+    });
+    if(conditions.length){
+      const g = { match_type: gmt, conditions };
+      if(i > 0) g.connector = groupEl.dataset.connector || 'and';
+      groups.push(g);
+    }
+  });
+  return { groups };
+}
+
+/* ── Preview ──────────────────────────────────────────────────── */
+let previewTimer = null;
+function schedulePreview(){
+  clearTimeout(previewTimer);
+  previewTimer = setTimeout(runPreview, 500);
+}
+
+async function runPreview(){
+  const spinner = document.getElementById('previewSpinner');
+  spinner.classList.add('show');
+  document.getElementById('previewCount').textContent = '—';
+  document.getElementById('previewTable').innerHTML  = '';
+
+  const rules = collectRules();
+  if(!rules.groups.some(g => g.conditions.length)){ spinner.classList.remove('show'); return; }
+
+  try {
+    const res  = await fetch('{% url "so_segment_preview" %}', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body: JSON.stringify({ rules, match_type: 'all' }),
+    });
+    const data = await res.json();
+    spinner.classList.remove('show');
+    if(data.status === 'ok'){
+      document.getElementById('previewCount').textContent = data.count.toLocaleString();
+      renderPreviewTable(data.prospects);
+    }
+  } catch(e){ spinner.classList.remove('show'); }
+}
+
+function renderPreviewTable(prospects){
+  const wrap = document.getElementById('previewTable');
+  if(!prospects || !prospects.length){
+    wrap.innerHTML = '<div class="sgb-preview-empty">No prospects match these conditions.</div>';
+    return;
+  }
+  const rows = prospects.map(p => `<tr>
+    <td>${esc(((p.first_name||'') + ' ' + (p.last_name||'')).trim() || '—')}</td>
+    <td>${esc(p.email)}</td>
+    <td>${esc(p.company||'—')}</td>
+    <td><span class="sgb-sub-pill ${esc(p.status)}">${esc(String(p.status).replace(/_/g,' '))}</span></td>
+  </tr>`).join('');
+  wrap.innerHTML = `<table class="sgb-preview-table">
+    <thead><tr><th>Name</th><th>Email</th><th>Company</th><th>Status</th></tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
+}
+
+/* ── Save ─────────────────────────────────────────────────────── */
+document.getElementById('saveBtn').addEventListener('click', async function(){
+  const name   = document.getElementById('sgName').value.trim();
+  const desc   = document.getElementById('sgDesc').value.trim();
+  const status = document.querySelector('input[name="sgStatus"]:checked')?.value || 'active';
+  const rules  = collectRules();
+
+  document.querySelectorAll('.sgb-error').forEach(e => { e.textContent=''; e.classList.remove('show'); });
+  let valid = true;
+
+  if(!name){
+    document.getElementById('err-name').textContent = 'Segment name is required.';
+    document.getElementById('err-name').classList.add('show');
+    valid = false;
+  }
+  if(!rules.groups.some(g => g.conditions.length)){
+    document.getElementById('err-rules').textContent = 'Add at least one filter condition.';
+    document.getElementById('err-rules').classList.add('show');
+    valid = false;
+  }
+  if(!valid) return;
+
+  this.disabled = true;
+  this.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Saving…';
+
+  const payload = { name, description: desc, status, match_type: 'all', rules };
+  const url     = EDITING ? `/Sales-Outreach/segments/${SEG_ID}/` : '/Sales-Outreach/segments/api/';
+  const method  = EDITING ? 'PUT' : 'POST';
+
+  try {
+    const res  = await fetch(url, {
+      method, headers: {'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if(data.status === 'ok'){
+      WTI.toast(EDITING ? 'Segment updated.' : 'Segment created.', 'success');
+      setTimeout(() => window.location.href = '{% url "so_segments" %}', 600);
+    } else {
+      this.disabled = false;
+      this.innerHTML = '<i class="fas fa-save"></i> {% if editing %}Update Segment{% else %}Save Segment{% endif %}';
+      WTI.toast(data.message || 'Save failed.', 'error');
+    }
+  } catch(e){
+    this.disabled = false;
+    this.innerHTML = '<i class="fas fa-save"></i> {% if editing %}Update Segment{% else %}Save Segment{% endif %}';
+    WTI.toast('Network error — please retry.', 'error');
+  }
+});
+
+/* ── Init ─────────────────────────────────────────────────────── */
+(function init(){
+  if(EDITING && SEG_DATA){
+    document.getElementById('sgName').value = SEG_DATA.name || '';
+    document.getElementById('sgDesc').value = SEG_DATA.description || '';
+    const stR = document.querySelector(`input[name="sgStatus"][value="${SEG_DATA.status||'active'}"]`);
+    if(stR) stR.checked = true;
+
+    const rules    = SEG_DATA.rules || {};
+    const legacyMT = SEG_DATA.match_type || 'all';
+
+    if(rules.groups && rules.groups.length){
+      rules.groups.forEach((g, i) => {
+        const withConn = (i > 0 && !g.connector)
+          ? { ...g, connector: legacyMT === 'any' ? 'or' : 'and' }
+          : g;
+        addGroup(withConn);
+      });
+    } else if(rules.conditions && rules.conditions.length){
+      addGroup({ match_type: legacyMT, conditions: rules.conditions });
+    } else {
+      addGroup();
+    }
+  } else {
+    addGroup();
+  }
+
+  schedulePreview();
+  document.getElementById('addGroupBtn').addEventListener('click', () => addGroup());
+})();
+</script>
+
+{% endblock %}

@@ -1,3 +1,6 @@
+import uuid
+from datetime import time
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
 from django.db import models
 from django.utils.timezone import now
@@ -1100,3 +1103,802 @@ class GuestActivity(models.Model):
 
     def __str__(self):
         return f"{self.activity_type} | {self.ip_address} | {self.input_value} | {self.result}"
+
+
+# ── Sales Outreach ────────────────────────────────────────────────────────────
+
+class EmailAccount(models.Model):
+    STATUS_CHOICES = (
+        ('connected', 'Connected'),
+        ('failed',    'Failed'),
+        ('unchecked', 'Unchecked'),
+    )
+    PROVIDER_CHOICES = (
+        ('google',    'Google'),
+        ('microsoft', 'Microsoft 365'),
+    )
+
+    user        = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='email_accounts')
+    provider    = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    first_name  = models.CharField(max_length=100, blank=True)
+    last_name   = models.CharField(max_length=100, blank=True)
+    email       = models.EmailField(max_length=255)
+    smtp_host   = models.CharField(max_length=255)
+    smtp_port   = models.IntegerField(default=587)
+    username    = models.CharField(max_length=255)
+    password    = models.CharField(max_length=500)
+    daily_limit = models.IntegerField(default=500)
+    status      = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unchecked')
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'email_accounts'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.email} ({self.provider})"
+
+
+# ── Sales Outreach (SO) — fully isolated, no shared tables with Email Marketing ──
+
+class SOEmailAccount(models.Model):
+    STATUS_CHOICES   = (('connected', 'Connected'), ('failed', 'Failed'), ('unchecked', 'Unchecked'))
+    PROVIDER_CHOICES = (('google', 'Google'), ('microsoft', 'Microsoft 365'))
+
+    user         = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_email_accounts')
+    provider     = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
+    display_name = models.CharField(max_length=200, blank=True)
+    email        = models.EmailField(max_length=255)
+    smtp_host    = models.CharField(max_length=255)
+    smtp_port    = models.IntegerField(default=587)
+    imap_host    = models.CharField(max_length=255, blank=True)
+    imap_port    = models.IntegerField(default=993)
+    imap_ssl     = models.BooleanField(default=True)
+    username     = models.CharField(max_length=255)
+    password     = models.CharField(max_length=500)   # signing.dumps(pwd, salt='so-ea-pwd')
+    daily_limit  = models.IntegerField(default=50)
+    status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unchecked')
+    warmup_enabled  = models.BooleanField(default=False)
+    last_imap_sync  = models.DateTimeField(null=True, blank=True)
+    # Cached discovered Sent-folder name (e.g. "[Gmail]/Sent Mail", "Sent Items") —
+    # discovered once via IMAP LIST and cached here so it isn't re-discovered on
+    # every sync. See services/so_imap.py::_discover_sent_folder.
+    sent_folder  = models.CharField(max_length=255, blank=True, default='')
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
+    deleted_at   = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'so_email_accounts'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.email} ({self.provider})"
+
+
+class SOEmailAccountWarmup(models.Model):
+    # 'active' runs continuously and indefinitely — reaching ramp_up_days only
+    # caps the daily target at daily_target, it never auto-stops sending or
+    # flips status. 'stopped'/'completed' are only ever set by an explicit
+    # user action (see services/warmup.py), never by dispatcher/task logic.
+    STATUS_CHOICES    = (('active', 'Active'), ('paused', 'Paused'), ('stopped', 'Stopped'), ('completed', 'Completed'))
+    account           = models.OneToOneField(SOEmailAccount, on_delete=models.CASCADE, related_name='warmup')
+    daily_target      = models.IntegerField(default=40)
+    daily_current     = models.IntegerField(default=2)
+    ramp_up_days      = models.IntegerField(default=30)
+    ramp_up_increment = models.IntegerField(default=2)
+    started_at        = models.DateTimeField(null=True, blank=True)
+    status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
+
+    class Meta:
+        db_table = 'so_email_account_warmups'
+
+
+class SOProspect(models.Model):
+    # Mirrors CampaignEmail.subscribed so Sales Outreach and Email Marketing
+    # speak the same consent language.
+    STATUS_CHOICES = (
+        ('subscribed',       'Subscribed'),
+        ('unsubscribed',     'Unsubscribed'),
+        ('never_subscribed', 'Never Subscribed'),
+    )
+
+    user       = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_prospects')
+    first_name = models.CharField(max_length=100, blank=True)
+    last_name  = models.CharField(max_length=100, blank=True)
+    email      = models.EmailField(max_length=255)
+    company    = models.CharField(max_length=255, blank=True)
+    phone      = models.CharField(max_length=50, blank=True)
+    status     = models.CharField(max_length=20, choices=STATUS_CHOICES, default='subscribed')
+    extra_data = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'so_prospects'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['user', 'email']),
+            models.Index(fields=['user', 'status']),
+            models.Index(fields=['email']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.email}"
+
+
+class SOList(models.Model):
+    STATUS_CHOICES = [('active', 'Active'), ('inactive', 'Inactive')]
+
+    user        = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_lists')
+    name        = models.CharField(max_length=255)
+    tags        = models.CharField(max_length=255, blank=True, default='')
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    total_count           = models.PositiveIntegerField(default=0)
+    subscribed_count      = models.PositiveIntegerField(default=0)
+    neversubscribed_count = models.PositiveIntegerField(default=0)
+    unsubscribed_count    = models.PositiveIntegerField(default=0)
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'so_lists'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class SOSegment(models.Model):
+    STATUS_CHOICES = [('active', 'Active'), ('inactive', 'Inactive')]
+    MATCH_CHOICES  = [('all', 'All (AND)'), ('any', 'Any (OR)')]
+
+    user        = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_segments')
+    name        = models.CharField(max_length=255)
+    description = models.TextField(blank=True, default='')
+    status      = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+    match_type  = models.CharField(max_length=3,  choices=MATCH_CHOICES,  default='all')
+    rules       = models.JSONField(default=dict)  # {"groups": [{connector, match_type, conditions:[...]}]}
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'so_segments'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name} (user={self.user_id})'
+
+
+class SOListProspect(models.Model):
+    so_list  = models.ForeignKey(SOList,     on_delete=models.CASCADE, related_name='list_prospects')
+    prospect = models.ForeignKey(SOProspect, on_delete=models.CASCADE, related_name='prospect_lists')
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table        = 'so_list_prospects'
+        unique_together = [('so_list', 'prospect')]
+
+
+class SOCampaign(models.Model):
+    STATUS_CHOICES = (
+        ('draft',     'Draft'),
+        ('scheduled', 'Scheduled'),
+        ('sending',   'Sending'),
+        ('sent',      'Sent'),
+        ('paused',    'Paused'),
+        ('failed',    'Failed'),
+        ('cancelled', 'Cancelled'),
+    )
+
+    SEND_MODE_CHOICES = (('single', 'Single'), ('sequence', 'Sequence'))
+
+    user            = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_campaigns')
+    name            = models.CharField(max_length=255)
+    recipient_lists    = models.ManyToManyField(SOList, blank=True, db_table='so_campaign_lists',
+                                                related_name='campaigns')
+    recipient_segments = models.ManyToManyField(SOSegment, blank=True, db_table='so_campaign_segments',
+                                                related_name='campaigns')
+    exclude_lists      = models.ManyToManyField(SOList, blank=True, db_table='so_campaign_exclude_lists',
+                                                related_name='excluded_campaigns')
+    exclude_segments   = models.ManyToManyField(SOSegment, blank=True, db_table='so_campaign_exclude_segments',
+                                                related_name='excluded_campaigns')
+    # subject / preview_text / html_body mirror step 1 variation A so the existing
+    # one-shot sender keeps working while the sequence engine is not built yet.
+    subject         = models.CharField(max_length=500)
+    preview_text    = models.CharField(max_length=200, blank=True)
+    html_body       = models.TextField()
+    send_mode       = models.CharField(max_length=10, choices=SEND_MODE_CHOICES, default='single')
+    from_name       = models.CharField(max_length=255, blank=True, default='')
+    reply_to        = models.CharField(max_length=255, blank=True, default='')
+    status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
+    schedule_at     = models.DateTimeField(null=True, blank=True)
+    schedule_timezone = models.CharField(max_length=64, default='Asia/Kolkata')
+    sent_at         = models.DateTimeField(null=True, blank=True)
+
+    # Sending Days & Hours — an ongoing constraint on every send this campaign
+    # ever makes (not just step 1's launch, which schedule_at/schedule_timezone
+    # already cover). Evaluated in schedule_timezone. Defaults represent
+    # "unrestricted" (every day, effectively the full day) so existing campaigns
+    # behave exactly as before this field existed — it's opt-in, narrowed only
+    # when a user explicitly turns the UI toggle on. See services/so_drip.py
+    # _in_send_window / _next_window_start for enforcement.
+    send_weekdays   = models.CharField(max_length=27, default='mon,tue,wed,thu,fri,sat,sun')
+    send_hour_start = models.TimeField(default=time(0, 0, 0))
+    send_hour_end   = models.TimeField(default=time(23, 59, 59))
+    total_sent         = models.PositiveIntegerField(default=0)
+    total_delivered    = models.PositiveIntegerField(default=0)
+    total_opened       = models.PositiveIntegerField(default=0)
+    total_clicked      = models.PositiveIntegerField(default=0)
+    total_replied      = models.PositiveIntegerField(default=0)
+    total_unsubscribed = models.PositiveIntegerField(default=0)
+    total_bounced      = models.PositiveIntegerField(default=0)
+    total_complained   = models.PositiveIntegerField(default=0)
+    total_failed       = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'so_campaigns'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return self.name
+
+
+class SOSequenceStep(models.Model):
+    """One email in a Sales Outreach sequence.
+
+    `wait_days` / `wait_hours` are the delay BEFORE this step fires, so the gap
+    travels with its own step when steps are reordered. Step 0 is always 0.
+    """
+
+    campaign   = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, related_name='steps')
+    order      = models.PositiveIntegerField(default=0)          # 0-based
+    wait_days  = models.PositiveIntegerField(default=0)
+    wait_hours = models.PositiveIntegerField(default=0)
+    name       = models.CharField(max_length=255, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_sequence_steps'
+        ordering = ['order']
+        indexes  = [models.Index(fields=['campaign', 'order'], name='so_seq_step_camp_order_idx')]
+
+    def __str__(self):
+        return f'Step {self.order + 1} (campaign={self.campaign_id})'
+
+
+class SOSequenceVariant(models.Model):
+    """An A/B variation of a sequence step — its own subject, preheader and body."""
+
+    step       = models.ForeignKey(SOSequenceStep, on_delete=models.CASCADE, related_name='variants')
+    label      = models.CharField(max_length=2, default='A')     # 'A'..'D'
+    name       = models.CharField(max_length=255, blank=True, default='')
+    subject    = models.CharField(max_length=500, blank=True, default='')
+    preheader  = models.CharField(max_length=200, blank=True, default='')
+    html_body  = models.TextField(blank=True, default='')
+    weight     = models.PositiveIntegerField(default=1)
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_sequence_variants'
+        ordering = ['label']
+
+    def __str__(self):
+        return f'{self.step_id}{self.label}'
+
+
+class SOEmailAccountRotation(models.Model):
+    campaign = models.ForeignKey(SOCampaign,    on_delete=models.CASCADE, related_name='account_rotations')
+    account  = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='campaign_rotations')
+    weight   = models.PositiveIntegerField(default=1)
+    order    = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table        = 'so_email_account_rotations'
+        unique_together = [('campaign', 'account')]
+        ordering        = ['order']
+
+
+class SOEmailAccountDailyUsage(models.Model):
+    """Atomic per-account-per-UTC-day send counter.
+
+    Reserved BEFORE a send attempt via a conditional UPDATE (sent_count__lt=
+    daily_limit), released if the attempt fails — see services/so_drip.py
+    _reserve_quota_slot / _release_quota_slot. daily_limit is enforced per
+    account globally, across every campaign that account is used in, since it's
+    a real per-mailbox constraint, not a per-campaign one.
+    """
+    account    = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='daily_usage')
+    date       = models.DateField()
+    sent_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table        = 'so_email_account_daily_usage'
+        unique_together = [('account', 'date')]
+
+
+class SOCampaignContact(models.Model):
+    # 'pending'/'sent'/'failed'/'skipped' are the legacy one-shot values, kept for
+    # backward compatibility with existing rows. 'active'/'sending'/'completed'/
+    # 'stopped' drive the multi-step sequence engine (tasks/so_send_campaign.py).
+    STATUS_CHOICES = (
+        ('pending',   'Pending'),
+        ('active',    'Active'),
+        ('sending',   'Sending'),
+        ('sent',      'Sent'),
+        ('completed', 'Completed'),
+        ('stopped',   'Stopped'),
+        ('failed',    'Failed'),
+        ('skipped',   'Skipped'),
+    )
+
+    campaign       = models.ForeignKey(SOCampaign,  on_delete=models.CASCADE,   related_name='campaign_contacts')
+    prospect       = models.ForeignKey(SOProspect,  on_delete=models.SET_NULL,  null=True, blank=True,
+                                       related_name='campaign_contacts')
+    email          = models.CharField(max_length=255)
+    tracking_token = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
+    message_id     = models.CharField(max_length=255, blank=True)
+    status         = models.CharField(max_length=10, choices=STATUS_CHOICES, default='pending')
+    sent_at        = models.DateTimeField(null=True, blank=True)
+    error          = models.TextField(blank=True)
+
+    # ── Sequence state (Phase 1) ────────────────────────────────────────────
+    # current_step: the step `order` still owed to this recipient; 0 = step 1 not
+    # yet sent. Reaching len(steps) means the sequence is done for them.
+    current_step   = models.PositiveIntegerField(default=0)
+    variant_label  = models.CharField(max_length=2, default='A')
+    next_action_at = models.DateTimeField(null=True, blank=True)
+    completed_at   = models.DateTimeField(null=True, blank=True)
+    attempts       = models.PositiveIntegerField(default=0)
+
+    # Sender account assigned once at enrollment (round-robin across the campaign's
+    # selected accounts) and reused for every step of this recipient's sequence —
+    # see services/so_drip.py::_get_contact_account. NULL on legacy rows created
+    # before this field existed; those self-heal on their next send.
+    account = models.ForeignKey('SOEmailAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name='so_campaign_contacts')
+
+    # NULL = following the main sequence (campaign.steps). Set once a "no reply
+    # after N days" trigger fires (services/so_subsequence.py::branch_contact) —
+    # from that point on, current_step indexes into active_subsequence.steps
+    # instead of campaign.steps. See so_drip.py::_resolve_step_and_variant.
+    active_subsequence = models.ForeignKey('SOSubsequence', on_delete=models.SET_NULL, null=True, blank=True,
+                                           related_name='subsequence_contacts')
+
+    class Meta:
+        db_table        = 'so_campaign_contacts'
+        unique_together = [('campaign', 'email')]
+        indexes         = [
+            models.Index(fields=['campaign', 'status']),
+            models.Index(fields=['status', 'next_action_at'], name='so_cc_status_next_idx'),
+        ]
+
+
+class SOTrackedLink(models.Model):
+    campaign_contact = models.ForeignKey(SOCampaignContact, on_delete=models.CASCADE, related_name='tracked_links')
+    token           = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
+    destination_url = models.TextField()
+    created_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'so_tracked_links'
+
+
+class SOEvent(models.Model):
+    EVENT_CHOICES = (
+        ('sent',         'Sent'),
+        ('delivered',    'Delivered'),
+        ('opened',       'Opened'),
+        ('clicked',      'Clicked'),
+        ('replied',      'Replied'),
+        ('unsubscribed', 'Unsubscribed'),
+        ('bounced',      'Bounced'),
+        ('complained',   'Complained'),
+    )
+
+    campaign   = models.ForeignKey(SOCampaign,  on_delete=models.CASCADE,  related_name='events')
+    prospect   = models.ForeignKey(SOProspect,  on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='so_events')
+    email      = models.CharField(max_length=255)
+    event_type = models.CharField(max_length=20, choices=EVENT_CHOICES)
+    metadata   = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'so_events'
+        indexes  = [
+            models.Index(fields=['campaign', 'email', 'event_type']),
+            models.Index(fields=['campaign', 'event_type']),
+        ]
+
+
+class SOTag(models.Model):
+    """Reusable per-user tag catalog for inbox conversations (not freeform
+    per-row strings), so tags can be reused/autocompleted like PlusVibe/Instantly."""
+
+    user       = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_tags')
+    name       = models.CharField(max_length=50)
+    color      = models.CharField(max_length=7, default='#0099CC')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table        = 'so_tags'
+        unique_together = [('user', 'name')]
+        ordering        = ['name']
+
+    def __str__(self):
+        return self.name
+
+
+class SOConversation(models.Model):
+    """The Inbox's unit of work — one per SOCampaignContact, created lazily on
+    that contact's first outbound send or first inbound reply.
+
+    Folder membership (Needs Reply / Waiting / Interested / Out of Office / ...)
+    is deliberately NOT stored as separate booleans — it's derived at query time
+    from `last_message_direction` + `is_archived` + `classification`, so there is
+    one source of truth instead of flags that could drift out of sync.
+    """
+    CLASSIFICATION_CHOICES = (
+        ('interested',     'Interested'),
+        ('meeting',        'Meeting'),
+        ('question',       'Question'),
+        ('not_interested', 'Not Interested'),
+        ('out_of_office',  'Out of Office'),
+        ('unsubscribe',    'Unsubscribed'),
+        ('wrong_person',   'Wrong Person'),
+        ('positive',       'Positive'),
+        ('negative',       'Negative'),
+    )
+    DIRECTION_CHOICES = (('outbound', 'Outbound'), ('inbound', 'Inbound'))
+
+    # Nullable — a conversation no longer requires a campaign enrollment (Unibox
+    # upgrade). `thread_key` is the real grouping/dedup identity now: 'cc:<id>'
+    # for campaign-linked threads (mirrors the uniqueness the old required
+    # OneToOne gave), 'acct:<account_id>:<email>' for everything else. MySQL
+    # doesn't support conditional/partial unique indexes, so thread_key is one
+    # always-present unique column rather than a nullable-FK-based constraint.
+    campaign_contact = models.OneToOneField(SOCampaignContact, on_delete=models.CASCADE,
+                                            null=True, blank=True, related_name='conversation')
+    # Denormalized from campaign_contact for cheap filtering without a join.
+    campaign   = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, null=True, blank=True,
+                                   related_name='conversations')
+    thread_key = models.CharField(max_length=300, unique=True, db_index=True)
+    prospect = models.ForeignKey(SOProspect, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='so_conversations')
+    account  = models.ForeignKey(SOEmailAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                 related_name='conversations')
+    email    = models.CharField(max_length=255)
+
+    is_unread      = models.BooleanField(default=False)
+    is_archived    = models.BooleanField(default=False)
+    classification = models.CharField(max_length=20, choices=CLASSIFICATION_CHOICES, blank=True, default='')
+    tags           = models.ManyToManyField(SOTag, blank=True, related_name='conversations')
+
+    subject                = models.CharField(max_length=500, blank=True, default='')
+    last_message_at        = models.DateTimeField(null=True, blank=True)
+    last_message_preview   = models.CharField(max_length=300, blank=True, default='')
+    last_message_direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES, blank=True, default='')
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_conversations'
+        indexes  = [
+            models.Index(fields=['campaign', 'is_unread']),
+            models.Index(fields=['campaign', 'classification']),
+            models.Index(fields=['campaign', 'is_archived']),
+            models.Index(fields=['account', 'is_unread']),
+            models.Index(fields=['account', 'is_archived']),
+            models.Index(fields=['account', 'classification']),
+            models.Index(fields=['-last_message_at']),
+        ]
+
+    def __str__(self):
+        return f'Conversation({self.email}, campaign={self.campaign_id})'
+
+
+class SOMessage(models.Model):
+    """One row per actual email — inbound reply or outbound send/reply.
+
+    `is_sequence_step` distinguishes an automated step send from a manual reply
+    typed in the composer; both are `direction='outbound'`.
+    """
+    DIRECTION_CHOICES = (('outbound', 'Outbound'), ('inbound', 'Inbound'))
+
+    conversation     = models.ForeignKey(SOConversation, on_delete=models.CASCADE, related_name='messages')
+    # Denormalized from conversation.account — lets a single physical email be
+    # deduped account-wide (see Meta.unique_together) even when it's re-observed
+    # under a different conversation/thread_key (e.g. a campaign send later seen
+    # again via a Sent-folder scan).
+    account          = models.ForeignKey(SOEmailAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                         related_name='messages')
+    direction        = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    is_sequence_step = models.BooleanField(default=False)
+
+    subject   = models.CharField(max_length=500, blank=True, default='')
+    body_html = models.TextField(blank=True, default='')
+    body_text = models.TextField(blank=True, default='')
+
+    from_email = models.CharField(max_length=255)
+    to_email   = models.CharField(max_length=255)
+    cc_email   = models.CharField(max_length=1000, blank=True, default='')
+    bcc_email  = models.CharField(max_length=1000, blank=True, default='')
+
+    # NULL (not '') when no Message-ID header was present — MySQL unique indexes
+    # treat repeated '' as duplicates but allow unlimited NULLs, and this field
+    # is now part of a real dedup constraint (see unique_together below).
+    message_id  = models.CharField(max_length=255, blank=True, null=True, default=None)
+    in_reply_to = models.CharField(max_length=255, blank=True, default='')
+
+    has_attachments = models.BooleanField(default=False)
+
+    sent_at    = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'so_messages'
+        indexes  = [
+            models.Index(fields=['conversation', 'created_at']),
+            models.Index(fields=['message_id']),
+        ]
+        unique_together = [('account', 'message_id')]
+
+    def __str__(self):
+        return f'{self.direction} message({self.conversation_id})'
+
+
+class SOConversationNote(models.Model):
+    """Private note visible only to the user — never sent to the prospect.
+    Kept separate from SOMessage so it doesn't carry meaningless email-only
+    fields (from_email/direction) and is visually unambiguous in the timeline."""
+
+    conversation = models.ForeignKey(SOConversation, on_delete=models.CASCADE, related_name='notes')
+    user         = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_conversation_notes')
+    body         = models.TextField()
+    created_at   = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'so_conversation_notes'
+        ordering = ['created_at']
+
+
+class SOSubsequence(models.Model):
+    """A branching follow-up track: 'if no reply within trigger_days, move the
+    contact onto this track's own steps instead.' Chained via `order` — a
+    contact becomes eligible for the subsequence at order=k+1 once trigger_days
+    have passed with no reply since their last send on order=k (or the main
+    sequence, if k is the first one). See services/so_subsequence.py.
+
+    Mirrors SOCampaign -> SOSequenceStep -> SOSequenceVariant structurally
+    (own Step/Variant models below) rather than making the main-sequence models
+    polymorphic — keeps the main sequence's send path completely untouched.
+    """
+    TRIGGER_CHOICES = (
+        ('no_reply', 'No reply'),
+    )
+
+    campaign      = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, related_name='subsequences')
+    name          = models.CharField(max_length=255, blank=True, default='')
+    order         = models.PositiveIntegerField(default=0)
+    trigger_type  = models.CharField(max_length=20, choices=TRIGGER_CHOICES, default='no_reply')
+    trigger_days  = models.PositiveIntegerField(default=3)
+    is_active     = models.BooleanField(default=True)
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_subsequences'
+        ordering = ['order']
+        indexes  = [models.Index(fields=['campaign', 'order'], name='so_subseq_camp_order_idx')]
+
+    def __str__(self):
+        return self.name or f'Subsequence {self.order + 1} (campaign={self.campaign_id})'
+
+
+class SOSubsequenceStep(models.Model):
+    """One email in a subsequence — exact structural mirror of SOSequenceStep."""
+
+    subsequence = models.ForeignKey(SOSubsequence, on_delete=models.CASCADE, related_name='steps')
+    order       = models.PositiveIntegerField(default=0)
+    wait_days   = models.PositiveIntegerField(default=0)
+    wait_hours  = models.PositiveIntegerField(default=0)
+    name        = models.CharField(max_length=255, blank=True, default='')
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_subsequence_steps'
+        ordering = ['order']
+        indexes  = [models.Index(fields=['subsequence', 'order'], name='so_substep_seq_order_idx')]
+
+    def __str__(self):
+        return f'Step {self.order + 1} (subsequence={self.subsequence_id})'
+
+
+class SOSubsequenceVariant(models.Model):
+    """An A/B variation of a subsequence step — exact structural mirror of
+    SOSequenceVariant."""
+
+    step       = models.ForeignKey(SOSubsequenceStep, on_delete=models.CASCADE, related_name='variants')
+    label      = models.CharField(max_length=2, default='A')
+    name       = models.CharField(max_length=255, blank=True, default='')
+    subject    = models.CharField(max_length=500, blank=True, default='')
+    preheader  = models.CharField(max_length=200, blank=True, default='')
+    html_body  = models.TextField(blank=True, default='')
+    weight     = models.PositiveIntegerField(default=1)
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_subsequence_variants'
+        ordering = ['label']
+
+    def __str__(self):
+        return f'{self.step_id}{self.label}'
+
+
+# ── Warmup ────────────────────────────────────────────────────────────────
+# Warms up SOEmailAccount senders by sending low-volume, ramping traffic to a
+# single fixed, admin-managed pool of receiver Gmail accounts
+# (WarmupReceiverAccount, OAuth2 via the Gmail API) shared across every user's
+# senders, then checking landing location (Inbox/Spam/Other/Not Found) and
+# clearing UNREAD via the API. End users never connect or manage receivers —
+# see views/admin/warmup.py. Sender-side ramp config already existed
+# (SOEmailAccountWarmup, above) before any of this was built — these models
+# are the receiver pool and the per-message tracking it needed.
+
+class WarmupReceiverAccount(models.Model):
+    STATUS_CHOICES = (
+        ('pending',   'Pending'),
+        ('connected', 'Connected'),
+        ('paused',    'Paused'),
+        ('revoked',   'Revoked'),
+    )
+
+    # The pool is shared/global, NOT scoped per app-user — every sender across
+    # every user draws from the same rows (services/warmup.py::
+    # create_pending_messages_for_sender no longer filters on this field).
+    # Kept only as an audit trail of which admin ran the OAuth connect flow;
+    # never used to scope a query.
+    user     = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='warmup_receiver_accounts')
+    email    = models.EmailField(max_length=255)
+    # Fernet-encrypted OAuth refresh token (services/warmup_crypto.py) — never
+    # logged, never returned by any view/API. No access_token/expiry fields:
+    # the access token is always refreshed on demand from this refresh token,
+    # since Gmail API isn't called often enough per receiver to justify
+    # caching a second secret.
+    refresh_token_encrypted = models.TextField(blank=True, default='')
+    status         = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    last_checked_at  = models.DateTimeField(null=True, blank=True)
+    # Last time this receiver was picked for a new warmup message — drives
+    # fair least-recently-used rotation across the shared pool (see
+    # services/warmup.py::create_pending_messages_for_sender). Null sorts
+    # first so brand-new receivers get used before any repeat.
+    last_assigned_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'warmup_receiver_accounts'
+        ordering = ['-created_at']
+        # Pool-wide queries (status/deleted_at, never user) drive selection —
+        # see create_pending_messages_for_sender — so indexes lead with those,
+        # not user. The admin list page's own "connected by" filter is the
+        # only place that still queries by user, hence it stays indexed too.
+        indexes  = [
+            models.Index(fields=['status', 'deleted_at']),
+            models.Index(fields=['status', 'last_assigned_at']),
+            models.Index(fields=['user', 'deleted_at']),
+        ]
+
+    def __str__(self):
+        return self.email
+
+
+class WarmupMessage(models.Model):
+    """One warmup email's full lifecycle: send -> verify -> landing result.
+    One row per email (not a separate job + append-only event log) — unlike
+    SOEvent, a warmup email has exactly one lifecycle and one landing
+    determination, not a stream of events."""
+
+    STATUS_CHOICES = (
+        ('pending',      'Pending'),
+        ('sending',      'Sending'),
+        ('sent',         'Sent'),
+        ('checking',     'Checking'),
+        ('completed',    'Completed'),
+        ('send_failed',  'Send Failed'),
+        ('cancelled',    'Cancelled'),
+    )
+    LANDING_CHOICES = (
+        ('inbox',     'Inbox'),
+        ('spam',      'Spam'),
+        ('other',     'Other'),
+        ('not_found', 'Not Found'),
+    )
+
+    sender_account   = models.ForeignKey(SOEmailAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name='warmup_messages')
+    sender_email     = models.CharField(max_length=255, blank=True, default='')
+    receiver_account = models.ForeignKey(WarmupReceiverAccount, on_delete=models.SET_NULL, null=True, blank=True,
+                                          related_name='warmup_messages')
+    receiver_email   = models.CharField(max_length=255, blank=True, default='')
+
+    # WTI-WARMUP-<12 hex chars>, embedded in the subject — what the Gmail
+    # checker searches for. unique=True is the final idempotency backstop
+    # against ever creating two rows for "the same" warmup email.
+    identifier  = models.CharField(max_length=64, unique=True, db_index=True)
+    subject     = models.CharField(max_length=500, blank=True, default='')
+    message_id  = models.CharField(max_length=255, blank=True, default='')
+
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+
+    # landing_location always records the ORIGINAL classification at first
+    # detection and is NEVER overwritten by a later spam rescue — rescued_to_
+    # inbox is the separate fact that the move happened. Losing the
+    # distinction would make it impossible to see both "how much landed in
+    # spam" and "how much of that we actually fixed."
+    landing_location  = models.CharField(max_length=20, choices=LANDING_CHOICES, null=True, blank=True)
+    rescued_to_inbox  = models.BooleanField(default=False)
+    was_unread        = models.BooleanField(null=True, blank=True)
+    marked_read       = models.BooleanField(default=False)
+
+    send_attempts  = models.PositiveIntegerField(default=0)
+    check_attempts = models.PositiveIntegerField(default=0)
+    error          = models.TextField(blank=True, default='')  # never contains credentials/tokens
+
+    # scheduled_for staggers volume across the day (not all at once).
+    # check_after is when the next verification attempt is due — set to
+    # sent_at + WARMUP_INITIAL_CHECK_DELAY_MINUTES initially, then pushed
+    # forward by WARMUP_CHECK_BACKOFF_MINUTES on each not-found/error retry.
+    scheduled_for = models.DateTimeField()
+    sent_at       = models.DateTimeField(null=True, blank=True)
+    check_after   = models.DateTimeField(null=True, blank=True)
+    checked_at    = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'warmup_messages'
+        ordering = ['-created_at']
+        indexes  = [
+            models.Index(fields=['status', 'scheduled_for'], name='warmup_msg_status_sched_idx'),
+            models.Index(fields=['status', 'check_after'], name='warmup_msg_status_check_idx'),
+            models.Index(fields=['sender_account', 'created_at'], name='warmup_msg_sender_created_idx'),
+            models.Index(fields=['receiver_account', 'created_at'], name='warmup_msg_recv_created_idx'),
+        ]
+
+    def __str__(self):
+        return self.identifier
+
+
+class WarmupDailyUsage(models.Model):
+    """Atomic per-account-per-UTC-day warmup send counter — byte-for-byte
+    mirror of SOEmailAccountDailyUsage's shape/pattern, kept as its own
+    table (not shared with campaign drip sending) so warmup volume and real
+    campaign volume are independent pools that can't eat into each other."""
+
+    account    = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='warmup_daily_usage')
+    date       = models.DateField()
+    sent_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table        = 'warmup_daily_usage'
+        unique_together = [('account', 'date')]

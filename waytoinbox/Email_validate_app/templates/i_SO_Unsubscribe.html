@@ -1,0 +1,40 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Unsubscribe</title>
+  <link rel="stylesheet" href="{% static 'Email_validate_app/css/so_unsubscribe.css' %}"/>
+</head>
+<body>
+  <div class="card">
+    {% if valid %}
+      {% if confirmed %}
+        <div class="icon">✅</div>
+        <h1>You've been unsubscribed</h1>
+        <p class="sub">
+          <span class="email">{{ email }}</span><br/>
+          You will no longer receive emails from this campaign.
+        </p>
+        <span class="btn btn-done">Unsubscribed</span>
+        <p class="note">Changed your mind? Contact us to resubscribe.</p>
+      {% else %}
+        <div class="icon">📧</div>
+        <h1>Unsubscribe</h1>
+        <p class="sub">You are about to unsubscribe the following email address from future outreach emails:</p>
+        <span class="email">{{ email }}</span>
+        <form method="post">
+          {% csrf_token %}
+          <button type="submit" class="btn btn-unsub">Yes, Unsubscribe Me</button>
+        </form>
+        <p class="note">You won't receive future emails from this sender.</p>
+      {% endif %}
+    {% else %}
+      <div class="icon">⚠️</div>
+      <h1>Invalid Link</h1>
+      <p class="sub invalid">This unsubscribe link is invalid or has already been used.</p>
+    {% endif %}
+  </div>
+</body>
+</html>

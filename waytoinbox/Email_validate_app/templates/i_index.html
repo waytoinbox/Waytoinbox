@@ -124,6 +124,55 @@
           </ul>
         </li>
 
+        <!-- Sales Outreach -->
+        <li class="nav-item nested-nav-item">
+          <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Sales Outreach">
+            <i class="fas fa-bullseye"></i>
+            <span class="nav-link-text">Sales Outreach <i class="fas fa-chevron-right nested-arrow"></i></span>
+          </a>
+          <ul class="nested-submenu">
+            <li class="nav-item">
+              <a href="{% url 'so_inbox' %}" class="nav-link" data-tooltip="Inbox">
+                <i class="fas fa-inbox"></i>
+                <span class="nav-link-text">Inbox</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'so_email_accounts' %}" class="nav-link" data-tooltip="Email Accounts">
+                <i class="fas fa-at"></i>
+                <span class="nav-link-text">Email Accounts</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'so_campaigns' %}" class="nav-link" data-tooltip="Email Sender">
+                <i class="fas fa-paper-plane"></i>
+                <span class="nav-link-text">Email Sender</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'so_prospects' %}" class="nav-link" data-tooltip="Prospects">
+                <i class="fas fa-address-book"></i>
+                <span class="nav-link-text">Prospects</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'so_lists' %}" class="nav-link" data-tooltip="Lists &amp; Segments">
+                <i class="fas fa-layer-group"></i>
+                <span class="nav-link-text">Lists &amp; Segments</span>
+              </a>
+            </li>
+          </ul>
+        </li>
+
+        <!-- Warmup — one single page, so a plain direct link, not a
+             collapsible submenu-toggle like the other Services sections. -->
+        <li class="nav-item">
+          <a href="{% url 'warmup_dashboard' %}" class="nav-link" data-tooltip="Warmup">
+            <i class="fas fa-fire"></i>
+            <span class="nav-link-text">Warmup</span>
+          </a>
+        </li>
+
         <!-- Deliverability -->
         <li class="nav-item nested-nav-item">
           <a href="javascript:void(0)" class="nav-link nested-submenu-toggle" data-tooltip="Deliverability">
@@ -331,6 +380,7 @@ document.addEventListener('DOMContentLoaded', () => {
   /* â”€â”€ Desktop collapse toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
   collapseBtn.addEventListener('click', () => {
     if (window.innerWidth <= 768) return; // ignore on mobile
+    closeAllSubmenus(); // avoid a stale flyout position when the rail width changes
     sidebar.classList.toggle('collapsed');
     const isCollapsed = sidebar.classList.contains('collapsed');
     localStorage.setItem(SIDEBAR_KEY, isCollapsed);
@@ -366,12 +416,25 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   /* â”€â”€ Submenu toggle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+  function positionFlyout(toggle, submenuEl) {
+    if (!sidebar.classList.contains('collapsed') || !submenuEl) return;
+    submenuEl.style.top = toggle.getBoundingClientRect().top + 'px';
+  }
+  function closeAllSubmenus() {
+    sidebar.querySelectorAll('.nav-item.open, .nested-nav-item.open').forEach(function(li) {
+      li.classList.remove('open');
+    });
+  }
+
   const submenuToggles = sidebar.querySelectorAll('.submenu-toggle');
 
   // Restore open submenu
   const savedIdx = localStorage.getItem(SUBMENU_KEY);
   if (savedIdx !== null && submenuToggles[parseInt(savedIdx)]) {
-    submenuToggles[parseInt(savedIdx)].closest('.nav-item').classList.add('open');
+    const restoredToggle = submenuToggles[parseInt(savedIdx)];
+    const restoredLi = restoredToggle.closest('.nav-item');
+    restoredLi.classList.add('open');
+    positionFlyout(restoredToggle, restoredLi.querySelector(':scope > .submenu'));
   }
 
   submenuToggles.forEach(function(toggle, idx) {
@@ -382,14 +445,15 @@ document.addEventListener('DOMContentLoaded', () => {
       const parentLi = this.closest('.nav-item');
       const isOpen   = parentLi.classList.contains('open');
 
-      // Close all first
-      submenuToggles.forEach(function(t) {
-        t.closest('.nav-item').classList.remove('open');
-      });
+      // Close everything else first — including any open nested-nav-item
+      // flyout (Email Validation, Email Marketing, etc.), so only one
+      // section is ever open at a time.
+      closeAllSubmenus();
 
       if (!isOpen) {
         parentLi.classList.add('open');
         localStorage.setItem(SUBMENU_KEY, idx);
+        positionFlyout(toggle, parentLi.querySelector(':scope > .submenu'));
       } else {
         localStorage.removeItem(SUBMENU_KEY);
       }
@@ -403,20 +467,44 @@ document.addEventListener('DOMContentLoaded', () => {
     toggle.addEventListener('click', function(e) {
       e.preventDefault();
       e.stopPropagation();
-      this.closest('.nested-nav-item').classList.toggle('open');
+      const parentLi = this.closest('.nested-nav-item');
+      const willOpen = !parentLi.classList.contains('open');
+
+      // Close everything else first — including any other open nested-nav-item
+      // flyout and the top-level Preferences submenu — so only one section is
+      // ever open at a time.
+      closeAllSubmenus();
+      localStorage.removeItem(SUBMENU_KEY);
+
+      if (willOpen) {
+        parentLi.classList.add('open');
+        positionFlyout(toggle, parentLi.querySelector(':scope > .nested-submenu'));
+      }
     });
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!sidebar.classList.contains('collapsed')) return;
+    if (e.target.closest('.nav-item.open, .nested-nav-item.open')) return;
+    closeAllSubmenus();
   });
 
   sidebar.querySelectorAll('.nav-link:not(.submenu-toggle):not(.nested-submenu-toggle)').forEach(link => {
     if (link.getAttribute('href') === currentPath) {
       link.classList.add('active');
-      const parentSubmenu = link.closest('.submenu');
-      if (parentSubmenu) {
-        parentSubmenu.closest('.nav-item').classList.add('open');
-      }
-      const parentNested = link.closest('.nested-submenu');
-      if (parentNested) {
-        parentNested.closest('.nested-nav-item').classList.add('open');
+      // Auto-expanding the section you're already on is only useful in the
+      // inline accordion (expanded sidebar) — while collapsed it would pop a
+      // flyout open unprompted on every page load, and the active icon
+      // highlight already shows "you are here" without one.
+      if (!sidebar.classList.contains('collapsed')) {
+        const parentSubmenu = link.closest('.submenu');
+        if (parentSubmenu) {
+          parentSubmenu.closest('.nav-item').classList.add('open');
+        }
+        const parentNested = link.closest('.nested-submenu');
+        if (parentNested) {
+          parentNested.closest('.nested-nav-item').classList.add('open');
+        }
       }
     }
   });

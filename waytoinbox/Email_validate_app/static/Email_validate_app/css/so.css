@@ -1,0 +1,539 @@
+/* ── Sales Outreach shared styles ──────────────────────────────────────────── */
+
+/* Page wrapper */
+.so-page {
+  /* padding: 24px 28px; */
+}
+
+/* Page header row */
+.so-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+.so-header h1 {
+  font-family: var(--font-head);
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+}
+.so-header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Primary action button */
+.so-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  background: var(--teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity .15s;
+}
+.so-btn-primary:hover { opacity: .88; color: #fff; }
+.so-btn-primary:disabled { opacity: .45; cursor: default; }
+
+/* Secondary button */
+.so-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  background: none;
+  color: var(--ink-2);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+  transition: border-color .15s;
+}
+.so-btn-secondary:hover { border-color: var(--ink-2); color: var(--ink-2); }
+
+/* Filter bar */
+.so-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.so-search {
+  flex: 1;
+  min-width: 220px;
+  max-width: 360px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--bg);
+  outline: none;
+}
+.so-search:focus { border-color: var(--teal); }
+.so-select {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--bg);
+  cursor: pointer;
+  outline: none;
+}
+
+/* Table card */
+.so-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+.so-table-wrap { overflow-x: auto; }
+.so-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.so-table thead th {
+  padding: 11px 14px;
+  text-align: left;
+  font-family: var(--font-head);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--ink-3);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.so-table tbody tr {
+  border-bottom: 1px solid var(--border);
+  transition: background .12s;
+}
+.so-table tbody tr:last-child { border-bottom: none; }
+.so-table tbody tr:hover { background: var(--bg-2); }
+.so-table td { padding: 10px 14px; color: var(--ink-2); vertical-align: middle; }
+.so-table td.mono { font-family: monospace; font-size: 12.5px; }
+
+/* Row actions */
+.so-row-actions { display: flex; gap: 6px; align-items: center; }
+.so-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-size: 12px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+  white-space: nowrap;
+}
+.so-icon-btn:hover { border-color: var(--teal); color: var(--teal); }
+.so-icon-btn.danger:hover { border-color: #C94A1D; color: #C94A1D; }
+
+/* Status badges */
+.so-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 11.5px;
+  font-family: var(--font-head);
+  font-weight: 700;
+}
+.so-badge.draft        { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+.so-badge.scheduled    { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+.so-badge.sending      { background: #FFF7ED; color: #C2410C; border: 1px solid #FED7AA; }
+.so-badge.sent         { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.failed       { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.so-badge.cancelled    { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+.so-badge.paused       { background: #FEFCE8; color: #A16207; border: 1px solid #FDE68A; }
+.so-badge.active       { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.subscribed   { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.unsubscribed { background: #FFF7ED; color: #C2410C; border: 1px solid #FED7AA; }
+.so-badge.never_subscribed { background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; }
+.so-badge.bounced      { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.so-badge.connected    { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.unchecked    { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+
+/* SOCampaignContact sequence-status modifiers (Email Sender's Campaign
+   Detail "Sequence Status" column) — pending/completed/stopped/skipped
+   weren't covered by any of the modifiers above. */
+.so-badge.pending      { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+.so-badge.completed    { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.stopped      { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+.so-badge.skipped      { background: #FEFCE8; color: #A16207; border: 1px solid #FDE68A; }
+
+/* Warmup — WarmupReceiverAccount.status / WarmupMessage.status /
+   WarmupMessage.landing_location values not covered above. */
+.so-badge.revoked      { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.so-badge.checking     { background: #FFF7ED; color: #C2410C; border: 1px solid #FED7AA; }
+.so-badge.send_failed  { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.so-badge.not_found    { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
+.so-badge.inbox        { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.spam         { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+.so-badge.other        { background: #F5F3FF; color: #5B21B6; border: 1px solid #DDD6FE; }
+
+[data-theme="dark"] .so-badge.scheduled { background: rgba(59,130,246,.15); color: #93C5FD; border-color: rgba(59,130,246,.3); }
+[data-theme="dark"] .so-badge.sent,
+[data-theme="dark"] .so-badge.active,
+[data-theme="dark"] .so-badge.completed,
+[data-theme="dark"] .so-badge.connected { background: rgba(34,197,94,.12); color: #86EFAC; border-color: rgba(34,197,94,.3); }
+[data-theme="dark"] .so-badge.failed,
+[data-theme="dark"] .so-badge.bounced   { background: rgba(239,68,68,.12); color: #FCA5A5; border-color: rgba(239,68,68,.3); }
+[data-theme="dark"] .so-badge.sending,
+[data-theme="dark"] .so-badge.unsubscribed { background: rgba(249,115,22,.12); color: #FDBA74; border-color: rgba(249,115,22,.3); }
+[data-theme="dark"] .so-badge.skipped { background: rgba(202,138,4,.15); color: #FDE047; border-color: rgba(202,138,4,.3); }
+
+/* Badge-as-button — a .so-badge used as the trigger for its own status
+   action (e.g. click a connection-status pill to re-test it) instead of a
+   separate action button next to it. Colors/border still come from the
+   .so-badge.<state> rules (higher specificity wins over this reset). */
+.so-badge-btn {
+  border-width: 0; -webkit-appearance: none; appearance: none;
+  cursor: pointer;
+  transition: filter .15s, box-shadow .15s, opacity .15s;
+}
+.so-badge-btn:hover:not(:disabled) { filter: brightness(.96); }
+.so-badge-btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+.so-badge-btn:disabled { opacity: .6; cursor: default; }
+
+/* Provider pills */
+.so-provider {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 2px 9px; border-radius: 20px; font-size: 11.5px;
+  font-family: var(--font-head); font-weight: 700;
+}
+.so-provider.google    { background: #FEF3F2; color: #B91C1C; border: 1px solid #FCA5A5; }
+.so-provider.microsoft { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+[data-theme="dark"] .so-provider.google    { background: rgba(239,68,68,.15); color: #FCA5A5; border-color: rgba(239,68,68,.3); }
+[data-theme="dark"] .so-provider.microsoft { background: rgba(59,130,246,.15); color: #93C5FD; border-color: rgba(59,130,246,.3); }
+
+/* Empty state */
+.so-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 60px 20px;
+  color: var(--ink-3);
+  gap: 10px;
+  text-align: center;
+}
+.so-empty i { font-size: 40px; opacity: .4; }
+.so-empty p { margin: 0; font-size: 14px; }
+.so-empty-sub { font-size: 12.5px; }
+
+/* Pagination */
+.so-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--ink-3);
+}
+.so-pagination a, .so-pagination span.current {
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-head);
+  font-weight: 600;
+  font-size: 13px;
+}
+.so-pagination a { color: var(--teal); text-decoration: none; }
+.so-pagination span.current { background: var(--teal); color: #fff; }
+
+/* Modal overlay (shared) */
+.so-modal-overlay {
+  display: none;
+  position: fixed; inset: 0;
+  z-index: 1100;
+  background: rgba(11,30,61,.5);
+  backdrop-filter: blur(2px);
+  align-items: center;
+  justify-content: center;
+}
+.so-modal-overlay.open { display: flex; }
+.so-modal-box {
+  background: var(--bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  padding: 26px 26px 20px;
+  width: 100%;
+  max-width: 440px;
+  margin: 0 16px;
+}
+.so-modal-box h4 { margin: 0 0 10px; font-size: 15px; color: var(--ink); }
+.so-modal-box p  { margin: 0 0 14px; font-size: 13px; color: var(--ink-3); }
+.so-modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--bg);
+  outline: none;
+  margin-bottom: 14px;
+}
+.so-modal-input:focus { border-color: var(--teal); }
+.so-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.so-modal-cancel {
+  padding: 8px 18px; border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm); background: none;
+  color: var(--ink-2); font-size: 13px;
+  font-family: var(--font-head); font-weight: 600; cursor: pointer;
+}
+.so-modal-confirm {
+  padding: 8px 18px; border: none;
+  border-radius: var(--radius-sm); background: var(--teal);
+  color: #fff; font-size: 13px;
+  font-family: var(--font-head); font-weight: 700; cursor: pointer;
+  transition: opacity .15s;
+}
+.so-modal-confirm:disabled { opacity: .45; cursor: default; }
+.so-modal-confirm.danger { background: #C94A1D; }
+
+/* Stat tiles (campaign detail) */
+.so-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.so-stat-tile {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 16px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.so-stat-tile .so-stat-label {
+  font-size: 11px; font-family: var(--font-head); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; color: var(--ink-3);
+}
+.so-stat-tile .so-stat-value {
+  font-size: 24px; font-family: var(--font-head); font-weight: 800; color: var(--ink);
+}
+.so-stat-tile .so-stat-rate { font-size: 12px; color: var(--ink-3); }
+
+/* Email Creator specific */
+.so-creator-wrap {
+  display: grid;
+  grid-template-columns: 1fr 290px;
+  gap: 22px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .so-creator-wrap { grid-template-columns: 1fr; }
+}
+.so-creator-section {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 22px 24px;
+  margin-bottom: 16px;
+}
+.so-creator-section h3 {
+  margin: 0 0 16px;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--ink-3);
+}
+.so-field { display: flex; flex-direction: column; gap: 5px; margin-bottom: 14px; }
+.so-field:last-child { margin-bottom: 0; }
+.so-field label {
+  font-family: var(--font-head); font-size: 11.5px; font-weight: 700;
+  color: var(--ink-2); text-transform: uppercase; letter-spacing: .04em;
+}
+.so-field label .req { color: #C94A1D; margin-left: 2px; }
+.so-field input, .so-field select, .so-field textarea {
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 13px;
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  font-family: var(--font-body);
+  outline: none;
+  transition: border-color .15s;
+}
+.so-field input:focus, .so-field select:focus, .so-field textarea:focus { border-color: var(--teal); }
+.so-field-hint { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+
+/* Tags sidebar */
+.so-tags-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+.so-tags-card h4 { margin: 0 0 6px; font-size: 13px; font-family: var(--font-head); font-weight: 700; color: var(--ink); }
+.so-tags-hint { font-size: 11.5px; color: var(--ink-3); margin: 0 0 12px; }
+.so-tags-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.so-tag-btn {
+  padding: 4px 10px;
+  border: 1.5px solid var(--border);
+  border-radius: 20px;
+  background: var(--bg-2);
+  font-size: 11.5px;
+  font-family: monospace;
+  color: var(--teal);
+  cursor: pointer;
+  transition: border-color .15s;
+}
+.so-tag-btn:hover { border-color: var(--teal); }
+
+/* Preview card */
+.so-preview-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.so-preview-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.so-preview-header h4 { margin: 0; font-size: 13px; font-family: var(--font-head); font-weight: 700; color: var(--ink); }
+.so-preview-header button {
+  padding: 4px 12px; font-size: 12px; font-family: var(--font-head); font-weight: 600;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  background: none; color: var(--ink-2); cursor: pointer;
+}
+.so-preview-header button:hover { border-color: var(--teal); color: var(--teal); }
+
+/* Action bar */
+.so-action-bar {
+  display: flex;
+  gap: 10px;
+  padding: 16px 0 0;
+  justify-content: flex-end;
+}
+.so-err-msg { color: #C94A1D; font-size: 12.5px; margin: 8px 0 0; display: none; }
+
+/* Quill override — use project theme */
+.ql-toolbar.ql-snow { border-color: var(--border) !important; border-radius: var(--radius-sm) var(--radius-sm) 0 0 !important; background: var(--bg-2); }
+.ql-container.ql-snow { border-color: var(--border) !important; border-radius: 0 0 var(--radius-sm) var(--radius-sm) !important; }
+.ql-editor { min-height: 340px; font-size: 14px; color: var(--ink); }
+
+/* Stat tile variants */
+.so-stat-tile--warn  { border-color: #F59E0B; }
+.so-stat-tile--danger { border-color: #EF4444; }
+.so-stat-tile--muted { opacity: .7; }
+
+/* Section title inside creator panels */
+.so-section-title {
+  margin: 0 0 14px;
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-2);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+/* mono helper */
+.mono { font-family: 'Courier New', Courier, monospace; font-size: 13px; }
+
+/* ── SO Sender (Email Sender / campaign list) — extracted from inline styles,
+   prefix sose- ────────────────────────────────────────────────────────── */
+.sose-icon-teal-mr { color: var(--teal); margin-right: 8px; }
+.sose-filter-form { display: contents; }
+.sose-muted { color: var(--ink-3); }
+.sose-name-cell { font-weight: 600; }
+.sose-name-link { color: var(--ink); text-decoration: none; }
+.sose-rate { color: var(--ink-3); }
+.sose-date-cell { color: var(--ink-3); font-size: 12.5px; }
+.sose-mt-6 { margin-top: 6px; }
+
+/* Page-heading icon badge + description — matching Email Accounts'
+   .soea-header-title/.soea-header-icon look with this page's own classes. */
+.sose-header-title { display: flex; align-items: center; gap: 12px; }
+.sose-header-icon {
+  width: 46px; height: 46px; border-radius: 12px;
+  background: var(--teal-lt); color: var(--teal-dk);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 20px; flex-shrink: 0;
+}
+.sose-header-title p { font-size: 13.5px; color: var(--ink-3); margin: 4px 0 0; }
+
+/* Table section title, matching .soea-section-title — houses the rows-per-page
+   control in its right corner. Filtering/pagination here stay server-side
+   (Django Paginator + GET reload), unlike Email Accounts' client-side table,
+   so the input submits the pf-bar's <form> via the HTML5 form="" attribute
+   rather than re-rendering rows in place. */
+.sose-section-title {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  font-family: var(--font-head); font-size: 13px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase; color: var(--ink-3);
+  padding: 13px 20px; background: var(--bg-2); border-bottom: 1px solid var(--border);
+}
+.sose-page-size-wrap {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-body); font-weight: 400; letter-spacing: normal; text-transform: none;
+}
+.sose-page-size-wrap label { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+.sose-page-size-input {
+  width: 46px; text-align: center;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 5px 4px; font-size: 12.5px; color: var(--ink);
+  background: var(--bg); outline: none; transition: border .15s;
+}
+.sose-page-size-input:focus { border-color: var(--teal); }
+
+/* Prev/Next pagination bar, matching .soea-pagination's look — real
+   <a href="?page=..."> links (server-side navigation) rather than JS-driven,
+   since this table is Paginator-backed and not fully rendered client-side. */
+.sose-pagination {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 18px; border-top: 1px solid var(--border);
+  background: var(--bg-2); gap: 12px; flex-wrap: wrap;
+}
+.sose-page-info { font-size: 12.5px; color: var(--ink-3); }
+.sose-page-btns { display: flex; align-items: center; gap: 8px; }
+.sose-page-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1.5px solid var(--border); background: var(--bg); color: var(--ink-2);
+  border-radius: 6px; padding: 5px 12px; font-size: 12.5px; cursor: pointer;
+  text-decoration: none; transition: border .15s, color .15s;
+}
+.sose-page-btn:hover:not(.disabled) { border-color: var(--teal); color: var(--teal); }
+.sose-page-btn.disabled { opacity: .4; cursor: default; }
+.sose-page-current { font-size: 12.5px; color: var(--ink-3); min-width: 110px; text-align: center; }

@@ -1,0 +1,209 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <div class="so-header">
+    <div class="sose-header-title">
+      <div class="sose-header-icon"><i class="fas fa-paper-plane"></i></div>
+      <div>
+        <h1>Email Sender</h1>
+        <p>Create, send, and track your outreach campaigns.</p>
+      </div>
+    </div>
+    <div class="so-header-actions">
+      <a href="{% url 'so_campaign_create' %}" class="so-btn-primary">
+        <i class="fas fa-plus"></i> New Campaign
+      </a>
+    </div>
+  </div>
+
+  <div class="so-card">
+    <div class="sose-section-title">
+      <span><i class="fas fa-paper-plane"></i>&nbsp;Campaigns ({{ total }})</span>
+      <div class="sose-page-size-wrap">
+        <label for="sosePageSize">Rows per page</label>
+        <input type="number" id="sosePageSize" name="page_size" form="soseFilterForm"
+               class="sose-page-size-input" min="1" max="100" value="{{ page_size }}">
+      </div>
+    </div>
+    <div class="pf-bar">
+      <form method="get" class="sose-filter-form" id="soseFilterForm">
+        <div class="pf-search-wrap">
+          <i class="fas fa-search pf-search-icon"></i>
+          <input id="soseSearch" class="pf-input" type="text" name="q" value="{{ search }}" placeholder="Search campaigns…" autocomplete="off"/>
+          <button id="soseSearchClear" class="pf-input-clear" type="button" style="{% if not search %}display:none{% endif %}">×</button>
+        </div>
+        <select class="pf-select" name="status" onchange="this.form.submit()">
+          <option value="">All statuses</option>
+          <option value="draft"     {% if status_filter == 'draft'     %}selected{% endif %}>Draft</option>
+          <option value="scheduled" {% if status_filter == 'scheduled' %}selected{% endif %}>Scheduled</option>
+          <option value="sending"   {% if status_filter == 'sending'   %}selected{% endif %}>Sending</option>
+          <option value="sent"      {% if status_filter == 'sent'      %}selected{% endif %}>Sent</option>
+          <option value="failed"    {% if status_filter == 'failed'    %}selected{% endif %}>Failed</option>
+        </select>
+        <label class="pf-label" for="soseDateFrom">From</label>
+        <input id="soseDateFrom" type="date" class="pf-date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
+        <label class="pf-label" for="soseDateTo">To</label>
+        <input id="soseDateTo" type="date" class="pf-date" name="date_to" value="{{ date_to }}" onchange="this.form.submit()">
+        {% if search or status_filter or date_from or date_to %}
+        <a href="{% url 'so_campaigns' %}" class="pf-clear"><i class="fas fa-times"></i> Clear</a>
+        {% endif %}
+      </form>
+    </div>
+    {% if page_obj.object_list %}
+    <div class="so-table-wrap">
+      <table class="so-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Campaign</th><th>Status</th><th>Recipients</th>
+            <th>Sent</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Created</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for c in page_obj %}
+          <tr>
+            <td class="sose-muted">{{ forloop.counter }}</td>
+            <td class="sose-name-cell">
+              <a href="{% url 'so_campaign_detail' c.id %}" class="sose-name-link">{{ c.name }}</a>
+            </td>
+            <td><span class="so-badge {{ c.status }}">{{ c.get_status_display }}</span></td>
+            <td>{{ c.recipient_count }}</td>
+            <td>{{ c.total_sent }}</td>
+            <td>
+              {% if c.total_sent > 0 %}
+                {{ c.total_opened }} <small class="sose-rate">({% widthratio c.total_opened c.total_sent 100 %}%)</small>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if c.total_sent > 0 %}
+                {{ c.total_clicked }} <small class="sose-rate">({% widthratio c.total_clicked c.total_sent 100 %}%)</small>
+              {% else %}—{% endif %}
+            </td>
+            <td>{{ c.total_replied }}</td>
+            <td class="sose-date-cell">{{ c.created_at|date:"M d, Y" }}</td>
+            <td>
+              <div class="so-row-actions">
+                {% if c.status == 'sent' or c.status == 'sending' or c.status == 'paused' or c.status == 'failed' %}
+                  <a href="{% url 'so_campaign_detail' c.id %}" class="so-icon-btn">
+                    <i class="fas fa-chart-bar"></i> {% if c.status == 'sent' %}Stats{% else %}View{% endif %}
+                  </a>
+                {% endif %}
+                {% if c.status == 'draft' or c.status == 'scheduled' or c.status == 'failed' or c.status == 'cancelled' %}
+                  <a href="{% url 'so_campaign_edit' c.id %}" class="so-icon-btn"><i class="fas fa-pen"></i> Edit</a>
+                {% endif %}
+                {% if c.status == 'scheduled' or c.status == 'sending' %}
+                  <button class="so-icon-btn" onclick="pauseCampaign({{ c.id }})">
+                    <i class="fas fa-pause"></i> Pause
+                  </button>
+                {% endif %}
+                {% if c.status == 'paused' %}
+                  <button class="so-icon-btn" onclick="resumeCampaign({{ c.id }})">
+                    <i class="fas fa-play"></i> Resume
+                  </button>
+                {% endif %}
+                {% if c.status == 'scheduled' or c.status == 'sending' or c.status == 'paused' %}
+                  <button class="so-icon-btn danger" onclick="cancelCampaign({{ c.id }}, this.closest('tr'))">
+                    <i class="fas fa-ban"></i> Cancel
+                  </button>
+                {% endif %}
+                {% if c.status == 'draft' or c.status == 'failed' or c.status == 'cancelled' %}
+                  <button class="so-icon-btn danger" onclick="deleteCampaign({{ c.id }}, this.closest('tr'))">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                {% endif %}
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="sose-pagination">
+      <span class="sose-page-info">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+      <div class="sose-page-btns">
+        {% if page_obj.has_previous %}
+          <a class="sose-page-btn" href="?page={{ page_obj.previous_page_number }}&amp;q={{ search|urlencode }}&amp;status={{ status_filter|urlencode }}&amp;date_from={{ date_from|urlencode }}&amp;date_to={{ date_to|urlencode }}&amp;page_size={{ page_size }}"><i class="fas fa-chevron-left"></i> Prev</a>
+        {% else %}
+          <span class="sose-page-btn disabled"><i class="fas fa-chevron-left"></i> Prev</span>
+        {% endif %}
+        <span class="sose-page-current">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a class="sose-page-btn" href="?page={{ page_obj.next_page_number }}&amp;q={{ search|urlencode }}&amp;status={{ status_filter|urlencode }}&amp;date_from={{ date_from|urlencode }}&amp;date_to={{ date_to|urlencode }}&amp;page_size={{ page_size }}">Next <i class="fas fa-chevron-right"></i></a>
+        {% else %}
+          <span class="sose-page-btn disabled">Next <i class="fas fa-chevron-right"></i></span>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="so-empty">
+      <i class="fas fa-paper-plane"></i>
+      <p>No campaigns yet.</p>
+      <p class="so-empty-sub">Create your first outreach campaign to get started.</p>
+      <a href="{% url 'so_campaign_create' %}" class="so-btn-primary sose-mt-6">
+        <i class="fas fa-plus"></i> New Campaign
+      </a>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+var CSRF = '{{ csrf_token }}';
+document.getElementById('sosePageSize').addEventListener('change', function () {
+  var v = Math.max(1, Math.min(100, parseInt(this.value, 10) || 5));
+  this.value = v;
+  document.getElementById('soseFilterForm').submit();
+});
+(function () {
+  var search = document.getElementById('soseSearch');
+  var clearBtn = document.getElementById('soseSearchClear');
+  search.addEventListener('input', function () {
+    clearBtn.style.display = this.value ? '' : 'none';
+  });
+  clearBtn.addEventListener('click', function () {
+    search.value = '';
+    document.getElementById('soseFilterForm').submit();
+  });
+})();
+function deleteCampaign(id, row) {
+  if(!confirm('Delete this campaign? This cannot be undone.')) return;
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'delete'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){row.style.transition='opacity .3s';row.style.opacity='0';setTimeout(()=>row.remove(),320);WTI.toast('Campaign deleted.','success');}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function cancelCampaign(id, row) {
+  if(!confirm('Cancel this campaign? In-progress recipients will stop receiving further emails.')) return;
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'cancel'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign cancelled.','success');setTimeout(()=>location.reload(),500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function pauseCampaign(id) {
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'pause'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign paused.','success');setTimeout(()=>location.reload(),500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function resumeCampaign(id) {
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'resume'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign resumed.','success');setTimeout(()=>location.reload(),500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+</script>
+{% endblock %}

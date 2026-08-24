@@ -1,0 +1,816 @@
+/*
+ * so_campaign.css — Sales Outreach "New Campaign" page.
+ *
+ * Prefix `soc-`. The recipient combobox, exclude block, schedule panel and test
+ * send blocks are ported from create_campaign.css (prefix renamed crc- -> soc-)
+ * so the two pages behave identically without SO depending on EM's stylesheet.
+ * Shell/button/badge/modal styles come from so.css — not duplicated here.
+ */
+
+/* ── Page shell ─────────────────────────────────────────────────────── */
+.soc-page   { display: flex; flex-direction: column; gap: 20px; }
+.soc-back   { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-3); text-decoration: none; margin-bottom: 10px; }
+.soc-back:hover { color: var(--teal); }
+.soc-header h2 { font-family: var(--font-head); font-size: 20px; font-weight: 800; color: var(--ink); margin: 0; }
+.soc-header p  { font-size: 13.5px; color: var(--ink-3); margin: 4px 0 0; }
+.soc-card   { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 20px; box-shadow: var(--shadow-sm); }
+.soc-card h3 { font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink); margin: 0 0 16px; letter-spacing: .01em; }
+.soc-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.soc-form-row   { display: flex; gap: 16px; flex-wrap: wrap; }
+.soc-form-group { flex: 1 1 240px; margin-bottom: 16px; }
+/* `>` (direct child only) is load-bearing — without it this matched every
+   descendant <label>, including .soc-rd-option rows nested inside the
+   recipient dropdown's panel, and its higher specificity (0,1,1) than
+   .soc-rd-option's (0,1,0) silently forced display:block onto them,
+   collapsing their flex row (checkbox/icon/name/count all bunched together
+   instead of spread across the row). */
+.soc-form-group > label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+/* Same reasoning for :not() here — without it this outranked
+   .soc-rd-search's border:none (0,1,1) vs (0,1,0)) and drew a visible box
+   around the dropdown panel's search field. */
+.soc-form-group input:not(.soc-rd-chk):not(.soc-rd-search), .soc-form-group select {
+  width: 100%; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 12px; font-size: 13.5px; color: var(--ink); background: var(--bg);
+  outline: none; box-sizing: border-box; transition: border-color .15s;
+}
+.soc-form-group input:not(.soc-rd-chk):not(.soc-rd-search):focus, .soc-form-group select:focus { border-color: var(--teal); }
+.soc-error { display: none; color: #C94A1D; font-size: 12px; margin: 5px 0 0; }
+.soc-error.show { display: block; }
+.req { color: #C94A1D; }
+.soc-hint { font-size: 12px; color: var(--ink-3); margin: 6px 0 0; }
+
+/* Phase-scope notice: steps 2+ are stored but not yet delivered */
+.soc-notice {
+  display: flex; gap: 9px; align-items: flex-start;
+  background: #FFF8E6; border: 1px solid #F5D98B; border-radius: var(--radius-sm);
+  padding: 10px 13px; font-size: 12.5px; color: #7A5A00; margin-bottom: 16px;
+}
+.soc-notice i { margin-top: 2px; }
+[data-theme="dark"] .soc-notice { background: rgba(245,217,139,.10); border-color: rgba(245,217,139,.35); color: #E8C978; }
+
+.soc-sch-panel  { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 8px; }
+.soc-sch-block  { display: flex; align-items: center; gap: 10px; background: var(--bg-2); border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 8px 12px; }
+.soc-sch-block-label {
+  display: flex; align-items: center; gap: 5px;
+  font-family: var(--font-head); font-size: 11px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3); white-space: nowrap;
+}
+.soc-sch-block-label i { font-size: 11px; color: var(--teal); }
+.soc-sch-date {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 7px 10px; font-size: 13px; color: var(--ink);
+  font-family: var(--font-body); background: #fff; outline: none; transition: border-color .2s;
+}
+.soc-sch-date:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,153,204,.12); }
+.soc-sch-time   { display: flex; align-items: center; gap: 4px; }
+.soc-sch-seg    { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.soc-sch-seg-lbl {
+  font-family: var(--font-head); font-size: 9px; font-weight: 700;
+  letter-spacing: .05em; text-transform: uppercase; color: var(--ink-3);
+}
+.soc-sch-sel {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 6px 4px; font-size: 13px; font-weight: 600; color: var(--ink);
+  font-family: var(--font-body); background: #fff; outline: none; text-align: center;
+  transition: border-color .2s; cursor: pointer; width: 58px;
+}
+.soc-sch-sel:focus  { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,153,204,.12); }
+.soc-sch-sel.ampm   { width: 60px; }
+.soc-sch-colon      { font-size: 16px; font-weight: 800; color: var(--ink-3); padding-top: 14px; }
+.soc-sch-tz-badge {
+  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
+  background: var(--teal-lt); border: 1px solid rgba(0,153,204,.2);
+  border-radius: 100px; padding: 4px 10px;
+  font-family: var(--font-head); font-size: 11.5px; font-weight: 600; color: var(--teal-dk);
+}
+.soc-sch-tz-badge i { font-size: 10px; }
+
+.soc-test-notice {
+  display: flex; align-items: flex-start; gap: 12px;
+  background: #f4f8ff; border: 1.5px solid #c7d9f5;
+  border-radius: var(--radius-md); padding: 14px 16px;
+  font-size: 13.5px; color: var(--ink-2);
+}
+.soc-test-notice i { color: #5b8dee; flex-shrink: 0; margin-top: 2px; }
+
+/* Recipient rows */
+.soc-test-recipients { display: flex; flex-direction: column; gap: 10px; }
+
+.soc-test-row {
+  display: flex; align-items: center; gap: 10px;
+}
+.soc-test-row input[type="email"] {
+  flex: 1; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px 13px; font-size: 14px; color: var(--ink);
+  font-family: var(--font-body); background: var(--bg); outline: none;
+  transition: border-color .2s;
+}
+.soc-test-row input[type="email"]:focus { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,153,204,.12); }
+.soc-test-row input[type="email"]:disabled { opacity: .5; cursor: not-allowed; }
+
+.soc-test-remove {
+  flex-shrink: 0; width: 32px; height: 32px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--ink-3);
+  cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center;
+  transition: border-color .18s, color .18s;
+}
+.soc-test-remove:hover { border-color: #C94A1D; color: #C94A1D; }
+
+/* "+ Add recipient" link-button */
+.soc-test-add {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 13px; color: var(--teal); font-weight: 600;
+  cursor: pointer; background: none; border: none; padding: 2px 0;
+  font-family: var(--font-body); transition: color .18s;
+}
+.soc-test-add:hover { color: var(--teal-dk); }
+.soc-test-add:disabled { opacity: .4; cursor: not-allowed; }
+
+.soc-test-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-top: 6px; }
+
+/* Send test button */
+.soc-test-send-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 20px; border-radius: var(--radius-md);
+  background: var(--teal); color: #fff;
+  border: none; cursor: pointer; font-size: 13.5px; font-weight: 600;
+  font-family: var(--font-head); transition: background .18s, opacity .18s;
+}
+.soc-test-send-btn:hover  { background: var(--teal-dk); }
+.soc-test-send-btn:disabled { opacity: .5; cursor: not-allowed; }
+
+/* Result message */
+.soc-test-result {
+  font-size: 13px; padding: 9px 13px;
+  border-radius: var(--radius-sm); display: none;
+}
+.soc-test-result.ok    { background: #e8f9f1; color: #166534; border: 1px solid #a7f3c8; }
+.soc-test-result.error { background: #fef2f2; color: #991b1b; border: 1px solid #fca5a5; }
+
+/* Already-sent blocked state */
+.soc-test-sent-state {
+  display: flex; align-items: flex-start; gap: 14px;
+  background: #e8f9f1; border: 1.5px solid #a7f3c8;
+  border-radius: var(--radius-md); padding: 16px 18px;
+}
+.soc-test-sent-icon {
+  width: 38px; height: 38px; border-radius: 50%; background: #166534;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 16px; flex-shrink: 0;
+}
+.soc-test-sent-text h4 { font-family: var(--font-head); font-size: 14px; font-weight: 700; color: #166534; margin: 0 0 4px; }
+.soc-test-sent-text p  { font-size: 13px; color: #166534; margin: 0; opacity: .8; }
+
+[data-theme="dark"] .soc-sch-date,
+[data-theme="dark"] .soc-sch-sel { background: var(--bg-3); }
+
+[data-theme="dark"] .soc-test-notice { background: rgba(91,141,238,.08); border-color: rgba(91,141,238,.25); }
+[data-theme="dark"] .soc-test-row input[type="email"] { background: var(--bg-3); }
+[data-theme="dark"] .soc-test-remove { background: var(--bg-3); }
+[data-theme="dark"] .soc-test-result.ok    { background: rgba(22,101,52,.2);  border-color: rgba(167,243,200,.25); color: #86efac; }
+[data-theme="dark"] .soc-test-result.error { background: rgba(153,27,27,.2);  border-color: rgba(252,165,165,.25); color: #fca5a5; }
+[data-theme="dark"] .soc-test-sent-state { background: rgba(22,101,52,.15); border-color: rgba(167,243,200,.25); }
+[data-theme="dark"] .soc-test-sent-icon  { background: #166534; }
+[data-theme="dark"] .soc-test-sent-text h4,
+[data-theme="dark"] .soc-test-sent-text p { color: #86efac; }
+.soc-excl-toggle {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-top: 10px; padding: 5px 12px;
+  background: none; border: 1.5px dashed var(--border); border-radius: var(--radius-sm);
+  color: var(--ink-3); font-size: 12px; font-family: var(--font-body);
+  cursor: pointer; transition: border-color .15s, color .15s;
+}
+.soc-excl-toggle:hover { border-color: var(--teal); color: var(--teal); }
+.soc-excl-toggle .fa-plus { font-size: 10px; }
+
+/* Exclude section */
+.soc-excl-section { margin-top: 10px; }
+.soc-excl-head {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 7px;
+}
+/* Campaign Test Send's close button reuses .soc-excl-head/.soc-excl-remove
+   with an <h3> instead of Exclude's <label> — h3's own margin-bottom would
+   otherwise throw off the row's vertical centering. */
+.soc-excl-head h3 { margin: 0; }
+.soc-excl-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; padding: 0;
+  background: none; border: none; border-radius: 4px;
+  color: var(--ink-3); font-size: 13px; cursor: pointer; transition: color .12s, background .12s;
+}
+.soc-excl-remove:hover { color: #C94A1D; background: rgba(201,74,29,.08); }
+
+/* Disabled option (already selected in the other dropdown) */
+.soc-rd-option--disabled {
+  opacity: .35; cursor: not-allowed; pointer-events: none;
+}
+
+/* Exclude tag — orange tint to distinguish from Include */
+.soc-rd-tag--excl {
+  background: rgba(201,74,29,.08); border-color: rgba(201,74,29,.3); color: #C94A1D;
+}
+
+/* ── Recipient custom dropdown ── */
+.soc-rd { position: relative; }
+.soc-rd-trigger {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; width: 100%; box-sizing: border-box;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 8px 12px; font-size: 13px; color: var(--ink);
+  background: var(--bg); cursor: pointer; user-select: none;
+  transition: border-color .2s;
+}
+.soc-rd-trigger:hover,
+.soc-rd-trigger:focus { border-color: var(--teal); outline: none; }
+.soc-rd-trigger.open  { border-color: var(--teal); border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+/* Tags container inside trigger */
+.soc-rd-tags { display: flex; flex-wrap: wrap; gap: 4px; flex: 1; align-items: center; min-width: 0; }
+.soc-rd-placeholder { font-size: 13px; color: var(--ink-3); }
+.soc-rd-tag {
+  display: inline-flex; align-items: center; gap: 3px;
+  background: rgba(0,153,204,.1); border: 1px solid rgba(0,153,204,.3);
+  color: var(--teal); border-radius: 4px;
+  padding: 2px 4px 2px 8px; font-size: 12px; font-weight: 500; max-width: 200px;
+}
+.soc-rd-tag-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soc-rd-tag-x {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex-shrink: 0; width: 16px; height: 16px;
+  background: none !important; border: none !important; box-shadow: none !important;
+  padding: 0 !important; margin: 0 !important; cursor: pointer;
+  color: currentColor; opacity: .6; font-size: 15px; line-height: 1; border-radius: 3px;
+}
+.soc-rd-tag-x:hover { opacity: 1; background: rgba(0,153,204,.2) !important; }
+.soc-rd-arrow { font-size: 10px; color: var(--ink-3); flex-shrink: 0; transition: transform .2s; align-self: center; }
+.soc-rd-trigger.open .soc-rd-arrow { transform: rotate(180deg); }
+
+.soc-rd-panel {
+  display: none; position: absolute; left: 0; right: 0; z-index: 400;
+  background: var(--bg); border: 1.5px solid var(--teal);
+  border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  box-shadow: 0 6px 20px rgba(0,0,0,.12);
+}
+.soc-rd-panel.open { display: block; }
+
+.soc-rd-search-wrap {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 12px; border-bottom: 1px solid var(--border);
+}
+.soc-rd-search-icon { font-size: 12px; color: var(--ink-3); flex-shrink: 0; }
+.soc-rd-search {
+  flex: 1; border: none; outline: none; font-size: 13px;
+  color: var(--ink); background: transparent; font-family: var(--font-body);
+}
+
+.soc-rd-list {
+  max-height: 200px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.soc-rd-list::-webkit-scrollbar { width: 5px; }
+.soc-rd-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+.soc-rd-group {
+  padding: 6px 12px 3px;
+  font-size: 10px; font-weight: 700; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--ink-3); pointer-events: none;
+}
+.soc-rd-option {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; box-sizing: border-box;
+  padding: 7px 12px; font-size: 13px; color: var(--ink);
+  cursor: pointer; transition: background .12s;
+  margin: 0; font-weight: normal; /* reset label defaults */
+}
+.soc-rd-option:hover    { background: var(--bg-2); }
+.soc-rd-option.selected { color: var(--teal); font-weight: 600; background: var(--mint-lt); }
+.soc-rd-option.selected .soc-rd-meta { color: var(--teal); }
+/* Fixed-width icon column — fa-list vs fa-filter glyphs aren't the same
+   intrinsic width, so without this the option name started at a different
+   x-position row to row instead of lining up in a clean column. */
+.soc-rd-option > i { width: 14px; flex-shrink: 0; text-align: center; line-height: 1; }
+.soc-rd-meta { font-size: 11px; color: var(--ink-3); margin-left: auto; flex-shrink: 0; white-space: nowrap; }
+.soc-rd-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.soc-rd-empty, .soc-rd-no-results {
+  padding: 12px; font-size: 13px; color: var(--ink-3); text-align: center;
+}
+
+/* Checkbox — hard-reset to prevent form-field rules from bleeding in */
+.soc-rd-chk {
+  width: 14px !important; height: 14px !important; flex-shrink: 0;
+  padding: 0 !important; border: revert !important;
+  border-radius: 0 !important; box-shadow: none !important;
+  background: revert !important; outline: revert !important;
+  accent-color: var(--teal); cursor: pointer; margin: 0;
+}
+
+/* Estimated recipients row */
+.soc-recipient-estimate {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--ink-2);
+}
+
+[data-theme="dark"] .soc-rd-trigger { background: var(--bg-3); }
+[data-theme="dark"] .soc-rd-option.selected { background: rgba(0,198,162,.1); }
+
+/* ── Timezone picker (moved from inline <style>) ── */
+.soc-sch-tz-wrap{position:relative;display:inline-block;}
+.soc-sch-tz-trigger{display:inline-flex;align-items:center;gap:8px;min-width:160px;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;font-size:13px;color:var(--ink);font-family:var(--font-body);background:#fff;cursor:pointer;user-select:none;transition:border-color .2s;white-space:nowrap;}
+.soc-sch-tz-trigger:hover{border-color:var(--teal);}
+.soc-sch-tz-chevron{font-size:10px;color:var(--ink-3);margin-left:auto;}
+.soc-sch-tz-dropdown{position:absolute;top:calc(100% + 4px);left:0;z-index:300;background:var(--bg);border:1.5px solid var(--border);border-radius:8px;width:280px;box-shadow:0 6px 20px rgba(0,0,0,.13);}
+.soc-sch-tz-search{width:100%;box-sizing:border-box;border:none;border-bottom:1px solid var(--border);padding:8px 12px;font-size:13px;background:var(--bg);color:var(--ink);outline:none;border-radius:8px 8px 0 0;}
+.soc-sch-tz-list{max-height:220px;overflow-y:auto;padding:4px 0;}
+.soc-sch-tz-opt{padding:7px 14px;font-size:13px;color:var(--ink);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.soc-sch-tz-opt:hover{background:var(--bg-2);}
+.soc-sch-tz-opt.tz-selected{color:var(--teal);font-weight:600;}
+[data-theme="dark"] .soc-sch-tz-trigger{background:var(--bg-3);}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Sequence & sub-sequence builder
+   ══════════════════════════════════════════════════════════════════════ */
+.soc-seq { display: grid; grid-template-columns: 300px 1fr; gap: 18px; align-items: start; }
+@media (max-width: 1000px) { .soc-seq { grid-template-columns: 1fr; } }
+
+/* ── Left rail: step cards ──────────────────────────────────────────── */
+.soc-seq-rail { display: flex; flex-direction: column; gap: 8px; }
+
+.soc-step-card {
+  position: relative; background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: 10px; padding: 9px 10px 9px 20px; cursor: pointer;
+  transition: border-color .15s, box-shadow .15s;
+}
+.soc-step-card:hover    { border-color: var(--teal-lt, #9fd4c3); }
+.soc-step-card.selected { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,122,94,.10); background: var(--teal-lt, #f0faf7); }
+.soc-step-card.dragging { opacity: .45; }
+[data-theme="dark"] .soc-step-card.selected { background: rgba(0,122,94,.14); }
+
+.soc-step-drag {
+  position: absolute; left: 5px; top: 50%; transform: translateY(-50%);
+  color: var(--ink-3); font-size: 12px; cursor: grab; padding: 6px 2px; line-height: 1;
+}
+.soc-step-drag:active { cursor: grabbing; }
+
+.soc-step-top { display: flex; align-items: center; gap: 8px; }
+.soc-step-top > i { color: var(--teal); font-size: 14px; }
+.soc-step-title { font-size: 14px; font-weight: 700; color: var(--ink); }
+.soc-pill {
+  font-size: 11px; font-weight: 600; padding: 2px 9px; border-radius: 20px;
+  background: var(--bg-3, #eef1f4); color: var(--ink-3); white-space: nowrap;
+}
+.soc-step-del {
+  margin-left: auto; background: none; border: none; color: var(--ink-3);
+  cursor: pointer; padding: 4px 6px; border-radius: 5px; font-size: 13px; line-height: 1;
+}
+.soc-step-del:hover { color: #C94A1D; background: #FDECEA; }
+[data-theme="dark"] .soc-step-del:hover { background: rgba(201,74,29,.18); }
+
+/* Variation chips */
+.soc-var-tabs { display: flex; align-items: center; gap: 7px; margin: 9px 0 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
+.soc-var-chip {
+  width: 32px; height: 32px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: var(--bg); color: var(--ink-2); font-size: 13px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.soc-var-chip:hover  { border-color: var(--teal); color: var(--teal); }
+.soc-var-chip.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+.soc-var-add, .soc-var-del {
+  width: 30px; height: 30px; border-radius: 50%; border: 1.5px solid var(--border);
+  background: var(--bg); color: var(--ink-3); cursor: pointer; font-size: 14px;
+  display: flex; align-items: center; justify-content: center; line-height: 1; transition: all .15s;
+}
+.soc-var-add:hover { border-color: var(--teal); color: var(--teal); }
+.soc-var-del:hover { border-color: #C94A1D; color: #C94A1D; }
+.soc-var-add:disabled, .soc-var-del:disabled { opacity: .35; cursor: not-allowed; }
+.soc-var-add:disabled:hover, .soc-var-del:disabled:hover { border-color: var(--border); color: var(--ink-3); }
+
+.soc-var-name {
+  width: 100%; box-sizing: border-box; border: 1.5px solid var(--border);
+  border-radius: 7px; padding: 6px 10px; font-size: 13px; color: var(--ink);
+  background: var(--bg); outline: none; margin-bottom: 8px;
+}
+.soc-var-name:focus { border-color: var(--teal); }
+
+.soc-step-wait { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
+.soc-wait-days {
+  width: 62px; border: 1.5px solid var(--border); border-radius: 7px;
+  padding: 7px 9px; font-size: 13px; text-align: center; color: var(--ink);
+  background: var(--bg); outline: none;
+}
+.soc-wait-days:focus { border-color: var(--teal); }
+
+.soc-add-step {
+  width: 100%; border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg);
+  color: var(--teal); font-size: 13.5px; font-weight: 600; padding: 9px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px; transition: all .15s;
+}
+.soc-add-step:hover { border-color: var(--teal); background: var(--teal-lt, #f0faf7); }
+.soc-add-step:disabled { opacity: .45; cursor: not-allowed; }
+
+.soc-drop-line { height: 2px; background: var(--teal); border-radius: 2px; margin: -6px 0; }
+
+/* ── Subsequences (Step 4) ──────────────────────────────────────────── */
+.soc-subseq-list { display: flex; flex-direction: column; gap: 8px; }
+.soc-subseq-card {
+  border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg);
+  transition: border-color .15s;
+}
+.soc-subseq-card.expanded { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,122,94,.10); }
+.soc-subseq-card-head {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer;
+}
+.soc-subseq-card-head > i { color: var(--teal); font-size: 14px; flex-shrink: 0; }
+.soc-subseq-name {
+  border: none; background: transparent; font-size: 13.5px; font-weight: 700;
+  color: var(--ink); outline: none; flex: 1; min-width: 90px; padding: 4px 2px;
+  border-radius: 5px;
+}
+.soc-subseq-name:focus { background: var(--bg-3, #eef1f4); }
+.soc-subseq-trigger {
+  font-size: 12px; color: var(--ink-3); white-space: nowrap; display: flex; align-items: center; gap: 5px;
+}
+.soc-subseq-days {
+  width: 44px; border: 1.5px solid var(--border); border-radius: 6px;
+  padding: 3px 5px; font-size: 12px; text-align: center; color: var(--ink); background: var(--bg); outline: none;
+}
+.soc-subseq-days:focus { border-color: var(--teal); }
+.soc-subseq-toggle, .soc-subseq-del {
+  background: none; border: none; color: var(--ink-3); cursor: pointer;
+  padding: 5px 7px; border-radius: 5px; font-size: 12.5px; line-height: 1; flex-shrink: 0;
+}
+.soc-subseq-toggle:hover { color: var(--teal); background: var(--teal-lt, #f0faf7); }
+.soc-subseq-del:hover { color: #C94A1D; background: #FDECEA; }
+[data-theme="dark"] .soc-subseq-del:hover { background: rgba(201,74,29,.18); }
+
+.soc-sub-merge-menu {
+  position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: var(--shadow-md); padding: 4px; min-width: 160px;
+  display: flex; flex-direction: column; gap: 2px;
+}
+.soc-sub-merge-menu[hidden] { display: none; }
+.soc-sub-merge-menu button {
+  border: none; background: none; text-align: left; padding: 6px 8px; border-radius: 6px;
+  font-size: 12.5px; font-family: monospace; color: var(--ink-2); cursor: pointer;
+}
+.soc-sub-merge-menu button:hover { background: var(--teal-lt, #f0faf7); color: var(--teal-dk, var(--teal)); }
+
+/* ── Right pane: editor ─────────────────────────────────────────────── */
+.soc-seq-editor { border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg); overflow: hidden; }
+
+.soc-editor-head { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.soc-step-badge {
+  background: var(--teal); color: #fff; font-size: 12.5px; font-weight: 700;
+  padding: 7px 14px; border-radius: 7px; white-space: nowrap;
+}
+.soc-subject {
+  flex: 1 1 260px; border: 1.5px solid var(--border); border-radius: 8px;
+  padding: 10px 13px; font-size: 13.5px; color: var(--ink); background: var(--bg); outline: none;
+}
+.soc-subject:focus { border-color: var(--teal); }
+.soc-link-btn { background: none; border: none; color: var(--teal); font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; padding: 4px; }
+.soc-link-btn:hover { text-decoration: underline; }
+.soc-preheader {
+  width: calc(100% - 28px); margin: 0 14px 12px; border: 1.5px solid var(--border);
+  border-radius: 8px; padding: 9px 13px; font-size: 13px; color: var(--ink);
+  background: var(--bg); outline: none; box-sizing: border-box;
+}
+.soc-preheader:focus { border-color: var(--teal); }
+
+/* Quill */
+#socQuillEditor.ql-container.ql-snow { border: none; font-size: 14px; }
+#socQuillEditor .ql-editor { min-height: 200px; max-height: 200px; overflow-y: auto; }
+.soc-tb-sep { display: inline-block; width: 1px; height: 20px; background: var(--border); margin: 0 8px; vertical-align: middle; }
+
+/* Sequence step's Quill toolbar — same single-row + teal-themed treatment as
+   SO Inbox's .soi-composer-toolbar.ql-toolbar.ql-snow. Quill's own toolbar
+   buttons are float:left inside each .ql-formats group, which wrap onto
+   their own line based on available width regardless of white-space:nowrap
+   on an ancestor (nowrap only governs inline/text wrapping, not floats) —
+   converting each group to inline-flex lays it out with flexbox instead,
+   which can't wrap unless flex-wrap:wrap is set (it isn't), the one
+   reliable way to keep every group, and the toolbar as a whole, on one row. */
+.soc-seq-toolbar.ql-toolbar.ql-snow {
+  border: none; border-bottom: 1px solid var(--border);
+  background: var(--bg-2); padding: 6px 10px;
+  white-space: nowrap; overflow-x: auto; overflow-y: hidden;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-formats {
+  display: inline-flex; align-items: center; flex-wrap: nowrap; vertical-align: middle;
+  margin-right: 12px !important;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-formats button,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-formats .ql-picker {
+  float: none;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-formats::after { content: none; display: none; }
+
+/* Custom (non ql-*) toolbar buttons — Table/Emoji/Undo/Redo/Source — don't
+   get Quill's own .ql-toolbar button styling since they're plain <button>
+   elements carrying Font Awesome icons instead of Quill's SVGs. */
+.soc-tb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 24px; margin: 0 1px;
+  padding: 0; border: none; border-radius: 4px;
+  background: none; color: #444; font-size: 13px; cursor: pointer;
+}
+.soc-tb-btn:hover { color: var(--teal); background: var(--teal-lt); }
+.soc-tb-btn.active { color: var(--teal-dk); background: var(--teal-lt); }
+
+/* Font size + line height called out as their own bordered box, matching SO
+   Inbox's Compose editor toolbar — icon + current value + up/down stepper,
+   not a Quill picker/dropdown (see stepFormat() in so_campaign.js).
+   Scoped under .soc-seq-toolbar.ql-toolbar.ql-snow (3 classes) rather than
+   the bare .soc-tb-group-bordered class — Quill's own ".ql-snow .ql-formats
+   { display: inline-block }" is (0,2,0), which beats a bare single-class
+   selector's (0,1,0) regardless of stylesheet order, so display:flex would
+   silently lose and never actually apply. */
+.soc-seq-toolbar.ql-toolbar.ql-snow .soc-tb-group-bordered {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0 6px; margin-right: 12px !important;
+  display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 10px; vertical-align: middle;
+  height: 24px; line-height: 1;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .soc-tb-group-bordered::after { content: none; display: none; }
+.soc-tb-stepper { display: flex; flex-shrink: 0; white-space: nowrap; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.soc-tb-stepper > i { font-size: 12px; color: var(--ink-3); width: 14px; text-align: center; }
+.soc-tb-stepper-value { min-width: 16px; text-align: center; font-weight: 600; color: var(--ink); }
+.soc-tb-stepper-arrows { display: flex; flex-direction: column; }
+/* Scoped under .soc-seq-toolbar.ql-toolbar.ql-snow (4 classes, 0,4,1) rather
+   than the bare .soc-tb-stepper-arrows class (0,1,1) — both Quill's own
+   ".ql-snow.ql-toolbar button" (0,2,1) and this file's own
+   ".soc-seq-toolbar.ql-toolbar.ql-snow button" (0,3,1) outrank a bare-class
+   selector regardless of source order, so the intended tiny 14×11 arrow
+   buttons were silently being forced to the toolbar's standard 26×24
+   button size (plus Quill's own 3px 5px padding), which is what blew the
+   stepper group's height back out despite the height:24px on its wrapper. */
+.soc-seq-toolbar.ql-toolbar.ql-snow .soc-tb-stepper-arrows button {
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 11px; margin: 0; padding: 0; border: none; background: none;
+  color: var(--ink-3); font-size: 9px; line-height: 1; cursor: pointer;
+}
+.soc-tb-stepper-arrows button:hover { color: var(--teal-dk); }
+
+/* Theme Quill's own native tools (Bold/Italic/Underline, Align, Lists, Link,
+   and the Size/Colour/Line-height pickers) to the app's teal palette instead
+   of Quill's default blue-ish active state. */
+.soc-seq-toolbar.ql-toolbar.ql-snow button {
+  width: 26px; height: 24px; border-radius: 4px; margin: 0 1px;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow button:hover,
+.soc-seq-toolbar.ql-toolbar.ql-snow button.ql-active,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-item:hover,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-item.ql-selected {
+  color: var(--teal-dk);
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow button:hover .ql-stroke,
+.soc-seq-toolbar.ql-toolbar.ql-snow button.ql-active .ql-stroke,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-stroke {
+  stroke: var(--teal-dk);
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow button:hover .ql-fill,
+.soc-seq-toolbar.ql-toolbar.ql-snow button.ql-active .ql-fill,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover .ql-fill,
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-fill {
+  fill: var(--teal-dk);
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker {
+  font-size: 12px; font-family: var(--font-body); color: var(--ink-2);
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-options {
+  border: 1px solid var(--border) !important; border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); padding: 6px !important;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow .ql-picker-item {
+  border-radius: 3px;
+}
+
+/* Slim scrollbar for the toolbar's own horizontal overflow-x:auto scroll —
+   same treatment as SO Inbox's .soi-composer-toolbar.ql-toolbar.ql-snow. */
+.soc-seq-toolbar.ql-toolbar.ql-snow {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.soc-seq-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar { width: 8px; height: 8px; }
+.soc-seq-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-track { background: transparent; }
+.soc-seq-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.soc-seq-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+/* Just the bar — no up/down step-arrow buttons at the track ends (Windows
+   Chrome/Edge render these by default unless explicitly hidden). */
+.soc-seq-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-button { display: none; }
+
+.ql-snow .ql-tooltip {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); font-family: var(--font-body); color: var(--ink-2);
+}
+.ql-snow .ql-tooltip input[type=text] {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-family: var(--font-body); box-sizing: border-box; line-height: 24px; padding: 0 8px;
+}
+.ql-snow .ql-tooltip input[type=text]:focus { border-color: var(--teal); outline: none; }
+
+.soc-source-area {
+  display: none; width: 100%; min-height: 200px; border: none; border-top: 1px solid var(--border);
+  padding: 14px; font-family: monospace; font-size: 12.5px; line-height: 1.55;
+  color: var(--ink); background: var(--bg-2); outline: none; resize: vertical; box-sizing: border-box;
+}
+.soc-source-note { display: none; font-size: 11.5px; color: #7A5A00; background: #FFF8E6; padding: 6px 14px; border-top: 1px solid #F5D98B; }
+[data-theme="dark"] .soc-source-note { background: rgba(245,217,139,.10); color: #E8C978; border-color: rgba(245,217,139,.35); }
+
+.soc-editor-foot { display: flex; justify-content: flex-end; padding: 4px 14px; font-size: 12px; color: var(--ink-3); border-top: 1px solid var(--border); }
+
+/* .soc-score and .soc-tool-row stay on one row regardless of width — nowrap
+   (not wrap) plus overflow-x:auto so a narrow viewport scrolls the row
+   instead of stacking the score and the tool buttons onto separate lines. */
+.soc-editor-bar { display: flex; align-items: center; gap: 12px; flex-wrap: nowrap; overflow-x: auto; padding: 8px 14px; border-top: 1px solid var(--border); background: var(--bg-2); }
+.soc-score { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); flex-shrink: 0; }
+.soc-score-pill { font-size: 12px; font-weight: 700; padding: 4px 14px; border-radius: 20px; background: var(--bg-3, #eef1f4); color: var(--ink-3); }
+.soc-score-pill.good { background: #FCD34D; color: #7A5A00; }
+.soc-score-pill.fair { background: #FDBA74; color: #7C2D12; }
+.soc-score-pill.poor { background: #FCA5A5; color: #7F1D1D; }
+.soc-score-details { background: none; border: none; color: var(--teal); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.soc-score-details:hover { text-decoration: underline; }
+
+.soc-tool-row { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-wrap: nowrap; flex-shrink: 0; }
+.soc-tool-btn {
+  width: 34px; height: 34px; border: none; background: none; color: var(--teal);
+  border-radius: 7px; cursor: pointer; font-size: 14px; display: flex;
+  align-items: center; justify-content: center; transition: background .15s;
+}
+.soc-tool-btn:hover  { background: rgba(0,122,94,.10); }
+.soc-tool-btn.active { background: rgba(0,122,94,.16); }
+.soc-status { padding: 5px 14px; font-size: 12.5px; color: var(--ink-3); border-top: 1px solid var(--border); }
+.soc-status b { color: #007A5E; font-weight: 600; }
+.soc-status b.unsaved { color: #B45309; }
+
+/* Emoji + merge-tag + table popovers */
+.soc-pop {
+  display: none; position: absolute; z-index: 60; background: var(--bg);
+  border: 1px solid var(--border); border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 10px;
+}
+.soc-pop.open { display: block; }
+.soc-emoji-grid { display: grid; grid-template-columns: repeat(10, 28px); gap: 2px; max-height: 220px; overflow-y: auto; }
+.soc-emoji-grid button { width: 28px; height: 28px; border: none; background: none; font-size: 17px; cursor: pointer; border-radius: 5px; line-height: 1; }
+.soc-emoji-grid button:hover { background: var(--bg-2); }
+.soc-tag-list { display: flex; flex-direction: column; gap: 3px; min-width: 190px; max-height: 260px; overflow-y: auto; }
+.soc-tag-list button {
+  text-align: left; border: none; background: none; color: var(--ink-2); font-family: monospace;
+  font-size: 12.5px; padding: 6px 9px; border-radius: 5px; cursor: pointer;
+}
+.soc-tag-list button:hover { background: var(--bg-2); color: var(--teal); }
+.soc-tblgrid { display: grid; grid-template-columns: repeat(8, 20px); gap: 2px; }
+.soc-tblgrid span { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
+.soc-tblgrid span.on { background: var(--teal); border-color: var(--teal); }
+.soc-tblgrid-lbl { text-align: center; font-size: 11.5px; color: var(--ink-3); margin-top: 7px; }
+
+/* Score-details modal rows */
+.soc-reason { display: flex; gap: 9px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--ink-2); }
+.soc-reason:last-child { border-bottom: none; }
+.soc-reason i.warn { color: #C94A1D; }
+.soc-reason i.info { color: var(--ink-3); }
+
+/* ── Send option cards (ported from create_campaign.css) ─────────── */
+.soc-send-option-group { display: flex; gap: 10px; margin-top: 8px; }
+.soc-send-card {
+  display: flex; align-items: center; gap: 9px;
+  padding: 10px 20px;
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); cursor: pointer;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-2);
+  white-space: nowrap; user-select: none;
+  transition: border-color .15s, background .15s, color .15s;
+}
+.soc-send-card input[type=radio] { display: none; }
+.soc-send-card i { font-size: 13px; color: var(--ink-3); transition: color .15s; }
+.soc-send-card:has(input:checked) { border-color: var(--teal); background: var(--teal-lt); color: var(--teal); }
+.soc-send-card:has(input:checked) i { color: var(--teal); }
+.soc-send-card:hover:not(:has(input:checked)) { border-color: rgba(0,153,204,.45); }
+[data-theme="dark"] .soc-send-card { background: var(--bg-3); }
+[data-theme="dark"] .soc-send-card:has(input:checked) { background: rgba(0,153,204,.15); }
+
+/* ── Sub-labels + include head (ported) ──────────────────────────── */
+.soc-sub-label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.soc-sub-label .req { color: #C94A1D; }
+.soc-include-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 6px; }
+
+/* ── Wizard step navigation ──────────────────────────────────────── */
+.soc-wizard-nav {
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+  padding: 12px 16px; margin-bottom: 18px;
+}
+.soc-wnav-step {
+  display: flex; align-items: center; gap: 8px; background: none; border: none;
+  cursor: pointer; padding: 6px 8px; border-radius: 8px; color: var(--ink-3);
+  font-size: 13px; font-weight: 600; transition: background .15s, color .15s;
+}
+.soc-wnav-step:hover { background: var(--bg-2); color: var(--ink-2); }
+.soc-wnav-num {
+  display: flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%; background: var(--bg-2);
+  color: var(--ink-3); font-size: 11.5px; font-weight: 700; flex-shrink: 0;
+  transition: background .15s, color .15s;
+}
+.soc-wnav-step.active { color: var(--ink); }
+.soc-wnav-step.active .soc-wnav-num { background: var(--teal); color: #fff; }
+.soc-wnav-step.done .soc-wnav-num { background: var(--teal-lt); color: var(--teal); }
+.soc-wnav-step.done { color: var(--ink-2); }
+.soc-wnav-arrow { color: var(--border); font-size: 11px; }
+[data-theme="dark"] .soc-wnav-num { background: var(--bg-3); }
+
+.soc-wizard-panel { display: flex; flex-direction: column; gap: 18px; }
+
+.soc-wizard-footer {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  margin-top: 8px; padding-top: 16px; border-top: 1px solid var(--border);
+}
+/* Groups Save Draft beside Next on steps 1-3 (SOWizard.render() moves
+   #socSaveDraftBtn in here) so space-between still resolves to a clean
+   two-group layout — Back on the left, Save Draft + Next together on the
+   right — instead of stranding a 3rd button in the middle. */
+.soc-wizard-footer-right { display: flex; align-items: center; gap: 10px; }
+
+/* ── Settings-step informational readouts (no backend control yet) ─── */
+.soc-info-line {
+  display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-2);
+  background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 9px 12px; min-height: 20px;
+}
+.soc-info-line i { color: var(--teal); flex-shrink: 0; }
+.soc-info-line--soon { color: var(--ink-3); }
+.soc-info-line--soon i { color: var(--ink-3); }
+
+/* ── Review & Launch summary (Step 5/6) ─────────────────────────────── */
+.soc-review-summary {
+  display: flex; flex-direction: column; gap: 1px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden;
+}
+.soc-review-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 10px 14px; background: var(--bg);
+}
+.soc-review-row:not(:last-child) { border-bottom: 1px solid var(--border); }
+.soc-review-label {
+  font-family: var(--font-head); font-size: 11.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3);
+}
+.soc-review-value { font-size: 13.5px; color: var(--ink); text-align: right; }
+
+/* ── Sending Days & Hours (inside Send Option) ──────────────────────── */
+.soc-window-toggle {
+  display: flex; align-items: center; gap: 10px; cursor: pointer;
+  padding-top: 16px; margin-top: 16px; border-top: 1px solid var(--border);
+}
+.soc-window-toggle input[type=checkbox] { width: 16px; height: 16px; accent-color: var(--teal); cursor: pointer; }
+.soc-window-toggle-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+.soc-window-toggle-sub   { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+
+.soc-day-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.soc-day-chip {
+  width: 42px; height: 34px; border-radius: 8px; border: 1.5px solid var(--border);
+  background: var(--bg); color: var(--ink-2); font-size: 12.5px; font-weight: 700;
+  cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .15s;
+}
+.soc-day-chip:hover  { border-color: var(--teal); color: var(--teal); }
+.soc-day-chip.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+
+/* ── extracted from inline styles ─────────────────────────────────────── */
+.soc-icon-sm { font-size: 11px; }
+.soc-label-flush { margin-bottom: 0; }
+.soc-label-mb6 { margin-bottom: 6px; }
+.soc-text-muted-sm { color: var(--ink-3); font-size: 11px; }
+.soc-hint-tight { margin: -8px 0 14px; }
+.soc-hint-tight-sm { margin: -6px 0 14px; }
+.soc-maxw-320 { max-width: 320px; }
+.soc-maxw-340 { max-width: 340px; }
+.soc-icon-faint { font-size: 11px; opacity: .55; }
+.soc-empty-plain { padding: 18px 0; border: none; }
+.soc-link-btn-sm { margin-top: 6px; font-size: 12.5px; }
+.soc-send-card-title { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.soc-send-card-sub { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.soc-schedule-group { margin-top: 16px; }
+.soc-field-mb12 { margin-bottom: 12px; }
+.soc-window-group { margin-top: 14px; }
+.soc-mt-10 { margin-top: 10px; }
+.soc-mt-12 { margin-top: 12px; }
+.soc-merge-wrap { position: relative; display: inline-block; }
+.soc-tool-btn.mono { font-family: monospace; font-weight: 700; }
+.soc-tool-btn.ab { font-weight: 700; font-size: 12px; }
+.soc-modal-wide-520 { max-width: 520px; }
+.soc-scroll-y-320 { max-height: 320px; overflow-y: auto; }
+.soc-link-teal { color: var(--teal); }
+
+/* JS-toggled visibility uses the native [hidden] attribute (see so_inbox.js's
+   identical, already-proven pattern) rather than inline style.display. Most
+   of these elements' base classes set no explicit display, so bare [hidden]
+   works via the browser's own [hidden]{display:none} rule — but
+   .soc-recipient-estimate and .soc-wizard-panel both set display:flex on
+   their bare selector, which otherwise wins the cascade over that UA rule
+   (same bug class fixed in so_inbox.css earlier), so those two need an
+   explicit override here. */
+.soc-recipient-estimate[hidden],
+.soc-wizard-panel[hidden] { display: none; }

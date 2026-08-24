@@ -106,6 +106,10 @@
         <i class="fas fa-ban"></i>
         <span class="admin-nav-item-text">Suppression Lists</span>
       </a>
+      <a href="{% url 'admin_warmup_receivers' %}" class="admin-nav-item" data-url="admin_warmup_receivers">
+        <i class="fas fa-fire"></i>
+        <span class="admin-nav-item-text">Warmup Receivers</span>
+      </a>
 
       <div class="admin-nav-divider"></div>
       <div class="admin-nav-section">Billing</div>
@@ -129,10 +133,6 @@
       <a href="{% url 'admin_notifications' %}" class="admin-nav-item" data-url="admin_notifications">
         <i class="fas fa-bell"></i>
         <span class="admin-nav-item-text">Notifications</span>
-      </a>
-      <a href="{% url 'admin_reports' %}" class="admin-nav-item" data-url="admin_reports">
-        <i class="fas fa-file-chart-column"></i>
-        <span class="admin-nav-item-text">Reports</span>
       </a>
       <a href="{% url 'admin_audit' %}" class="admin-nav-item" data-url="admin_audit">
         <i class="fas fa-clipboard-list"></i>

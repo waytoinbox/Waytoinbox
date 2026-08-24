@@ -1,0 +1,671 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/segments.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/list_segment.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_lists.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="sg-page">
+
+  <!-- Header -->
+  <div class="sg-header">
+    <div class="sol-header-icon-row">
+      <div class="sv-card-icon sv-card-icon--md">📋</div>
+      <div>
+        <h2>Lists &amp; Segments</h2>
+        <p>Manage your prospect lists for Sales Outreach campaigns.</p>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" id="openCreateList">
+      <i class="fas fa-plus"></i> Create List
+    </button>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="sol-tabbar">
+    <a href="{% url 'so_lists' %}" class="sol-tab active">
+      <i class="fas fa-layer-group"></i> Lists
+    </a>
+    <a href="{% url 'so_segments' %}" class="sol-tab">
+      <i class="fas fa-sliders-h"></i> Segments
+    </a>
+  </div>
+
+  <!-- Table card -->
+  <div class="sg-card">
+    <div class="sg-bar">
+      <span class="sg-bar-title"><i class="fas fa-layer-group"></i>&nbsp; Lists ({{ lists|length }})</span>
+    </div>
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_show_date=True pf_search_placeholder="Search lists…" %}
+
+    <div class="sg-table-wrap">
+      {% if lists %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>List Name</th>
+            <th class="sg-col-center">Prospects</th>
+            <th class="sg-col-center">Status</th>
+            <th>Created</th>
+            <th class="sg-col-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="lstTableBody">
+          {% for lst in lists %}
+          <tr data-id="{{ lst.id }}" data-name="{{ lst.name|lower }}" data-search="{{ lst.name }} {{ lst.tags }}" data-status="{{ lst.status }}" data-date="{{ lst.created_at|date:'Y-m-d' }}">
+            <td class="muted">{{ forloop.counter }}</td>
+            <td>
+              <div class="sol-name">{{ lst.name }}</div>
+              {% if lst.tags_list %}
+              <div class="sol-tags-row">{% for tag in lst.tags_list %}<span class="ls-tag">{{ tag }}</span>{% endfor %}</div>
+              {% endif %}
+            </td>
+            <td class="sg-col-center">
+              <span class="sg-count"><i class="fas fa-users"></i> {{ lst.total_count }}</span>
+              <div class="sol-sub-count">sub {{ lst.subscribed_count }}</div>
+            </td>
+            <td class="sg-col-center">
+              <span class="sg-badge {{ lst.status }}" id="lstbadge-{{ lst.id }}">
+                <i class="fas fa-circle sol-dot"></i>
+                {% if lst.status == 'active' %}Active{% else %}Inactive{% endif %}
+              </span>
+            </td>
+            <td class="muted">
+              <span class="ltime ltime-date" data-utc="{{ lst.created_at|date:'c' }}">{{ lst.created_at|date:"d M Y" }}</span>
+            </td>
+            <td class="sg-col-center">
+              <div class="sg-actions sol-actions-center" id="lstact-{{ lst.id }}">
+                <button class="sg-action-btn" onclick="openList({{ lst.id }}, '{{ lst.name|escapejs }}')" title="View Prospects"><i class="fas fa-users"></i> View</button>
+                <button class="sg-action-btn" onclick="openRename({{ lst.id }}, '{{ lst.name|escapejs }}', '{{ lst.tags|escapejs }}')" title="Edit"><i class="fas fa-pen"></i> Edit</button>
+                <button class="sg-action-btn" onclick="duplicateList({{ lst.id }}, this)" title="Duplicate"><i class="fas fa-copy"></i></button>
+                <a href="{% url 'so_list_download' lst.id %}" class="sg-action-btn" title="Download CSV"><i class="fas fa-download"></i></a>
+                <div class="sg-del-confirm" id="ldel-{{ lst.id }}">
+                  <span>Delete?</span>
+                  <button class="sg-del-yes" onclick="doDeleteList({{ lst.id }}, this)">Yes</button>
+                  <button class="sg-del-no" onclick="cancelListDel({{ lst.id }})">No</button>
+                </div>
+                <button class="sg-action-btn danger" onclick="confirmListDel({{ lst.id }}, this)" id="ldelbtn-{{ lst.id }}"><i class="fas fa-trash"></i></button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="sg-empty">
+        <i class="fas fa-layer-group"></i>
+        <p>No lists yet.</p>
+        <button class="btn btn-primary btn-sm" onclick="document.getElementById('openCreateList').click()"><i class="fas fa-plus"></i> Create your first list</button>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if lists %}
+    <div class="sg-pag" id="lstPagBar">
+      <span class="sg-pag-info" id="lstPagInfo"></span>
+      <div class="sg-pag-btns">
+        <button class="sg-pag-btn" id="lstPrev"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="sg-pag-cur" id="lstPagNum"></span>
+        <button class="sg-pag-btn" id="lstNext">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- No-prospects Popup -->
+<div class="ls-modal-overlay" id="noProspectsModal">
+  <div class="ls-modal sol-modal-narrow-center">
+    <button class="ls-modal-close" onclick="document.getElementById('noProspectsModal').classList.remove('open')">&times;</button>
+    <div class="ls-empty-icon-wrap"><i class="fas fa-users"></i></div>
+    <h3 id="noProspectsListName" class="sol-modal-title-center"></h3>
+    <p class="sol-modal-hint">This list has no prospects yet. How would you like to add them?</p>
+    <div class="sol-modal-stack">
+      <button class="btn-submit sol-btn-block-center" id="popupAddProspect"><i class="fas fa-user-plus"></i> Add Prospect</button>
+      <button class="btn-cancel sol-btn-block-teal-outline" id="popupUploadProspects"><i class="fas fa-upload"></i> Upload Prospects</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create List Modal -->
+<div class="ls-modal-overlay" id="createListModal">
+  <div class="ls-modal">
+    <button class="ls-modal-close" id="closeCreateList">&times;</button>
+    <h3><i class="fas fa-layer-group sol-icon-teal-mr"></i>Create New List</h3>
+    <div class="ls-form-group">
+      <label for="listName">List Name <span class="sol-required">*</span></label>
+      <input type="text" id="listName" placeholder="e.g. Q3 Outreach Leads" maxlength="255"/>
+    </div>
+    <div class="ls-form-group">
+      <label for="listTags">Tags</label>
+      <input type="text" id="listTags" placeholder="e.g. saas, enterprise" maxlength="255"/>
+      <small>Separate multiple tags with commas.</small>
+    </div>
+    <p class="ls-error" id="createListError"></p>
+    <div class="ls-form-actions">
+      <button class="btn-cancel" id="cancelCreateList">Cancel</button>
+      <button class="btn-submit" id="submitCreateList"><i class="fas fa-plus"></i> Create</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit List Modal -->
+<div class="ls-modal-overlay" id="renameListModal">
+  <div class="ls-modal sol-modal-editlist">
+
+    <div class="sol-editlist-head">
+      <div class="sol-flex-gap-10">
+        <div class="sol-editlist-icon-badge">
+          <i class="fas fa-layer-group sol-icon-teal-15"></i>
+        </div>
+        <div>
+          <div class="sol-editlist-title">Edit List</div>
+          <div class="sol-editlist-sub">Update name, tags and status</div>
+        </div>
+      </div>
+      <button id="closeRenameList" class="sol-editlist-close">&times;</button>
+    </div>
+
+    <div class="sol-editlist-body">
+
+      <div class="sol-field-18">
+        <label class="sol-field-label">List Name <span class="sol-required">*</span></label>
+        <input type="text" id="renameInput" maxlength="255" class="sol-input-clean"/>
+      </div>
+
+      <div class="sol-field-18">
+        <label class="sol-field-label">Tags</label>
+        <input type="text" id="renameTagsInput" maxlength="255" placeholder="e.g. saas, enterprise" class="sol-input-clean"/>
+      </div>
+
+      <div class="sol-field-20">
+        <label class="sol-field-label-10">Status</label>
+        <div class="sol-status-grid">
+
+          <label id="editStatusActiveCard" class="sol-status-card selected-active">
+            <input type="radio" name="editListStatus" id="editStatusActive" value="active" checked class="sol-radio-hidden"/>
+            <div class="sol-status-icon-badge active">
+              <i class="fas fa-check-circle sol-status-icon active"></i>
+            </div>
+            <div>
+              <div class="sol-status-card-title active">Active</div>
+              <div class="sol-status-card-sub">Visible in campaigns</div>
+            </div>
+          </label>
+
+          <label id="editStatusInactiveCard" class="sol-status-card">
+            <input type="radio" name="editListStatus" id="editStatusInactive" value="inactive" class="sol-radio-hidden"/>
+            <div class="sol-status-icon-badge inactive">
+              <i class="fas fa-pause-circle sol-status-icon inactive"></i>
+            </div>
+            <div>
+              <div class="sol-status-card-title inactive">Inactive</div>
+              <div class="sol-status-card-sub">Hidden from campaigns</div>
+            </div>
+          </label>
+
+        </div>
+      </div>
+
+      <p class="ls-error sol-error-12" id="renameError"></p>
+
+      <div class="sol-actions-end">
+        <button id="cancelRenameList" class="sol-btn-cancel-plain">Cancel</button>
+        <button id="submitRenameList" class="sol-btn-save-teal">
+          <i class="fas fa-check"></i> Save Changes
+        </button>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- Add Prospect Modal -->
+<div class="ls-modal-overlay" id="addProspectModal">
+  <div class="ls-modal sol-modal-medium">
+    <button class="ls-modal-close" id="closeAddProspect">&times;</button>
+    <h3><i class="fas fa-user-plus sol-icon-teal-mr"></i>Add Prospect</h3>
+    <div class="ls-form-group">
+      <label for="ap-email">Email Address <span class="sol-required">*</span></label>
+      <input type="email" id="ap-email" placeholder="e.g. john@example.com" maxlength="255"/>
+    </div>
+    <div class="ls-form-grid-2">
+      <div class="ls-form-group sol-form-tight">
+        <label for="ap-firstname">First Name</label>
+        <input type="text" id="ap-firstname" placeholder="First name" maxlength="100"/>
+      </div>
+      <div class="ls-form-group sol-form-tight">
+        <label for="ap-lastname">Last Name</label>
+        <input type="text" id="ap-lastname" placeholder="Last name" maxlength="100"/>
+      </div>
+    </div>
+    <div class="ls-form-grid-2 sol-form-row-spaced">
+      <div class="ls-form-group sol-form-tight">
+        <label for="ap-company">Company</label>
+        <input type="text" id="ap-company" placeholder="Company name" maxlength="255"/>
+      </div>
+      <div class="ls-form-group sol-form-tight">
+        <label for="ap-phone">Phone Number</label>
+        <input type="tel" id="ap-phone" placeholder="e.g. +1 555 000 0000" maxlength="50"/>
+      </div>
+    </div>
+    <div class="ls-consent-box sol-form-row-spaced">
+      <label>
+        <input type="checkbox" id="ap-consent"/>
+        <span class="consent-text">
+          <strong>Prospect has granted explicit consent to receive email outreach.</strong><br/>
+          <span class="sub">This will subscribe the prospect without a confirmation email. Prospects who previously unsubscribed stay unsubscribed.</span>
+        </span>
+      </label>
+    </div>
+    <p class="ls-error" id="ap-error"></p>
+    <div class="ls-form-actions">
+      <button class="btn-cancel" id="cancelAddProspect">Cancel</button>
+      <button class="btn-submit" id="submitAddProspect"><i class="fas fa-user-plus"></i> Add Prospect</button>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+const CSRF = '{{ csrf_token }}';
+const PAGE = 10;
+let lstPage = 1;
+
+/* ── Re-number serial column after DOM changes ──────────────── */
+function lstRenumber(){
+  document.querySelectorAll('#lstTableBody tr').forEach(function(r, i){
+    var td = r.querySelector('td:first-child');
+    if(td) td.textContent = i + 1;
+  });
+}
+
+/* ── Pagination ─────────────────────────────────────────────── */
+function lstVisibleRows(){
+  return [...document.querySelectorAll('#lstTableBody tr:not([data-filtered="1"])')];
+}
+function lstPaginate(){
+  const rows  = lstVisibleRows();
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE));
+  if(lstPage > pages) lstPage = pages;
+  rows.forEach((r,i) => r.style.display = (i>=(lstPage-1)*PAGE && i<lstPage*PAGE) ? '' : 'none');
+  document.querySelectorAll('#lstTableBody tr[data-filtered="1"]').forEach(r=>r.style.display='none');
+  const start = total===0 ? 0 : (lstPage-1)*PAGE+1;
+  const end   = Math.min(lstPage*PAGE, total);
+  const info  = document.getElementById('lstPagInfo');
+  const num   = document.getElementById('lstPagNum');
+  const bar   = document.getElementById('lstPagBar');
+  if(info) info.textContent = total===0 ? 'No results' : `Showing ${start}–${end} of ${total}`;
+  if(num)  num.textContent  = `${lstPage} / ${pages}`;
+  document.getElementById('lstPrev')?.classList.toggle('disabled', lstPage<=1);
+  document.getElementById('lstNext')?.classList.toggle('disabled', lstPage>=pages);
+  if(bar) bar.style.display = total<=PAGE && lstPage===1 ? 'none' : 'flex';
+}
+document.getElementById('lstPrev')?.addEventListener('click', ()=>{ if(lstPage>1){lstPage--;lstPaginate();} });
+document.getElementById('lstNext')?.addEventListener('click', ()=>{ const rows=lstVisibleRows(); if(lstPage<Math.ceil(rows.length/PAGE)){lstPage++;lstPaginate();} });
+
+/* ── PF Filters ─────────────────────────────────────────────── */
+PF.init({ debounce:250, urlSync:false });
+PF.wire(function(){
+  const f = PF.getFilters();
+  document.querySelectorAll('#lstTableBody tr').forEach(tr=>{
+    const ok = PF.matchesSearch(tr.dataset.search||'', f.search)
+            && PF.matchesStatus(tr.dataset.status||'', f.status)
+            && PF.matchesDate(tr.dataset.date||'', f.dateFrom, f.dateTo);
+    tr.dataset.filtered = ok ? '0' : '1';
+  });
+  lstPage=1;
+  lstPaginate();
+  PF.setCount(lstVisibleRows().length, {{ lists|length }});
+});
+lstPaginate();
+
+/* ── Open List ──────────────────────────────────────────────── */
+var _currentListId = null;
+function openList(listId, listName){
+  _currentListId = listId;
+  fetch('/Sales-Outreach/list/'+listId+'/check/', {headers:{'X-CSRFToken':CSRF}})
+  .then(r=>r.json())
+  .then(data=>{
+    if(data.has_prospects){
+      window.location.href='/Sales-Outreach/list/'+listId+'/prospects/';
+    } else {
+      document.getElementById('noProspectsListName').textContent = listName;
+      document.getElementById('noProspectsModal').classList.add('open');
+    }
+  })
+  .catch(()=>{ window.location.href='/Sales-Outreach/list/'+listId+'/prospects/'; });
+}
+document.getElementById('popupAddProspect').addEventListener('click', function(){
+  document.getElementById('noProspectsModal').classList.remove('open');
+  openAddProspectModal();
+});
+document.getElementById('popupUploadProspects').addEventListener('click', function(){
+  if(_currentListId) window.location.href='/Sales-Outreach/list/'+_currentListId+'/prospects/?upload=1';
+});
+
+/* ── Create List Modal ──────────────────────────────────────── */
+(function(){
+  const modal     = document.getElementById('createListModal');
+  const openBtn   = document.getElementById('openCreateList');
+  const closeBtn  = document.getElementById('closeCreateList');
+  const cancelBtn = document.getElementById('cancelCreateList');
+  const submitBtn = document.getElementById('submitCreateList');
+  const nameInput = document.getElementById('listName');
+  const tagsInput = document.getElementById('listTags');
+  const errorEl   = document.getElementById('createListError');
+  const tbody     = document.getElementById('lstTableBody');
+
+  function closeModal(){
+    modal.classList.remove('open');
+    nameInput.value=''; tagsInput.value='';
+    errorEl.style.display='none';
+    submitBtn.disabled=false;
+    submitBtn.innerHTML='<i class="fas fa-plus"></i> Create';
+  }
+  openBtn.addEventListener('click', ()=>{ modal.classList.add('open'); nameInput.focus(); });
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', e=>{ if(e.target===e.currentTarget) closeModal(); });
+
+  submitBtn.addEventListener('click', function(){
+    const listName = nameInput.value.trim();
+    const tags     = tagsInput.value.trim();
+    errorEl.style.display='none';
+    if(!listName){ errorEl.textContent='List name is required.'; errorEl.style.display='block'; nameInput.focus(); return; }
+    submitBtn.disabled=true;
+    submitBtn.innerHTML='<span class="btn-spinner"></span> Creating…';
+
+    fetch('{% url "so_lists" %}',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({name:listName,tags:tags}),
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.success){
+        const id = data.id||0;
+        const now   = new Date();
+        const today = now.toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'});
+        const tagHtml = tags ? tags.split(',').filter(t=>t.trim()).map(t=>`<span class="ls-tag">${escHtml(t.trim())}</span>`).join('') : '';
+        const tr = document.createElement('tr');
+        tr.dataset.id     = id;
+        tr.dataset.name   = listName.toLowerCase();
+        tr.dataset.search = listName + (tags ? ' ' + tags : '');
+        tr.dataset.status = 'active';
+        tr.dataset.date   = now.toISOString().slice(0, 10);
+        tr.innerHTML =
+          `<td class="muted">1</td>`+
+          `<td><div class="sol-name">${escHtml(listName)}</div>${tagHtml?'<div class="sol-tags-row">'+tagHtml+'</div>':''}</td>`+
+          `<td class="sg-col-center"><span class="sg-count"><i class="fas fa-users"></i> 0</span><div class="sol-sub-count">sub 0</div></td>`+
+          `<td class="sg-col-center"><span class="sg-badge active" id="lstbadge-${id}"><i class="fas fa-circle sol-dot"></i> Active</span></td>`+
+          `<td class="muted">${today}</td>`+
+          `<td class="sg-col-center"><div class="sg-actions sol-actions-center" id="lstact-${id}">`+
+            `<button class="sg-action-btn" onclick="openList(${id},'${jsEsc(listName)}')"><i class="fas fa-users"></i> View</button>`+
+            `<button class="sg-action-btn" onclick="openRename(${id},'${jsEsc(listName)}','${jsEsc(tags)}')"><i class="fas fa-pen"></i> Edit</button>`+
+            `<button class="sg-action-btn" onclick="duplicateList(${id},this)"><i class="fas fa-copy"></i></button>`+
+            `<a href="/Sales-Outreach/list/${id}/download/" class="sg-action-btn"><i class="fas fa-download"></i></a>`+
+            `<div class="sg-del-confirm" id="ldel-${id}"><span>Delete?</span>`+
+              `<button class="sg-del-yes" onclick="doDeleteList(${id},this)">Yes</button>`+
+              `<button class="sg-del-no" onclick="cancelListDel(${id})">No</button>`+
+            `</div>`+
+            `<button class="sg-action-btn danger" onclick="confirmListDel(${id},this)" id="ldelbtn-${id}"><i class="fas fa-trash"></i></button>`+
+          `</div></td>`;
+        if(tbody) tbody.prepend(tr);
+        lstRenumber();
+        lstPage=1; lstPaginate();
+        closeModal();
+        WTI.toast(`"${listName}" list created.`, 'success');
+      } else {
+        errorEl.textContent=data.error||'Something went wrong.';
+        errorEl.style.display='block';
+        submitBtn.disabled=false;
+        submitBtn.innerHTML='<i class="fas fa-plus"></i> Create';
+      }
+    })
+    .catch(()=>{
+      errorEl.textContent='Network error. Please try again.';
+      errorEl.style.display='block';
+      submitBtn.disabled=false;
+      submitBtn.innerHTML='<i class="fas fa-plus"></i> Create';
+    });
+  });
+})();
+
+function escHtml(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function jsEsc(s){ return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'"); }
+
+/* ── Edit List Modal ────────────────────────────────────────── */
+let _renameId = null;
+
+function _setStatusCard(val){
+  const activeCard   = document.getElementById('editStatusActiveCard');
+  const inactiveCard = document.getElementById('editStatusInactiveCard');
+  document.getElementById('editStatusActive').checked   = val === 'active';
+  document.getElementById('editStatusInactive').checked = val === 'inactive';
+  activeCard.classList.toggle('selected-active', val === 'active');
+  inactiveCard.classList.toggle('selected-inactive', val === 'inactive');
+}
+
+document.getElementById('editStatusActiveCard').addEventListener('click',   ()=>_setStatusCard('active'));
+document.getElementById('editStatusInactiveCard').addEventListener('click', ()=>_setStatusCard('inactive'));
+
+function openRename(id, currentName, currentTags){
+  _renameId = id;
+  document.getElementById('renameInput').value     = currentName;
+  document.getElementById('renameTagsInput').value = currentTags || '';
+  document.getElementById('renameError').style.display='none';
+  const row = document.querySelector(`tr[data-id="${id}"]`);
+  _setStatusCard(row && row.dataset.status === 'inactive' ? 'inactive' : 'active');
+  document.getElementById('renameListModal').classList.add('open');
+  document.getElementById('renameInput').focus();
+}
+(function(){
+  const modal     = document.getElementById('renameListModal');
+  const closeBtn  = document.getElementById('closeRenameList');
+  const cancelBtn = document.getElementById('cancelRenameList');
+  const submitBtn = document.getElementById('submitRenameList');
+  const input     = document.getElementById('renameInput');
+  const tagsInput = document.getElementById('renameTagsInput');
+  const errorEl   = document.getElementById('renameError');
+
+  function closeModal(){
+    modal.classList.remove('open');
+    submitBtn.disabled=false;
+    submitBtn.innerHTML='<i class="fas fa-check"></i> Save Changes';
+  }
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', e=>{ if(e.target===e.currentTarget) closeModal(); });
+
+  submitBtn.addEventListener('click', function(){
+    const name = input.value.trim();
+    const tags = tagsInput.value.trim();
+    errorEl.style.display='none';
+    if(!name){ errorEl.textContent='Name is required.'; errorEl.style.display='block'; input.focus(); return; }
+    submitBtn.disabled=true;
+    submitBtn.innerHTML='<span class="btn-spinner"></span> Saving…';
+    const selStatus = document.querySelector('input[name="editListStatus"]:checked')?.value || 'active';
+    fetch(`/Sales-Outreach/list/${_renameId}/rename/`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({name:name, tags:tags, status:selStatus}),
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.status==='ok'){
+        const row = document.querySelector(`tr[data-id="${_renameId}"]`);
+        if(row){
+          row.dataset.name   = name.toLowerCase();
+          row.dataset.status = data.list_status;
+          row.dataset.search = name + (data.tags ? ' ' + data.tags : '');
+          const nameCell = row.querySelector('td:nth-child(2)');
+          if(nameCell){
+            const tagHtml = data.tags ? data.tags.split(',').filter(t=>t.trim()).map(t=>`<span class="ls-tag">${escHtml(t.trim())}</span>`).join('') : '';
+            nameCell.innerHTML = `<div class="sol-name">${escHtml(name)}</div>`+
+                                 (tagHtml ? `<div class="sol-tags-row">${tagHtml}</div>` : '');
+          }
+          const editBtn = row.querySelector('.sg-action-btn[onclick^="openRename"]');
+          if(editBtn) editBtn.setAttribute('onclick', `openRename(${_renameId},'${jsEsc(name)}','${jsEsc(data.tags||'')}')`);
+          const badge = document.getElementById('lstbadge-'+_renameId);
+          if(badge){
+            const isActive = data.list_status === 'active';
+            badge.className = 'sg-badge ' + data.list_status;
+            badge.innerHTML = `<i class="fas fa-circle sol-dot"></i> ${isActive ? 'Active' : 'Inactive'}`;
+          }
+        }
+        closeModal();
+        WTI.toast('List updated.', 'success');
+      } else {
+        errorEl.textContent=data.message||'Could not save changes.';
+        errorEl.style.display='block';
+        submitBtn.disabled=false;
+        submitBtn.innerHTML='<i class="fas fa-check"></i> Save Changes';
+      }
+    })
+    .catch(()=>{
+      errorEl.textContent='Network error.';
+      errorEl.style.display='block';
+      submitBtn.disabled=false;
+      submitBtn.innerHTML='<i class="fas fa-check"></i> Save Changes';
+    });
+  });
+})();
+
+/* ── Duplicate List ─────────────────────────────────────────── */
+async function duplicateList(id, btn){
+  btn.disabled=true;
+  try{
+    const res  = await fetch(`/Sales-Outreach/list/${id}/duplicate/`,{method:'POST',headers:{'X-CSRFToken':CSRF}});
+    const data = await res.json();
+    btn.disabled=false;
+    if(data.status==='ok'){
+      WTI.toast(`"${data.name}" created with ${data.total_count} prospect(s).`, 'success');
+      setTimeout(()=>location.reload(), 800);
+    } else {
+      WTI.toast(data.message||'Duplicate failed.', 'error');
+    }
+  }catch(e){
+    btn.disabled=false;
+    WTI.toast('Network error.', 'error');
+  }
+}
+
+/* ── Delete List ────────────────────────────────────────────── */
+function confirmListDel(id, btn){
+  btn.style.display='none';
+  document.getElementById('ldel-'+id).classList.add('show');
+}
+function cancelListDel(id){
+  document.getElementById('ldel-'+id).classList.remove('show');
+  document.getElementById('ldelbtn-'+id).style.display='';
+}
+async function doDeleteList(id, btn){
+  btn.disabled=true;
+  try{
+    const res  = await fetch('{% url "so_list_delete" %}',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({list_id:id}),
+    });
+    const data = await res.json();
+    if(data.status==='ok'){
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      if(row){ row.style.transition='opacity .3s'; row.style.opacity='0'; setTimeout(()=>{ row.remove(); lstRenumber(); lstPaginate(); },300); }
+      WTI.toast('List deleted.','success');
+    } else {
+      cancelListDel(id);
+      WTI.toast(data.message||'Could not delete.','error');
+    }
+  }catch(e){
+    cancelListDel(id);
+    WTI.toast('Network error.','error');
+  }
+}
+
+/* ── Add Prospect Modal ─────────────────────────────────────── */
+function openAddProspectModal(){
+  document.getElementById('addProspectModal').classList.add('open');
+  document.getElementById('ap-email').focus();
+}
+(function(){
+  const modal     = document.getElementById('addProspectModal');
+  const closeBtn  = document.getElementById('closeAddProspect');
+  const cancelBtn = document.getElementById('cancelAddProspect');
+  const submitBtn = document.getElementById('submitAddProspect');
+  const emailEl   = document.getElementById('ap-email');
+  const firstEl   = document.getElementById('ap-firstname');
+  const lastEl    = document.getElementById('ap-lastname');
+  const companyEl = document.getElementById('ap-company');
+  const phoneEl   = document.getElementById('ap-phone');
+  const consentEl = document.getElementById('ap-consent');
+  const errorEl   = document.getElementById('ap-error');
+
+  function resetForm(){
+    emailEl.value=''; firstEl.value=''; lastEl.value='';
+    companyEl.value=''; phoneEl.value=''; consentEl.checked=false;
+    errorEl.style.display='none';
+    submitBtn.disabled=false;
+    submitBtn.innerHTML='<i class="fas fa-user-plus"></i> Add Prospect';
+  }
+  function closeModal(){ modal.classList.remove('open'); resetForm(); }
+  closeBtn.addEventListener('click', closeModal);
+  cancelBtn.addEventListener('click', closeModal);
+  modal.addEventListener('click', e=>{ if(e.target===e.currentTarget) closeModal(); });
+
+  submitBtn.addEventListener('click', function(){
+    const email = emailEl.value.trim();
+    errorEl.style.display='none';
+    if(!email){ errorEl.textContent='Email address is required.'; errorEl.style.display='block'; emailEl.focus(); return; }
+    if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ errorEl.textContent='Please enter a valid email address.'; errorEl.style.display='block'; emailEl.focus(); return; }
+    if(!_currentListId){ errorEl.textContent='No list selected.'; errorEl.style.display='block'; return; }
+    submitBtn.disabled=true;
+    submitBtn.innerHTML='<span class="btn-spinner"></span> Adding…';
+    fetch('/Sales-Outreach/list/'+_currentListId+'/add-prospect/',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+      body:JSON.stringify({
+        email:email,
+        first_name:firstEl.value.trim(),
+        last_name:lastEl.value.trim(),
+        company:companyEl.value.trim(),
+        phone:phoneEl.value.trim(),
+        consent:consentEl.checked?'1':'0',
+      }),
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      if(data.status==='ok'){
+        window.location.href='/Sales-Outreach/list/'+_currentListId+'/prospects/';
+      } else {
+        errorEl.textContent=data.message||'Something went wrong.';
+        errorEl.style.display='block';
+        submitBtn.disabled=false;
+        submitBtn.innerHTML='<i class="fas fa-user-plus"></i> Add Prospect';
+      }
+    })
+    .catch(()=>{
+      errorEl.textContent='Network error. Please try again.';
+      errorEl.style.display='block';
+      submitBtn.disabled=false;
+      submitBtn.innerHTML='<i class="fas fa-user-plus"></i> Add Prospect';
+    });
+  });
+})();
+
+document.addEventListener('keydown', function(e){
+  if(e.key==='Escape'){
+    ['createListModal','renameListModal','addProspectModal','noProspectsModal'].forEach(function(id){
+      document.getElementById(id)?.classList.remove('open');
+    });
+  }
+});
+</script>
+
+{% endblock %}

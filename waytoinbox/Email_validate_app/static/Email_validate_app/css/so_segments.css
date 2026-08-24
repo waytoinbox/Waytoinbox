@@ -1,0 +1,20 @@
+/*
+ * so_segments.css — SO Segments (list tab): header, tab bar, segment table.
+ * Reuses the shared tokens and Email Marketing's segments.css/filters.css it
+ * already links — no new :root here. Class prefix: sos- (SO Segments).
+ */
+
+.sos-header-icon-row { display: flex; align-items: center; gap: 12px; }
+
+.sos-tabbar { display: flex; gap: 0; border-bottom: 2px solid var(--border); margin-bottom: 20px; }
+.sos-tab {
+  display: inline-flex; align-items: center; gap: 7px; padding: 10px 18px;
+  font-size: 13.5px; font-weight: 600; color: var(--ink-3);
+  text-decoration: none; transition: color .15s;
+}
+.sos-tab.active { color: var(--teal); border-bottom: 2px solid var(--teal); margin-bottom: -2px; }
+
+.sos-name { font-weight: 600; color: var(--ink); }
+.sos-desc { font-size: 12px; color: var(--ink-3); margin-top: 2px; }
+.sos-dot { font-size: 7px; }
+.sos-actions-center { justify-content: center; }

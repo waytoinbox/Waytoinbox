@@ -1,0 +1,18 @@
+/*
+ * so_segment_prospects.css — SO Segment Prospects page (AJAX-paginated
+ * prospect table for one segment). Reuses the shared tokens and Email
+ * Marketing's segments.css it already links — no new :root here.
+ * Class prefix: sosp- (SO Segment Prospects).
+ */
+
+.sosp-header-icon-row { display: flex; align-items: center; gap: 12px; }
+.sosp-loading-cell { text-align: center; padding: 40px 20px; color: var(--ink-3); font-size: 13.5px; }
+.sosp-icon-mr6 { margin-right: 6px; }
+.sosp-empty-pad { padding: 40px 20px; }
+.sosp-email-cell { font-weight: 500; color: var(--ink); }
+.sosp-error-cell { text-align: center; padding: 32px; color: #be123c; }
+
+/* .sg-pag (segments.css) sets display:flex unconditionally, which would beat
+   the native [hidden]{display:none} UA rule on cascade order — same fix
+   already applied to so_inbox.css/so_campaign.css this session. */
+.sg-pag[hidden] { display: none; }

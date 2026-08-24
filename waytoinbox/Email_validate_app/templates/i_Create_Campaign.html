@@ -262,9 +262,17 @@
     <h3>Send Option</h3>
 
     <div class="crc-form-group">
-      <div class="crc-radio-group">
-        <label><input type="radio" name="sendOption" value="now" checked> Send Immediately</label>
-        <label><input type="radio" name="sendOption" value="schedule"> Schedule for Later</label>
+      <div class="crc-send-option-group">
+        <label class="crc-send-card">
+          <input type="radio" name="sendOption" value="now" checked>
+          <i class="fas fa-paper-plane"></i>
+          <span>Send Immediately</span>
+        </label>
+        <label class="crc-send-card">
+          <input type="radio" name="sendOption" value="schedule">
+          <i class="fas fa-clock"></i>
+          <span>Schedule for Later</span>
+        </label>
       </div>
     </div>
 
@@ -1136,7 +1144,10 @@ function submitCampaign(action, btn, noRedirect) {
     }
   }
 
-  if (hasError) return;
+  if (hasError) {
+    WTI.toast('Please fill in all required fields before continuing.', 'warning');
+    return;
+  }
 
   var originalHtml = btn.innerHTML;
   btn.disabled = true;
@@ -1363,42 +1374,25 @@ if (stashedState) {
     var replyEmail   = document.getElementById('replyEmail').value.trim();
     var emailRe      = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+    function testErr(msg) {
+      resultEl.textContent = msg;
+      resultEl.className = 'crc-test-result error';
+      resultEl.style.display = 'block';
+      WTI.toast(msg, 'warning');
+    }
+
     /* Frontend validation — mirrors backend so users get instant feedback */
-    if (!campaignName) {
-      resultEl.textContent = 'Enter a Campaign Name (Section 1) before sending a test.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
+    if (!campaignName) { testErr('Enter a Campaign Name (Section 1) before sending a test.'); return; }
     /* Recipient list is not required for a test send */
-    if (!templateId) {
-      resultEl.textContent = 'Select a template (Section 2) before sending a test.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
-    if (!senderName) {
-      resultEl.textContent = 'Enter a Sender Name (Section 3) before sending a test.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
-    if (!fromEmail || !emailRe.test(fromEmail)) {
-      resultEl.textContent = 'Enter a valid From Email (Section 3) before sending a test.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
-    if (!replyEmail || !emailRe.test(replyEmail)) {
-      resultEl.textContent = 'Enter a valid Reply-To Email (Section 3) before sending a test.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
+    if (!templateId)   { testErr('Select a template (Section 2) before sending a test.'); return; }
+    if (!senderName)   { testErr('Enter a Sender Name (Section 3) before sending a test.'); return; }
+    if (!fromEmail || !emailRe.test(fromEmail))   { testErr('Enter a valid From Email (Section 3) before sending a test.'); return; }
+    if (!replyEmail || !emailRe.test(replyEmail)) { testErr('Enter a valid Reply-To Email (Section 3) before sending a test.'); return; }
     var emails = testRows.map(function (i) { return i.value.trim(); }).filter(Boolean);
-    if (!emails.length) {
-      resultEl.textContent = 'Enter at least 1 recipient email address.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
-    if (emails.length > 5) {
-      resultEl.textContent = 'Maximum 5 recipient addresses allowed.';
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
+    if (!emails.length)  { testErr('Enter at least 1 recipient email address.'); return; }
+    if (emails.length > 5) { testErr('Maximum 5 recipient addresses allowed.'); return; }
     var bad = emails.filter(function (e) { return !emailRe.test(e); });
-    if (bad.length) {
-      resultEl.textContent = 'Invalid address(es): ' + bad.join(', ');
-      resultEl.className = 'crc-test-result error'; resultEl.style.display = 'block'; return;
-    }
+    if (bad.length) { testErr('Invalid address(es): ' + bad.join(', ')); return; }
 
     var btn = this;
     btn.disabled = true;

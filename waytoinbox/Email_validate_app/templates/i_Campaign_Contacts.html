@@ -390,7 +390,7 @@ const LIST_ID = {{ lst.id }};
         tr.innerHTML =
           '<td>' + c.row_num + '</td>' +
           '<td>' + c.name   + '</td>' +
-          '<td style="font-family:monospace;font-size:13px;">' + c.email  + '</td>' +
+          '<td><span class="cd-email-link cd-mono" data-id="' + c.id + '">' + c.email + '</span></td>' +
           '<td>' + badge    + '</td>' +
           '<td>' + c.date   + '</td>';
         tbody.appendChild(tr);
@@ -895,6 +895,84 @@ const LIST_ID = {{ lst.id }};
     }
   }
 
+})();
+</script>
+
+<!-- Contact Detail Modal -->
+<div id="cdOverlay" class="cc-modal-overlay" style="display:none!important;" data-cd>
+  <div class="cc-modal" style="max-width:480px;">
+    <button class="cc-modal-close" id="cdClose">&times;</button>
+    <h3 class="cd-title">
+      <i class="fas fa-user-circle" style="color:var(--teal);font-size:18px;"></i> Contact Details
+    </h3>
+    <div id="cdBody"></div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var overlay = document.getElementById('cdOverlay');
+  var cdBody  = document.getElementById('cdBody');
+
+  function openCd()  { overlay.removeAttribute('style'); overlay.classList.add('open'); }
+  function closeCd() { overlay.classList.remove('open'); overlay.setAttribute('style','display:none!important;'); }
+
+  document.getElementById('cdClose').addEventListener('click', closeCd);
+  overlay.addEventListener('click', function(e) { if (e.target === overlay) closeCd(); });
+  document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeCd(); });
+
+  document.addEventListener('click', function(e) {
+    var link = e.target.closest('.cd-email-link');
+    if (!link) return;
+    openContactDetail(link.dataset.id);
+  });
+
+  function openContactDetail(id) {
+    cdBody.innerHTML = '<p style="color:var(--ink-3);padding:20px 0;text-align:center;"><span class="btn-spinner" style="width:16px;height:16px;border-width:2px;display:inline-block;margin-right:8px;"></span>Loading…</p>';
+    openCd();
+    fetch('/Email_Campaigns/contacts/' + id + '/detail/', { headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.status !== 'ok') { cdBody.innerHTML = '<p style="color:#C94A1D;">Could not load contact details.</p>'; return; }
+      renderContact(d.contact);
+    })
+    .catch(function() { cdBody.innerHTML = '<p style="color:#C94A1D;">Network error.</p>'; });
+  }
+
+  function esc(s) { return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+  function statusBadge(s, hardUnsub) {
+    var labels = { subscribed: 'Subscribed', never_subscribed: 'Never Subscribed', unsubscribed: 'Unsubscribed' };
+    var label  = labels[s] || s;
+    if (hardUnsub) label += ' · hard unsubscribe';
+    return '<span class="cd-badge cd-badge-' + esc(s) + '">' + esc(label) + '</span>';
+  }
+
+  var _empty = '<span style="color:var(--ink-3);">—</span>';
+
+  function renderContact(c) {
+    var rows = [
+      ['Email',        '<span class="cd-mono">' + esc(c.email) + '</span>'],
+      ['First Name',   esc(c.first_name) || _empty],
+      ['Last Name',    esc(c.last_name)  || _empty],
+      ['Status',       statusBadge(c.subscribed, c.hard_unsub)],
+      ['Phone',        esc(c.phone)   || _empty],
+      ['Company',      esc(c.company) || _empty],
+      ['List',         esc(c.list_name)],
+      ['Added',        esc(c.created_at)],
+      ['Last Updated', esc(c.updated_at)],
+    ];
+    Object.entries(c.extra_data || {}).forEach(function(kv) {
+      var label = kv[0].replace(/_/g,' ').replace(/\b\w/g, function(l) { return l.toUpperCase(); });
+      rows.push([label, esc(kv[1]) || _empty]);
+    });
+    var html = '<table class="cd-table">';
+    rows.forEach(function(r) {
+      html += '<tr><td class="cd-label">' + r[0] + '</td><td class="cd-value">' + r[1] + '</td></tr>';
+    });
+    html += '</table>';
+    cdBody.innerHTML = html;
+  }
 })();
 </script>
 

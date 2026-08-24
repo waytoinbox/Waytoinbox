@@ -94,4 +94,12 @@ urlpatterns = [
 
     # Profile
     path('wti-admin/profile/',                             av.admin_profile,             name='admin_profile'),
+
+    # Warmup Receiver Pool
+    path('wti-admin/warmup-receivers/',                          av.admin_warmup_receivers,               name='admin_warmup_receivers'),
+    path('wti-admin/warmup-receivers/oauth/start/',              av.admin_warmup_receiver_oauth_start,    name='admin_warmup_receiver_oauth_start'),
+    path('wti-admin/warmup-receivers/oauth/callback/',           av.admin_warmup_receiver_oauth_callback, name='admin_warmup_receiver_oauth_callback'),
+    path('wti-admin/warmup-receivers/<int:rid>/pause/',          av.admin_warmup_receiver_pause,          name='admin_warmup_receiver_pause'),
+    path('wti-admin/warmup-receivers/<int:rid>/resume/',         av.admin_warmup_receiver_resume,         name='admin_warmup_receiver_resume'),
+    path('wti-admin/warmup-receivers/<int:rid>/delete/',         av.admin_warmup_receiver_delete,         name='admin_warmup_receiver_delete'),
 ]

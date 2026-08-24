@@ -45,18 +45,24 @@
 
 </div>
 
-<!-- Save-before-close popup (full-page mode) -->
+<!-- Save Template popup (full-page mode) -->
 <div id="tbSaveModal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(11,30,61,.45);backdrop-filter:blur(3px);align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.22);padding:28px 28px 22px;width:100%;max-width:420px;margin:0 16px;">
-    <h3 style="margin:0 0 6px;font-family:var(--font-head);font-size:16px;font-weight:800;color:var(--ink);">Save Template</h3>
-    <p style="margin:0 0 18px;font-size:13.5px;color:var(--ink-2);">Enter a name for this template before closing.</p>
-    <label style="display:block;font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--ink-2);margin-bottom:6px;">Template Name <span style="color:#C94A1D;">*</span></label>
+  <div style="background:#fff;border-radius:12px;box-shadow:0 8px 40px rgba(0,0,0,.22);padding:28px 28px 22px;width:100%;max-width:440px;margin:0 16px;">
+    <h3 style="margin:0 0 4px;font-family:var(--font-head);font-size:16px;font-weight:800;color:var(--ink);">Save Template</h3>
+    <p style="margin:0 0 20px;font-size:13px;color:var(--ink-3);">Fill in the details below to save your template.</p>
+
+    <label style="display:block;font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--ink-2);margin-bottom:5px;">Template Name <span style="color:#C94A1D;">*</span></label>
     <input id="tbSaveModalName" type="text" maxlength="255" placeholder="e.g. Monthly Newsletter"
+      style="width:100%;box-sizing:border-box;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;color:var(--ink);font-family:var(--font-body);outline:none;margin-bottom:14px;">
+
+    <label style="display:block;font-family:var(--font-head);font-size:11.5px;font-weight:700;color:var(--ink-2);margin-bottom:5px;">Email Subject <span style="color:#C94A1D;">*</span></label>
+    <input id="tbSaveModalSubject" type="text" maxlength="500" placeholder="e.g. Your June update is here"
       style="width:100%;box-sizing:border-box;border:1.5px solid var(--border);border-radius:var(--radius-sm);padding:10px 13px;font-size:14px;color:var(--ink);font-family:var(--font-body);outline:none;margin-bottom:6px;">
-    <p id="tbSaveModalErr" style="display:none;color:#C94A1D;font-size:12px;margin:0 0 12px;"></p>
-    <div style="display:flex;gap:10px;margin-top:18px;justify-content:flex-end;">
-      <button id="tbSaveModalNoSave" class="btn btn-outline" style="min-width:110px;">Don't Save</button>
-      <button id="tbSaveModalSave"   class="btn btn-primary" style="min-width:110px;"><i class="fas fa-save"></i> Save</button>
+
+    <p id="tbSaveModalErr" style="display:none;color:#C94A1D;font-size:12px;margin:4px 0 0;"></p>
+    <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end;">
+      <button id="tbSaveModalNoSave" class="btn btn-outline" style="min-width:110px;">Cancel</button>
+      <button id="tbSaveModalSave"   class="btn btn-primary" style="min-width:110px;"><i class="fas fa-save"></i> Save Template</button>
     </div>
   </div>
 </div>
@@ -78,10 +84,62 @@ const editingTemplate = JSON.parse(document.getElementById('editingTemplateData'
 /* Full-page mode: ?fp=1 in URL → open builder maximised, no sidebar/topbar */
 var IS_FP = new URLSearchParams(window.location.search).get('fp') === '1';
 
-/* Cancel → return to Templates page or Create Campaign depending on where builder was opened from */
+/* ── Unsaved-changes tracking + orphan duplicate cleanup ── */
+var _isDirty           = false;
+var _savedSuccessfully = false;
+var _cleanedUp         = false;
+var _isNewDuplicate    = new URLSearchParams(window.location.search).get('is_new_duplicate') === '1';
+var _isCampaignDup     = (FROM_CAMPAIGN && !!RETURN_CAMPAIGN_ID && !!editingTemplate) || (_isNewDuplicate && !!editingTemplate);
+var DELETE_TEMPLATE_URL = '{% if editing_template %}{% url "delete_user_template" editing_template.id %}{% else %}{% endif %}';
+
+/* Mark dirty after 1.5 s so the initial load render doesn't trigger it */
+setTimeout(function() {
+  var ed = document.getElementById('wtibEditor');
+  if (ed) {
+    ed.addEventListener('mousedown', function() { _isDirty = true; }, { once: true });
+    ed.addEventListener('keydown',   function() { _isDirty = true; }, { once: true });
+  }
+}, 1500);
+
+/* Warn on browser Back / close-tab if there are unsaved edits */
+window.addEventListener('beforeunload', function(e) {
+  if (_isDirty && !_savedSuccessfully) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
+/* When the page actually unloads (user confirmed Leave, or closed tab):
+   delete the orphan duplicate that was auto-created when Edit was clicked */
+window.addEventListener('pagehide', function() {
+  if (!_cleanedUp && _isCampaignDup && !_savedSuccessfully && DELETE_TEMPLATE_URL) {
+    _cleanedUp = true;
+    var fd = new FormData();
+    fd.append('csrfmiddlewaretoken', CSRF);
+    navigator.sendBeacon(DELETE_TEMPLATE_URL, fd);
+  }
+});
+
+/* Used by Cancel button — deletes orphan then navigates */
+function _cleanupAndLeave(dest) {
+  if (!_cleanedUp && _isCampaignDup && !_savedSuccessfully && DELETE_TEMPLATE_URL) {
+    _cleanedUp = true;
+    fetch(DELETE_TEMPLATE_URL, {
+      method: 'POST', headers: { 'X-CSRFToken': CSRF }, keepalive: true,
+    }).finally(function() { window.location.href = dest; });
+  } else {
+    window.location.href = dest;
+  }
+}
+
+/* Cancel button */
 document.getElementById('builderCancelBtn').addEventListener('click', function(e) {
   e.preventDefault();
-  if (IS_FP) { window.close(); } else { window.location.href = returnUrl(); }
+  if (IS_FP) { window.close(); return; }
+  if (_isDirty && !_savedSuccessfully) {
+    if (!confirm('You have unsaved changes. Leave without saving?')) return;
+  }
+  _cleanupAndLeave(returnUrl());
 });
 
 function returnUrl() {
@@ -126,51 +184,62 @@ if (editingTemplate) {
 }
 
 
-/* ── Save-name modal (full-page mode, no name set) ────────── */
+/* ── Save Template modal (full-page mode) ─────────────────── */
 var _saveModalCallback = null;
 
 (function() {
   var modal   = document.getElementById('tbSaveModal');
   var nameInp = document.getElementById('tbSaveModalName');
+  var subjInp = document.getElementById('tbSaveModalSubject');
   var errP    = document.getElementById('tbSaveModalErr');
   var btnSave = document.getElementById('tbSaveModalSave');
   var btnNo   = document.getElementById('tbSaveModalNoSave');
 
   function openModal(onSave) {
     _saveModalCallback = onSave;
-    nameInp.value = '';
+    /* Pre-fill from hidden header inputs if values already exist */
+    nameInp.value = document.getElementById('builderName').value.trim();
+    subjInp.value = document.getElementById('builderSubject').value.trim();
     errP.style.display = 'none';
     modal.style.display = 'flex';
-    setTimeout(function() { nameInp.focus(); }, 80);
+    setTimeout(function() { (nameInp.value ? subjInp : nameInp).focus(); }, 80);
   }
   function closeModal() {
     modal.style.display = 'none';
     _saveModalCallback = null;
   }
 
-  btnNo.addEventListener('click', function() {
-    closeModal();
-    window.close();
-  });
+  btnNo.addEventListener('click', function() { closeModal(); });
 
   btnSave.addEventListener('click', function() {
     var n = nameInp.value.trim();
+    var s = subjInp.value.trim();
     if (!n) {
       errP.textContent = 'Template name is required.';
       errP.style.display = 'block';
       nameInp.focus();
       return;
     }
+    if (!s) {
+      errP.textContent = 'Email subject is required.';
+      errP.style.display = 'block';
+      subjInp.focus();
+      return;
+    }
     errP.style.display = 'none';
-    document.getElementById('builderName').value = n;
+    /* Push values into the hidden header inputs so doSave can read them */
+    document.getElementById('builderName').value    = n;
+    document.getElementById('builderSubject').value = s;
     closeModal();
-    if (_saveModalCallback) _saveModalCallback(n);
+    if (_saveModalCallback) _saveModalCallback();
   });
 
-  nameInp.addEventListener('keydown', function(e) {
-    if (e.key === 'Enter') btnSave.click();
-    if (e.key === 'Escape') { closeModal(); window.close(); }
-  });
+  function onKey(e) {
+    if (e.key === 'Enter')  btnSave.click();
+    if (e.key === 'Escape') closeModal();
+  }
+  nameInp.addEventListener('keydown', onKey);
+  subjInp.addEventListener('keydown', onKey);
 
   window._openSaveModal = openModal;
 })();
@@ -181,16 +250,9 @@ function doSave(onSuccess, saveBtn) {
   var errEl = document.getElementById('err-builder');
 
   if (!name) {
-    if (IS_FP) {
-      window._openSaveModal(function(enteredName) {
-        doSave(onSuccess, saveBtn);
-      });
-      return;
-    } else {
-      errEl.textContent = 'Template name is required.';
-      errEl.style.display = 'block';
-      return;
-    }
+    errEl.textContent = 'Template name is required.';
+    errEl.style.display = 'block';
+    return;
   }
 
   var design = builder.getDesign();
@@ -222,6 +284,8 @@ function doSave(onSuccess, saveBtn) {
       if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = '<i class="fas fa-save"></i> Save Template'; }
       return;
     }
+    _savedSuccessfully = true;
+    _isDirty = false;
     if (onSuccess) onSuccess(d);
   })
   .catch(function() {
@@ -231,36 +295,39 @@ function doSave(onSuccess, saveBtn) {
   });
 }
 
-/* Intercept Close Tab in FP mode — save first, then close */
+/* Intercept Close Tab in FP mode — show modal, save, then close */
 if (IS_FP) {
   document.addEventListener('click', function(e) {
     var btn = e.target.closest('#wtibFullPage');
     if (!btn) return;
     e.stopPropagation();
     e.preventDefault();
-    WTI.toast('Saving…', 'info');
-    doSave(function(d) {
-      WTI.toast('Saved!', 'success');
-      setTimeout(function() {
-        if (window.opener && !window.opener.closed) {
-          var dest = returnUrl();
-          if (RETURN_CAMPAIGN_ID) dest += '&selected_template_id=' + d.template.id;
-          try { window.opener.location.href = dest; } catch(ex) {}
-        }
-        window.close();
-      }, 600);
+    window._openSaveModal(function() {
+      doSave(function(d) {
+        WTI.toast('Template saved!', 'success');
+        setTimeout(function() {
+          if (window.opener && !window.opener.closed) {
+            var dest = returnUrl();
+            if (RETURN_CAMPAIGN_ID) dest += '&selected_template_id=' + d.template.id;
+            try { window.opener.location.href = dest; } catch(ex) {}
+          }
+          window.close();
+        }, 600);
+      });
     });
   }, true);
 }
 
-/* Save button inside full-page toolbar */
+/* Save button inside full-page toolbar — always show modal first */
 document.getElementById('wtibSaveBtn').addEventListener('click', function() {
   var btn = this;
-  doSave(function() {
-    WTI.toast('Template saved!', 'success');
-    btn.disabled  = false;
-    btn.innerHTML = '<i class="fas fa-save"></i> Save';
-  }, btn);
+  window._openSaveModal(function() {
+    doSave(function() {
+      WTI.toast('Template saved!', 'success');
+      btn.disabled  = false;
+      btn.innerHTML = '<i class="fas fa-save"></i> Save';
+    }, btn);
+  });
 });
 
 /* Save button (normal mode) */

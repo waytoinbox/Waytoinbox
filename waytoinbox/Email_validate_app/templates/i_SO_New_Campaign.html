@@ -1,0 +1,655 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_campaign.css' %}"/>
+<link href="{% static 'Email_validate_app/css/quill.snow.css' %}" rel="stylesheet"/>
+{% endblock %}
+{% block content %}
+
+<div class="soc-page">
+
+  <div>
+    <a href="{% url 'so_campaigns' %}" class="soc-back">
+      <i class="fas fa-arrow-left soc-icon-sm"></i> Back to Campaigns
+    </a>
+    <div class="soc-header">
+      <h2>{% if editing_campaign %}Edit Campaign{% else %}New Campaign{% endif %}</h2>
+      <p>Build a multi-step outreach sequence and choose who receives it.</p>
+    </div>
+  </div>
+
+  <!-- ── Wizard step navigation ─────────────────────────────────────── -->
+  <div class="soc-wizard-nav" id="socWizardNav">
+    <button type="button" class="soc-wnav-step" data-step="1">
+      <span class="soc-wnav-num">1</span><span class="soc-wnav-label">Audience</span>
+    </button>
+    <span class="soc-wnav-arrow"><i class="fas fa-chevron-right"></i></span>
+    <button type="button" class="soc-wnav-step" data-step="2">
+      <span class="soc-wnav-num">2</span><span class="soc-wnav-label">Sequence</span>
+    </button>
+    <span class="soc-wnav-arrow"><i class="fas fa-chevron-right"></i></span>
+    <button type="button" class="soc-wnav-step" data-step="3">
+      <span class="soc-wnav-num">3</span><span class="soc-wnav-label">Subsequence</span>
+    </button>
+    <span class="soc-wnav-arrow"><i class="fas fa-chevron-right"></i></span>
+    <button type="button" class="soc-wnav-step" data-step="4">
+      <span class="soc-wnav-num">4</span><span class="soc-wnav-label">Settings</span>
+    </button>
+    <span class="soc-wnav-arrow"><i class="fas fa-chevron-right"></i></span>
+    <button type="button" class="soc-wnav-step" data-step="5">
+      <span class="soc-wnav-num">5</span><span class="soc-wnav-label">Review &amp; Test</span>
+    </button>
+    <span class="soc-wnav-arrow"><i class="fas fa-chevron-right"></i></span>
+    <button type="button" class="soc-wnav-step" data-step="6">
+      <span class="soc-wnav-num">6</span><span class="soc-wnav-label">Launch</span>
+    </button>
+  </div>
+
+  <!-- ══ STEP 1 — Audience ═══════════════════════════════════════════ -->
+  <div class="soc-wizard-panel" data-step-panel="1">
+    <div class="soc-card">
+      <h3>Campaign Information</h3>
+      <div class="soc-form-row">
+        <div class="soc-form-group">
+          <label for="socName">Campaign Name <span class="req">*</span></label>
+          <input type="text" id="socName" maxlength="255" placeholder="e.g. Q3 SaaS Founders"/>
+          <p class="soc-error" id="err-socName"></p>
+        </div>
+
+        <div class="soc-form-group">
+          <div class="soc-include-head">
+            <label class="soc-sub-label soc-label-flush">Include <span class="req">*</span></label>
+            <div class="soc-recipient-estimate" id="socEstimate" hidden>
+              <i class="fas fa-users soc-icon-sm"></i>
+              Estimated recipients: <strong id="socEstimateCount">0</strong>
+              <span class="soc-text-muted-sm">(subscribed prospects)</span>
+            </div>
+          </div>
+
+          <div class="soc-rd" id="socRdRoot">
+            <div class="soc-rd-trigger" id="socRdTrigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+              <div class="soc-rd-tags" id="socRdTags">
+                <span class="soc-rd-placeholder">Select lists or segments</span>
+              </div>
+              <i class="fas fa-chevron-down soc-rd-arrow"></i>
+            </div>
+            <div class="soc-rd-panel" id="socRdPanel">
+              <div class="soc-rd-search-wrap">
+                <i class="fas fa-search soc-rd-search-icon"></i>
+                <input type="text" class="soc-rd-search" id="socRdSearch" placeholder="Search…" autocomplete="off"/>
+              </div>
+              <div class="soc-rd-list" id="socRdList">
+                {% include 'partials/_so_recipient_options.html' %}
+              </div>
+            </div>
+          </div>
+
+          <button type="button" class="soc-excl-toggle" id="socExclToggle">
+            <i class="fas fa-plus"></i> Exclude
+          </button>
+
+          <div class="soc-excl-section" id="socExclSection" hidden>
+            <div class="soc-excl-head">
+              <label class="soc-sub-label soc-label-flush">Exclude</label>
+              <button type="button" class="soc-excl-remove" id="socExclRemove" aria-label="Remove exclude">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            <div class="soc-rd" id="socRdExcRoot">
+              <div class="soc-rd-trigger" id="socRdExcTrigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+                <div class="soc-rd-tags" id="socRdExcTags">
+                  <span class="soc-rd-placeholder">Select lists or segments to exclude</span>
+                </div>
+                <i class="fas fa-chevron-down soc-rd-arrow"></i>
+              </div>
+              <div class="soc-rd-panel" id="socRdExcPanel">
+                <div class="soc-rd-search-wrap">
+                  <i class="fas fa-search soc-rd-search-icon"></i>
+                  <input type="text" class="soc-rd-search" id="socRdExcSearch" placeholder="Search…" autocomplete="off"/>
+                </div>
+                <div class="soc-rd-list" id="socRdExcList">
+                  {% include 'partials/_so_recipient_options.html' %}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <p class="soc-error" id="err-socRecipients"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 2 — Sequence ═══════════════════════════════════════════ -->
+  <div class="soc-wizard-panel" data-step-panel="2" hidden>
+    <div class="soc-card">
+      <h3>Sequence</h3>
+
+      <div class="soc-seq" id="socSeq">
+        <div>
+          <div class="soc-seq-rail" id="socStepRail"></div>
+          <button type="button" class="soc-add-step soc-mt-12" id="socAddStep">
+            <i class="fas fa-plus"></i> Add Step
+          </button>
+        </div>
+
+        <div class="soc-seq-editor">
+          <div class="soc-editor-head">
+            <span class="soc-step-badge" id="socEditorBadge">Step 1A</span>
+            <input type="text" id="socSubject" class="soc-subject" maxlength="500" placeholder="Subject Line"/>
+            <button type="button" class="soc-link-btn" id="socPreheaderToggle">Add preheader</button>
+          </div>
+          <input type="text" id="socPreheader" class="soc-preheader" maxlength="200"
+                 placeholder="Preheader — the preview text shown after the subject" hidden/>
+
+          <div id="socQuillToolbar" class="soc-seq-toolbar">
+            <span class="ql-formats">
+              <button class="ql-bold" title="Bold"></button>
+              <button class="ql-italic" title="Italic"></button>
+              <button class="ql-underline" title="Underline"></button>
+              <select class="ql-color" title="Text colour"></select>
+            </span>
+            <span class="ql-formats">
+              <button class="ql-align" value="" title="Align left"></button>
+              <button class="ql-align" value="center" title="Align centre"></button>
+              <button class="ql-align" value="justify" title="Justify"></button>
+              <button class="ql-list" value="ordered" title="Numbered list"></button>
+              <button class="ql-list" value="bullet" title="Bulleted list"></button>
+            </span>
+            <span class="ql-formats soc-tb-group-bordered">
+              <span class="soc-tb-stepper" title="Font size">
+                <i class="fas fa-text-height"></i>
+                <span class="soc-tb-stepper-value" id="socSeqSizeValue">14</span>
+                <span class="soc-tb-stepper-arrows">
+                  <button type="button" id="socSeqSizeUp" title="Increase font size"><i class="fas fa-caret-up"></i></button>
+                  <button type="button" id="socSeqSizeDown" title="Decrease font size"><i class="fas fa-caret-down"></i></button>
+                </span>
+              </span>
+              <span class="soc-tb-stepper" title="Line height">
+                <i class="fas fa-arrows-alt-v"></i>
+                <span class="soc-tb-stepper-value" id="socSeqLineHeightValue">1</span>
+                <span class="soc-tb-stepper-arrows">
+                  <button type="button" id="socSeqLineHeightUp" title="Increase line height"><i class="fas fa-caret-up"></i></button>
+                  <button type="button" id="socSeqLineHeightDown" title="Decrease line height"><i class="fas fa-caret-down"></i></button>
+                </span>
+              </span>
+            </span>
+            <span class="ql-formats">
+              <button class="ql-link" title="Insert link"></button>
+              <button class="ql-image" title="Insert image"></button>
+              <button id="socTbTable" class="soc-tb-btn" type="button" title="Insert table"><i class="fas fa-table"></i></button>
+              <button id="socTbEmoji" class="soc-tb-btn" type="button" title="Insert emoji"><i class="far fa-smile"></i></button>
+            </span>
+            <span class="ql-formats">
+              <button id="socTbUndo" class="soc-tb-btn" type="button" title="Undo"><i class="fas fa-undo"></i></button>
+              <button id="socTbRedo" class="soc-tb-btn" type="button" title="Redo"><i class="fas fa-redo"></i></button>
+              <button id="socTbSource" class="soc-tb-btn" type="button" title="View HTML source"><i class="fas fa-code"></i></button>
+            </span>
+          </div>
+
+          <div id="socQuillEditor"></div>
+          <textarea id="socSourceArea" class="soc-source-area" spellcheck="false"></textarea>
+          <div class="soc-source-note" id="socSourceNote">
+            <i class="fas fa-exclamation-triangle"></i>
+            Editing raw HTML: markup the editor cannot represent (conditional comments,
+            &lt;style&gt; blocks) may be simplified when you switch back.
+          </div>
+
+          <div class="soc-editor-foot"><span id="socCharCount">Characters : 0</span></div>
+
+          <div class="soc-editor-bar">
+            <div class="soc-score">
+              <span class="soc-score-pill" id="socScorePill">—</span>
+              <button type="button" class="soc-score-details" id="socScoreDetails">See Details →</button>
+            </div>
+            <div class="soc-tool-row">
+              <button type="button" class="soc-tool-btn mono" id="socToolMergeTags" title="Insert a merge tag">{}</button>
+              <button type="button" class="soc-tool-btn" id="socToolTest" title="Send a test of this variation"><i class="fas fa-paper-plane"></i></button>
+              <button type="button" class="soc-tool-btn ab" id="socToolAb" title="Add an A/B variation">A/B</button>
+              <button type="button" class="so-btn-primary" id="socSaveAll"><i class="fas fa-save"></i> Save All</button>
+            </div>
+          </div>
+
+          <div class="soc-status" id="socSaveStatus">Status: <b>Not saved yet</b></div>
+        </div>
+      </div>
+      <p class="soc-error" id="err-socSequence"></p>
+    </div>
+  </div>
+
+  <!-- ══ STEP 4 — Settings ═══════════════════════════════════════════ -->
+  <div class="soc-wizard-panel" data-step-panel="4" hidden>
+    <div class="soc-card">
+      <h3>Sender Settings</h3>
+      {% if email_accounts %}
+      <div class="soc-form-row">
+        <div class="soc-form-group">
+          <label class="soc-sub-label soc-label-mb6">Send From <span class="req">*</span></label>
+          <div class="soc-rd" id="socSenderRoot">
+            <div class="soc-rd-trigger" id="socSenderTrigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+              <div class="soc-rd-tags" id="socSenderTags">
+                <span class="soc-rd-placeholder">Select one or more sending accounts</span>
+              </div>
+              <i class="fas fa-chevron-down soc-rd-arrow"></i>
+            </div>
+            <div class="soc-rd-panel" id="socSenderPanel">
+              <div class="soc-rd-search-wrap">
+                <i class="fas fa-search soc-rd-search-icon"></i>
+                <input type="text" class="soc-rd-search" id="socSenderSearch" placeholder="Search…" autocomplete="off"/>
+              </div>
+              <div class="soc-rd-list" id="socSenderList">
+                {% for acc in email_accounts %}
+                <label class="soc-rd-option" data-type="account" data-id="{{ acc.id }}"
+                       data-label="{{ acc.email }}" data-daily-limit="{{ acc.daily_limit }}"
+                       data-display-name="{{ acc.display_name }}">
+                  <input type="checkbox" class="soc-rd-chk" value="account__{{ acc.id }}"/>
+                  <span class="soc-rd-name">{{ acc.email }}</span>
+                  <span class="soc-rd-meta">{{ acc.daily_limit }}/day</span>
+                </label>
+                {% endfor %}
+                <div class="soc-rd-no-results" hidden>No matches found.</div>
+              </div>
+            </div>
+          </div>
+          <p class="soc-error" id="err-socAccount"></p>
+        </div>
+        <div class="soc-form-group">
+          <label for="socSenderName">Sender Name</label>
+          <input type="text" id="socSenderName" maxlength="255" placeholder="e.g. Alex from Acme"/>
+        </div>
+        <div class="soc-form-group">
+          <label for="socReplyTo">Reply-To Address</label>
+          <input type="email" id="socReplyTo" maxlength="255" placeholder="replies@yourdomain.com"/>
+        </div>
+      </div>
+
+      <div class="soc-form-row">
+        <div class="soc-form-group">
+          <div class="soc-info-line" id="socDailyLimitInfo">
+            <i class="fas fa-info-circle"></i>
+            Select one or more sending accounts above to see combined daily capacity.
+          </div>
+        </div>
+      </div>
+      {% else %}
+      <div class="so-empty soc-empty-plain">
+        <p>No connected email accounts yet.</p>
+        <a href="{% url 'so_add_email_account' %}" class="so-btn-secondary soc-link-btn-sm">
+          <i class="fas fa-plus"></i> Connect an Email Account
+        </a>
+      </div>
+      {% endif %}
+    </div>
+
+    <div class="soc-card">
+      <h3>Send Option</h3>
+      <div class="soc-send-option-group">
+        <label class="soc-send-card">
+          <input type="radio" name="socSendOption" value="now" checked/>
+          <div>
+            <div class="soc-send-card-title">Send Immediately</div>
+            <div class="soc-send-card-sub">Step 1 goes out as soon as you launch.</div>
+          </div>
+        </label>
+        <label class="soc-send-card">
+          <input type="radio" name="socSendOption" value="schedule"/>
+          <div>
+            <div class="soc-send-card-title">Schedule for Later</div>
+            <div class="soc-send-card-sub">Pick when step 1 is delivered.</div>
+          </div>
+        </label>
+      </div>
+
+      <div id="socScheduleGroup" class="soc-schedule-group" hidden>
+        <label class="soc-sub-label">Schedule Date &amp; Time <span class="req">*</span></label>
+        <div class="soc-sch-panel">
+          <div class="soc-sch-block">
+            <span class="soc-sch-block-label"><i class="fas fa-calendar"></i> Date</span>
+            <input type="date" id="socScheduleDate" class="soc-sch-date"/>
+          </div>
+          <div class="soc-sch-block">
+            <span class="soc-sch-block-label"><i class="fas fa-clock"></i> Time</span>
+            <select id="socScheduleHour" class="soc-sch-sel"></select>
+            <span class="soc-sch-colon">:</span>
+            <select id="socScheduleMinute" class="soc-sch-sel"></select>
+            <select id="socScheduleAmPm" class="soc-sch-sel">
+              <option>AM</option><option>PM</option>
+            </select>
+          </div>
+          <div class="soc-sch-block">
+            <span class="soc-sch-block-label"><i class="fas fa-globe"></i> Timezone</span>
+            <div class="soc-sch-tz-wrap" id="socTzWrap">
+              <div class="soc-sch-tz-trigger" id="socTzTrigger">
+                <span id="socTzLabelText">Asia/Kolkata</span>
+                <i class="fas fa-chevron-down soc-sch-tz-chevron"></i>
+              </div>
+              <div class="soc-sch-tz-dropdown" id="socTzDropdown" hidden>
+                <input type="text" class="soc-sch-tz-search" id="socTzSearch" placeholder="Search timezone…" autocomplete="off"/>
+                <div class="soc-sch-tz-list" id="socTzList"></div>
+              </div>
+            </div>
+            <input type="hidden" id="socCampaignTz" value="Asia/Kolkata"/>
+          </div>
+        </div>
+        <p class="soc-hint">This sets when <strong>step 1</strong> is delivered.</p>
+        <p class="soc-error" id="err-socSchedule"></p>
+      </div>
+
+      <label class="soc-window-toggle">
+        <input type="checkbox" id="socWindowToggle"/>
+        <div>
+          <div class="soc-window-toggle-label">Restrict sending to specific days &amp; hours</div>
+          <div class="soc-window-toggle-sub">Applies to every step of this sequence, not just step 1 — a step due outside the window waits for the next one.</div>
+        </div>
+      </label>
+
+      <div id="socWindowGroup" class="soc-window-group" hidden>
+        <div class="soc-form-group soc-field-mb12">
+          <label class="soc-sub-label">Days</label>
+          <div class="soc-day-chips" id="socDayChips">
+            <button type="button" class="soc-day-chip" data-day="mon">Mon</button>
+            <button type="button" class="soc-day-chip" data-day="tue">Tue</button>
+            <button type="button" class="soc-day-chip" data-day="wed">Wed</button>
+            <button type="button" class="soc-day-chip" data-day="thu">Thu</button>
+            <button type="button" class="soc-day-chip" data-day="fri">Fri</button>
+            <button type="button" class="soc-day-chip" data-day="sat">Sat</button>
+            <button type="button" class="soc-day-chip" data-day="sun">Sun</button>
+          </div>
+        </div>
+        <div class="soc-sch-panel">
+          <div class="soc-sch-block">
+            <span class="soc-sch-block-label"><i class="fas fa-clock"></i> From</span>
+            <select id="socWindowStartHour" class="soc-sch-sel"></select>
+            <span class="soc-sch-colon">:</span>
+            <select id="socWindowStartMinute" class="soc-sch-sel"></select>
+            <select id="socWindowStartAmPm" class="soc-sch-sel"><option>AM</option><option>PM</option></select>
+          </div>
+          <div class="soc-sch-block">
+            <span class="soc-sch-block-label"><i class="fas fa-clock"></i> To</span>
+            <select id="socWindowEndHour" class="soc-sch-sel"></select>
+            <span class="soc-sch-colon">:</span>
+            <select id="socWindowEndMinute" class="soc-sch-sel"></select>
+            <select id="socWindowEndAmPm" class="soc-sch-sel"><option>AM</option><option>PM</option></select>
+          </div>
+        </div>
+        <p class="soc-hint">Uses the timezone set above. Pick at least one day; start must be before end.</p>
+        <p class="soc-error" id="err-socWindow"></p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 3 — Subsequence ══════════════════════════════════════════
+       Branch a prospect onto a separate follow-up track when they've gone
+       N days with no reply. Chain several for a longer campaign. Only the
+       "no reply after N days" trigger exists today — on-reply / on-click
+       branching are future work. -->
+  <div class="soc-wizard-panel" data-step-panel="3" hidden>
+    <div class="soc-card">
+      <h3>Subsequence</h3>
+      <p class="soc-hint soc-hint-tight-sm">
+        If a prospect doesn't reply, automatically move them onto a follow-up
+        track with its own steps. Add another to chain a longer campaign —
+        each one triggers after the one before it also gets no reply.
+      </p>
+
+      <div class="soc-subseq-list" id="socSubseqList"></div>
+
+      <button type="button" class="soc-add-step soc-mt-10" id="socAddSubseq">
+        <i class="fas fa-plus"></i> Add Subsequence
+      </button>
+      <p class="soc-error" id="err-socSubsequences"></p>
+    </div>
+
+    <div class="soc-card" id="socSubseqEditorCard" hidden>
+      <h3 id="socSubseqEditorTitle">Editing subsequence</h3>
+
+      <div class="soc-seq" id="socSubSeq">
+        <div>
+          <div class="soc-seq-rail" id="socSubStepRail"></div>
+          <button type="button" class="soc-add-step soc-mt-12" id="socSubAddStep">
+            <i class="fas fa-plus"></i> Add Step
+          </button>
+        </div>
+
+        <div class="soc-seq-editor">
+          <div class="soc-editor-head">
+            <span class="soc-step-badge" id="socSubEditorBadge">Step 1A</span>
+            <input type="text" id="socSubSubject" class="soc-subject" maxlength="500" placeholder="Subject Line"/>
+          </div>
+
+          <div id="socSubQuillToolbar">
+            <span class="ql-formats">
+              <button class="ql-bold" title="Bold"></button>
+              <button class="ql-italic" title="Italic"></button>
+              <button class="ql-underline" title="Underline"></button>
+              <button class="ql-link" title="Insert link"></button>
+              <button class="ql-list" value="bullet" title="Bulleted list"></button>
+            </span>
+          </div>
+          <div id="socSubQuillEditor"></div>
+
+          <div class="soc-editor-foot"><span id="socSubCharCount">Characters : 0</span></div>
+          <div class="soc-editor-bar">
+            <div class="soc-tool-row">
+              <div class="soc-merge-wrap">
+                <button type="button" class="soc-tool-btn mono" id="socSubMergeBtn" title="Insert a merge tag">{}</button>
+                <div class="soc-sub-merge-menu" id="socSubMergeMenu" hidden></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 5 — Review & Test ════════════════════════════════════════ -->
+  <div class="soc-wizard-panel" data-step-panel="5" hidden>
+    <div class="soc-card">
+      <h3>Review</h3>
+      <p class="soc-hint soc-hint-tight-sm">Double-check everything below before moving on to Launch.</p>
+      <div class="soc-review-summary" id="socReviewSummary"></div>
+    </div>
+
+    <div class="soc-card">
+      <div class="soc-excl-head">
+        <h3>Campaign Test Send</h3>
+      </div>
+      <p class="soc-hint soc-hint-tight">
+        Send a test using this campaign's sender settings. Maximum 5 recipients, always sent immediately.
+        Merge tags are rendered with sample data — no prospect is enrolled, no quota is used, and campaign
+        statistics are unaffected.
+      </p>
+      <div class="soc-form-group soc-maxw-320">
+        <label class="soc-label-mb6" id="socTestTargetLabel">Which email to test</label>
+        <input type="hidden" id="socTestTarget"/>
+        <div class="soc-rd" id="socTestTargetRoot">
+          <div class="soc-rd-trigger" id="socTestTargetTrigger" tabindex="0" role="combobox"
+               aria-haspopup="listbox" aria-expanded="false" aria-labelledby="socTestTargetLabel">
+            <div class="soc-rd-tags" id="socTestTargetTags">
+              <span class="soc-rd-placeholder">Select a step &amp; variation</span>
+            </div>
+            <i class="fas fa-chevron-down soc-rd-arrow"></i>
+          </div>
+          <div class="soc-rd-panel" id="socTestTargetPanel">
+            <div class="soc-rd-list" id="socTestTargetList"></div>
+          </div>
+        </div>
+      </div>
+      <div class="soc-test-recipients" id="socTestRecipients"></div>
+      <div class="soc-test-footer">
+        <button type="button" class="soc-test-add" id="socTestAdd"><i class="fas fa-plus"></i> Add recipient</button>
+        <button type="button" class="soc-test-send-btn" id="socTestSend"><i class="fas fa-paper-plane"></i> Send Test</button>
+      </div>
+      <div class="soc-test-result" id="socTestResult"></div>
+    </div>
+  </div>
+
+  <!-- ══ STEP 6 — Launch ═══════════════════════════════════════════════ -->
+  <div class="soc-wizard-panel" data-step-panel="6" hidden>
+    <div class="soc-card">
+      <h3>Launch</h3>
+      <p class="soc-hint soc-hint-tight-sm">
+        Everything is configured. Save this as a draft to keep editing later, or launch it now — you'll be
+        asked to confirm before anything actually sends.
+      </p>
+      <div class="soc-review-summary" id="socLaunchSummary"></div>
+    </div>
+  </div>
+
+  <div class="soc-actions">
+    <button type="button" class="btn btn-outline btn-sm" id="socSaveDraftBtn">Save Draft</button>
+    <button type="button" class="btn btn-primary btn-sm" id="socSendBtn">Send Campaign</button>
+  </div>
+
+  <div class="soc-wizard-footer">
+    <button type="button" class="btn btn-outline btn-sm" id="socWizBack">
+      <i class="fas fa-arrow-left"></i> Back
+    </button>
+    <div class="soc-wizard-footer-right">
+      <button type="button" class="btn btn-outline btn-sm" id="socWizNext">
+        Next <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Popovers -->
+<div class="soc-pop" id="socEmojiPop"><div class="soc-emoji-grid" id="socEmojiGrid"></div></div>
+<div class="soc-pop" id="socTagPop"><div class="soc-tag-list" id="socTagList"></div></div>
+<div class="soc-pop" id="socTablePop">
+  <div class="soc-tblgrid" id="socTableGrid"></div>
+  <div class="soc-tblgrid-lbl" id="socTableLbl">0 × 0</div>
+</div>
+
+<!-- Delete-step confirm -->
+<div class="so-modal-overlay" id="socDelModal">
+  <div class="so-modal-box">
+    <h4>Delete this step?</h4>
+    <p id="socDelMsg">This removes the step and all of its variations.</p>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="socDelCancel">Cancel</button>
+      <button class="so-modal-confirm danger" id="socDelConfirm">Delete Step</button>
+    </div>
+  </div>
+</div>
+
+<!-- Score details -->
+<div class="so-modal-overlay" id="socScoreModal">
+  <div class="so-modal-box soc-modal-wide-520">
+    <h4>Content score</h4>
+    <p id="socScoreSummary"></p>
+    <div id="socScoreReasons" class="soc-scroll-y-320"></div>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="socScoreClose">Close</button>
+    </div>
+  </div>
+</div>
+
+{{ personalization_tags|json_script:"socTagsData" }}
+{% if editing_campaign %}{{ editing_campaign|json_script:"socEditingData" }}{% endif %}
+
+<script src="{% static 'Email_validate_app/js/quill.min.js' %}"></script>
+<script src="{% static 'Email_validate_app/js/wti_timezones.js' %}"></script>
+<script>
+/* Wizard step navigation — pure UI, no effect on payload/API/validation.
+   Panels stay in the DOM at all times ([hidden], not removed), so every
+   existing id-based lookup in so_campaign.js keeps working regardless of
+   which step is currently shown. */
+var SOWizard = (function () {
+  'use strict';
+  var TOTAL = 6;
+  var current = 1;
+
+  function panels() { return document.querySelectorAll('.soc-wizard-panel'); }
+  function navSteps() { return document.querySelectorAll('.soc-wnav-step'); }
+
+  function render() {
+    panels().forEach(function (p) {
+      p.hidden = (parseInt(p.dataset.stepPanel, 10) !== current);
+    });
+    navSteps().forEach(function (btn) {
+      var n = parseInt(btn.dataset.step, 10);
+      btn.classList.toggle('active', n === current);
+      btn.classList.toggle('done', n < current);
+    });
+    var back = document.getElementById('socWizBack');
+    var next = document.getElementById('socWizNext');
+    if (back) back.style.visibility = (current === 1) ? 'hidden' : 'visible';
+    // display:none (not visibility:hidden) on the final step — Next is
+    // replaced there by Save Draft + Send Campaign in the same group, and
+    // an invisible-but-space-taking Next would leave a gap between them.
+    if (next) next.style.display = (current === TOTAL) ? 'none' : '';
+
+    // Save Draft always sits in the footer's right-hand group, beside
+    // whichever button leads that step: Next on every step except the last,
+    // or Send Campaign (which only appears here) on the final Launch step.
+    // .soc-actions is left empty now, so it's hidden.
+    var saveBtn     = document.getElementById('socSaveDraftBtn');
+    var sendBtn     = document.getElementById('socSendBtn');
+    var actions     = document.querySelector('.soc-actions');
+    var footerRight = document.querySelector('.soc-wizard-footer-right');
+    if (footerRight) {
+      if (saveBtn) footerRight.insertBefore(saveBtn, footerRight.firstChild);
+      if (sendBtn) footerRight.appendChild(sendBtn);
+    }
+    if (sendBtn) sendBtn.style.display = (current === TOTAL) ? '' : 'none';
+    if (actions) actions.style.display = 'none';
+
+    // Review (5) and Launch (6) both show a live summary built from whatever
+    // is currently in the wizard's client-side state — no extra server round
+    // trip, reuses the same values already tracked for the capacity readout
+    // and recipient estimate.
+    if ((current === 5 || current === 6) && window.SOCampaignPage && window.SOCampaignPage.renderReviewSummary) {
+      window.SOCampaignPage.renderReviewSummary(current === 6 ? 'socLaunchSummary' : 'socReviewSummary');
+    }
+  }
+
+  function goToStep(n) {
+    n = Math.max(1, Math.min(TOTAL, n || 1));
+    if (n === current) return;
+    current = n;
+    render();
+  }
+
+  function init() {
+    navSteps().forEach(function (btn) {
+      btn.addEventListener('click', function () { goToStep(parseInt(btn.dataset.step, 10)); });
+    });
+    var back = document.getElementById('socWizBack');
+    var next = document.getElementById('socWizNext');
+    if (back) back.addEventListener('click', function () { goToStep(current - 1); });
+    if (next) next.addEventListener('click', function () { goToStep(current + 1); });
+
+    // The "Sending Capacity" readout (combined daily_limit + estimated duration)
+    // is owned by so_campaign.js — it needs the sender combobox's checked state
+    // and the live recipient estimate, both of which live there alongside
+    // refreshEstimate(). See wireCombos()/updateCapacityReadout().
+
+    render();
+  }
+
+  // Script tag sits at the bottom of the body, same convention as
+  // SOCampaignPage.init() below — the DOM above is already parsed, no need
+  // to wait for DOMContentLoaded (which may have already fired by now).
+  init();
+  return { goToStep: goToStep };
+})();
+</script>
+<script src="{% static 'Email_validate_app/js/so_campaign.js' %}"></script>
+<script>
+SOCampaignPage.init({
+  csrf:          '{{ csrf_token }}',
+  saveUrl:       '{% url "so_campaign_save" %}',
+  autosaveUrl:   '{% url "so_sequence_autosave" %}',
+  estimateUrl:   '{% url "so_estimate_recipients" %}',
+  scoreUrl:      '{% url "so_content_score" %}',
+  testUrl:       '{% url "so_test_send" %}',
+  imageUrl:      '{% url "upload_template_image" %}',
+  campaignsUrl:  '{% url "so_campaigns" %}',
+  editBaseUrl:   '/Sales-Outreach/sender/'
+});
+</script>
+
+{% endblock %}

@@ -1,0 +1,384 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/quill.snow.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_inbox.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="soi-page">
+
+  <aside class="soi-sidebar">
+    <div class="soi-sidebar-head">
+      <h1><i class="fas fa-inbox soi-icon-teal"></i> Inbox</h1>
+    </div>
+
+    <nav class="soi-folders" id="soiFolders">
+      <button type="button" class="soi-folder active" data-folder="all">
+        <i class="fas fa-inbox"></i><span>All</span><em class="soi-count" data-count-for="all">0</em>
+      </button>
+      <button type="button" class="soi-folder" data-folder="primary">
+        <i class="fas fa-star-half-alt"></i><span>Primary</span><em class="soi-count" data-count-for="primary">0</em>
+      </button>
+      <button type="button" class="soi-folder" data-folder="others">
+        <i class="fas fa-users"></i><span>Others</span><em class="soi-count" data-count-for="others">0</em>
+      </button>
+    </nav>
+
+    <div class="soi-filter-group">
+      <div class="soi-rd" id="soiStatusFilter" data-placeholder="Any status">
+        <div class="soi-rd-trigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+          <span class="soi-rd-trigger-label">Any status</span>
+          <i class="fas fa-chevron-down soi-rd-arrow"></i>
+        </div>
+        <div class="soi-rd-panel">
+          <label class="soi-rd-option" data-label="unread">
+            <input type="checkbox" class="soi-rd-chk" value="unread"/>
+            <span class="soi-rd-name">Unread</span>
+            <span class="soi-rd-meta" data-count-for="unread">0</span>
+          </label>
+          <label class="soi-rd-option" data-label="needs reply">
+            <input type="checkbox" class="soi-rd-chk" value="needs_reply"/>
+            <span class="soi-rd-name">Needs Reply</span>
+            <span class="soi-rd-meta" data-count-for="needs_reply">0</span>
+          </label>
+          <label class="soi-rd-option" data-label="waiting">
+            <input type="checkbox" class="soi-rd-chk" value="waiting"/>
+            <span class="soi-rd-name">Waiting</span>
+            <span class="soi-rd-meta" data-count-for="waiting">0</span>
+          </label>
+          <label class="soi-rd-option" data-label="sent">
+            <input type="checkbox" class="soi-rd-chk" value="sent"/>
+            <span class="soi-rd-name">Sent</span>
+            <span class="soi-rd-meta" data-count-for="sent">0</span>
+          </label>
+          <label class="soi-rd-option" data-label="archived">
+            <input type="checkbox" class="soi-rd-chk" value="archived"/>
+            <span class="soi-rd-name">Archived</span>
+            <span class="soi-rd-meta" data-count-for="archived">0</span>
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="soi-filter-group">
+      <div class="soi-rd" id="soiAccountFilter" data-placeholder="All accounts">
+        <div class="soi-rd-trigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+          <span class="soi-rd-trigger-label">All accounts</span>
+          <i class="fas fa-chevron-down soi-rd-arrow"></i>
+        </div>
+        <div class="soi-rd-panel">
+          {% if accounts %}<input type="text" class="soi-rd-search" placeholder="Search accounts…" autocomplete="off"/>{% endif %}
+          {% for a in accounts %}
+          <label class="soi-rd-option" data-label="{{ a.email|lower }}" data-tip="{{ a.email }}">
+            <input type="checkbox" class="soi-rd-chk" value="{{ a.id }}"/>
+            <span class="soi-rd-name">{{ a.email }}</span>
+          </label>
+          {% endfor %}
+          {% if not accounts %}<div class="soi-rd-no-results">No sender accounts connected yet.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="soi-filter-group">
+      <div class="soi-rd" id="soiCampaignFilter" data-placeholder="All campaigns">
+        <div class="soi-rd-trigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+          <span class="soi-rd-trigger-label">All campaigns</span>
+          <i class="fas fa-chevron-down soi-rd-arrow"></i>
+        </div>
+        <div class="soi-rd-panel">
+          {% if campaigns %}<input type="text" class="soi-rd-search" placeholder="Search campaigns…" autocomplete="off"/>{% endif %}
+          {% for c in campaigns %}
+          <label class="soi-rd-option" data-label="{{ c.name|lower }}">
+            <input type="checkbox" class="soi-rd-chk" value="{{ c.id }}"/>
+            <span class="soi-rd-name">{{ c.name }}</span>
+          </label>
+          {% endfor %}
+          {% if not campaigns %}<div class="soi-rd-no-results">No campaigns yet.</div>{% endif %}
+        </div>
+      </div>
+    </div>
+
+    <div class="soi-filter-group">
+      <div class="soi-rd" id="soiClassificationFilter" data-placeholder="Any classification">
+        <div class="soi-rd-trigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+          <span class="soi-rd-trigger-label">Any classification</span>
+          <i class="fas fa-chevron-down soi-rd-arrow"></i>
+        </div>
+        <div class="soi-rd-panel">
+          <label class="soi-rd-option" data-label="interested"><input type="checkbox" class="soi-rd-chk" value="interested"/><span class="soi-rd-name">Interested</span><span class="soi-rd-meta" data-count-for="interested">0</span></label>
+          <label class="soi-rd-option" data-label="meeting"><input type="checkbox" class="soi-rd-chk" value="meeting"/><span class="soi-rd-name">Meeting</span><span class="soi-rd-meta" data-count-for="meeting">0</span></label>
+          <label class="soi-rd-option" data-label="question"><input type="checkbox" class="soi-rd-chk" value="question"/><span class="soi-rd-name">Question</span><span class="soi-rd-meta" data-count-for="question">0</span></label>
+          <label class="soi-rd-option" data-label="not interested"><input type="checkbox" class="soi-rd-chk" value="not_interested"/><span class="soi-rd-name">Not Interested</span><span class="soi-rd-meta" data-count-for="not_interested">0</span></label>
+          <label class="soi-rd-option" data-label="out of office"><input type="checkbox" class="soi-rd-chk" value="out_of_office"/><span class="soi-rd-name">Out of Office</span><span class="soi-rd-meta" data-count-for="out_of_office">0</span></label>
+          <label class="soi-rd-option" data-label="unsubscribed"><input type="checkbox" class="soi-rd-chk" value="unsubscribed"/><span class="soi-rd-name">Unsubscribed</span><span class="soi-rd-meta" data-count-for="unsubscribed">0</span></label>
+          <label class="soi-rd-option" data-label="wrong person"><input type="checkbox" class="soi-rd-chk" value="wrong_person"/><span class="soi-rd-name">Wrong Person</span><span class="soi-rd-meta" data-count-for="wrong_person">0</span></label>
+          <label class="soi-rd-option" data-label="positive"><input type="checkbox" class="soi-rd-chk" value="positive"/><span class="soi-rd-name">Positive</span><span class="soi-rd-meta" data-count-for="positive">0</span></label>
+          <label class="soi-rd-option" data-label="negative"><input type="checkbox" class="soi-rd-chk" value="negative"/><span class="soi-rd-name">Negative</span><span class="soi-rd-meta" data-count-for="negative">0</span></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="soi-filter-group" id="soiTagFilterGroup" {% if not tags %}hidden{% endif %}>
+      <label>Tags</label>
+      <div class="soi-tag-chips" id="soiTagChips">
+        {% for t in tags %}
+        <button type="button" class="soi-tag-chip" data-tag-id="{{ t.id }}" style="--tag-color:{{ t.color }};">{{ t.name }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <button type="button" class="soi-compose-btn" id="soiComposeBtn"><i class="fas fa-pen"></i> Compose</button>
+  </aside>
+
+  <section class="soi-list-col">
+    <div class="soi-search-wrap">
+      <i class="fas fa-search"></i>
+      <input type="text" id="soiSearch" placeholder="Search prospect, email, company, campaign…" autocomplete="off"/>
+    </div>
+
+    <div class="soi-list-toolbar">
+      <label class="soi-checkbox"><input type="checkbox" id="soiSelectAll"/></label>
+      <span class="soi-list-count" id="soiListCount"></span>
+      <div class="soi-more-wrap" id="soiBulkMoreWrap" hidden>
+        <button type="button" id="soiBulkMoreBtn" class="so-icon-btn" title="Bulk actions"><i class="fas fa-ellipsis-v"></i></button>
+        <div class="soi-more-menu" id="soiBulkMoreMenu" hidden>
+          <button type="button" data-bulk="mark_read"><i class="fas fa-envelope-open"></i> Mark Read</button>
+          <button type="button" data-bulk="mark_unread"><i class="fas fa-envelope"></i> Mark Unread</button>
+          <button type="button" data-bulk="archive"><i class="fas fa-box-archive"></i> Archive</button>
+          <hr/>
+          <button type="button" id="soiBulkAddTag"><i class="fas fa-tag"></i> Add Tag</button>
+        </div>
+      </div>
+      <select id="soiSort" class="so-select soi-sort-select">
+        <option value="recent">↓ Most recent</option>
+        <option value="oldest">↑ Oldest first</option>
+      </select>
+    </div>
+
+    <div class="soi-conv-list" id="soiConvList">
+      <div class="soi-list-loading" id="soiListLoading">Loading…</div>
+    </div>
+    <button type="button" class="soi-load-more" id="soiLoadMore" hidden>Load more</button>
+  </section>
+
+  <section class="soi-thread-col">
+    <div class="soi-thread-empty" id="soiThreadEmpty">
+      <i class="fas fa-comments"></i>
+      <p>Select a conversation to see the full thread.</p>
+    </div>
+
+    <div class="soi-thread" id="soiThread" hidden>
+      <header class="soi-thread-header">
+        <div class="soi-thread-who">
+          <button type="button" id="soiThreadBack" class="soi-thread-back" hidden><i class="fas fa-arrow-left"></i></button>
+          <div class="soi-avatar" id="soiThreadAvatar">?</div>
+          <div class="soi-thread-who-text">
+            <div class="soi-thread-name" id="soiThreadName"></div>
+            <div class="soi-thread-meta" id="soiThreadMeta"></div>
+          </div>
+        </div>
+        <div class="soi-thread-actions">
+          <div class="soi-thread-badges" id="soiThreadBadges"></div>
+          <button type="button" id="soiNoteBtn" class="so-icon-btn" title="Add Note"><i class="fas fa-sticky-note"></i></button>
+          <div class="soi-more-wrap">
+            <button type="button" id="soiActMore" class="so-icon-btn" title="More actions"><i class="fas fa-ellipsis-v"></i></button>
+            <div class="soi-more-menu" id="soiMoreMenu" hidden>
+              <button type="button" id="soiActMarkUnread"><i class="fas fa-envelope"></i> Mark Unread</button>
+              <button type="button" id="soiActArchive"><i class="fas fa-box-archive"></i> Archive</button>
+              <hr/>
+              <button type="button" data-classify="interested"><i class="fas fa-star"></i> Mark Interested</button>
+              <button type="button" data-classify="meeting"><i class="fas fa-calendar-check"></i> Mark Meeting</button>
+              <button type="button" data-classify="question"><i class="fas fa-question-circle"></i> Mark Question</button>
+              <button type="button" data-classify="not_interested"><i class="fas fa-thumbs-down"></i> Mark Not Interested</button>
+              <button type="button" data-classify="wrong_person"><i class="fas fa-user-slash"></i> Wrong Person</button>
+              <button type="button" data-classify=""><i class="fas fa-eraser"></i> Clear Classification</button>
+              <hr/>
+              <button type="button" id="soiActAddTag"><i class="fas fa-tag"></i> Add Tag</button>
+              <hr/>
+              <a href="#" id="soiActViewProspect" hidden><i class="fas fa-user"></i> View Prospect</a>
+              <a href="#" id="soiActViewCampaign" hidden><i class="fas fa-bullseye"></i> View Campaign</a>
+              <button type="button" id="soiActPauseSequence" hidden><i class="fas fa-pause"></i> Pause Sequence</button>
+              <hr/>
+              <button type="button" id="soiActUnsubscribe" class="soi-danger"><i class="fas fa-ban"></i> Unsubscribe</button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="soi-paused-banner" id="soiPausedBanner" hidden>
+        <i class="fas fa-pause-circle"></i>
+        <div class="soi-paused-text">
+          <strong>Sequence Paused</strong>
+          <p>This prospect replied, so automated follow-ups have been stopped.</p>
+        </div>
+        <button type="button" id="soiResumeBtn" class="so-btn-secondary">Resume Sequence</button>
+      </div>
+
+      <div class="soi-timeline" id="soiTimeline"></div>
+    </div>
+  </section>
+
+
+</div>
+
+<div class="soi-note-modal-overlay" id="soiNoteModalOverlay" hidden>
+  <div class="soi-note-modal">
+    <h3>Add Internal Note</h3>
+    <p class="soi-note-modal-sub">Private — the prospect will never see this.</p>
+    <textarea id="soiNoteText" rows="4" placeholder="e.g. John is interested in Enterprise pricing. Follow up after the demo."></textarea>
+    <div class="soi-note-modal-actions">
+      <button type="button" class="so-btn-secondary" id="soiNoteCancel">Cancel</button>
+      <button type="button" class="so-btn-primary" id="soiNoteSave">Save Note</button>
+    </div>
+  </div>
+</div>
+
+<div class="soi-compose-modal-overlay" id="soiComposeModalOverlay" hidden>
+  <div class="soi-compose-modal">
+    <div class="soi-compose-modal-head">
+      <h3 id="soiComposeModalTitle">New Message</h3>
+      <div class="soi-compose-modal-head-actions">
+        <button type="button" id="soiComposeFieldsToggle" class="so-icon-btn" title="Hide fields"><i class="fas fa-chevron-up"></i></button>
+        <button type="button" id="soiComposeModalClose" class="so-icon-btn" title="Close"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+
+    <div class="soi-composer-fields" id="soiComposeFields">
+      <div class="soi-composer-row">
+        <label>From</label>
+        <span id="soiComposeFromStatic" class="soi-composer-static" hidden></span>
+        {% if accounts %}
+        <div class="soi-rd" id="soiComposeAccountRd" data-placeholder="Select sender account">
+          <div class="soi-rd-trigger" tabindex="0" role="combobox" aria-haspopup="listbox" aria-expanded="false">
+            <span class="soi-rd-trigger-label">Select sender account</span>
+            <i class="fas fa-chevron-down soi-rd-arrow"></i>
+          </div>
+          <div class="soi-rd-panel">
+            {% for a in accounts %}
+            <label class="soi-rd-option" data-value="{{ a.id }}" data-label="{{ a.email|lower }}" data-tip="{{ a.email }}">
+              <span class="soi-rd-name">{{ a.email }}</span>
+            </label>
+            {% endfor %}
+          </div>
+        </div>
+        <input type="hidden" id="soiComposeAccount"/>
+        {% else %}
+        <span class="soi-composer-static">No sender accounts connected.</span>
+        {% endif %}
+      </div>
+      <div class="soi-composer-row">
+        <label>To</label>
+        <span id="soiComposeToStatic" class="soi-composer-static" hidden></span>
+        <input type="email" id="soiComposeTo" class="soi-composer-field-input" placeholder="recipient@example.com"/>
+        <span class="soi-composer-cc-toggles">
+          <button type="button" id="soiComposeCcToggle" class="soi-composer-cc-toggle">Cc</button>
+          <button type="button" id="soiComposeBccToggle" class="soi-composer-cc-toggle">Bcc</button>
+        </span>
+      </div>
+      <div class="soi-composer-row" id="soiComposeCcRow" hidden>
+        <label>Cc</label>
+        <input type="text" id="soiComposeCc" class="soi-composer-field-input" placeholder="cc@example.com, another@example.com"/>
+      </div>
+      <div class="soi-composer-row" id="soiComposeBccRow" hidden>
+        <label>Bcc</label>
+        <input type="text" id="soiComposeBcc" class="soi-composer-field-input" placeholder="bcc@example.com, another@example.com"/>
+      </div>
+      <div class="soi-composer-row">
+        <label>Subject</label>
+        <input type="text" id="soiComposeSubject" class="soi-composer-field-input" placeholder="Subject" maxlength="500"/>
+      </div>
+    </div>
+
+    <div class="soi-composer-toolbar" id="soiComposeToolbar">
+      <span class="ql-formats">
+        <button class="ql-bold" title="Bold"></button>
+        <button class="ql-italic" title="Italic"></button>
+        <button class="ql-underline" title="Underline"></button>
+        <select class="ql-color" title="Text colour"></select>
+      </span>
+      <span class="ql-formats">
+        <button class="ql-align" value="" title="Align left"></button>
+        <button class="ql-align" value="center" title="Align centre"></button>
+        <button class="ql-align" value="justify" title="Justify"></button>
+        <button class="ql-list" value="ordered" title="Numbered list"></button>
+        <button class="ql-list" value="bullet" title="Bulleted list"></button>
+      </span>
+      <span class="ql-formats soi-tb-group-bordered">
+        <span class="soi-tb-stepper" title="Font size">
+          <i class="fas fa-text-height"></i>
+          <span class="soi-tb-stepper-value" id="soiComposeSizeValue">14</span>
+          <span class="soi-tb-stepper-arrows">
+            <button type="button" id="soiComposeSizeUp" title="Increase font size" style="padding: 0;"><i class="fas fa-caret-up"></i></button>
+            <button type="button" id="soiComposeSizeDown" title="Decrease font size" style="padding: 0;"><i class="fas fa-caret-down"></i></button>
+          </span>
+        </span>
+        <span class="soi-tb-stepper" title="Line height">
+          <i class="fas fa-arrows-alt-v"></i>
+          <span class="soi-tb-stepper-value" id="soiComposeLineHeightValue">1</span>
+          <span class="soi-tb-stepper-arrows">
+            <button type="button" id="soiComposeLineHeightUp" title="Increase line height" style="padding: 0;"><i class="fas fa-caret-up"></i></button>
+            <button type="button" id="soiComposeLineHeightDown" title="Decrease line height" style="padding: 0;"><i class="fas fa-caret-down"></i></button>
+          </span>
+        </span>
+      </span>
+      <span class="ql-formats">
+        <button class="ql-link" title="Insert link"></button>
+        <button id="soiComposeTbUndo" class="soi-tb-btn" type="button" title="Undo"><i class="fas fa-undo"></i></button>
+        <button id="soiComposeTbRedo" class="soi-tb-btn" type="button" title="Redo"><i class="fas fa-redo"></i></button>
+      </span>
+      <span class="ql-formats">
+        <button id="soiComposeTbMerge" class="soi-tb-btn" type="button" title="Insert personalization"><i class="fas fa-code"></i></button>
+        <button id="soiComposeTbEmoji" class="soi-tb-btn" type="button" title="Insert emoji"><i class="far fa-smile"></i></button>
+        <button id="soiComposeTbImage" class="soi-tb-btn" type="button" title="Insert image"><i class="fas fa-image"></i></button>
+        <button id="soiComposeTbTable" class="soi-tb-btn" type="button" title="Insert table"><i class="fas fa-table"></i></button>
+        <input type="file" id="soiComposeImageInput" accept="image/*" hidden/>
+      </span>
+    </div>
+
+    <div class="soi-tb-pop" id="soiComposeMergePop"><div class="soi-tb-pop-list" id="soiComposeMergeList"></div></div>
+    <div class="soi-tb-pop" id="soiComposeEmojiPop"><div class="soi-tb-pop-emoji" id="soiComposeEmojiGrid"></div></div>
+    <div class="soi-tb-pop" id="soiComposeTablePop">
+      <div class="soi-tb-pop-grid" id="soiComposeTableGrid"></div>
+      <div class="soi-tb-pop-gridlbl" id="soiComposeTableLbl">0 × 0</div>
+    </div>
+
+    <div id="soiComposeEditor"></div>
+    <div class="soi-composer-footer">
+      <div class="soi-composer-left">
+        <button type="button" id="soiComposeAttachBtn" class="so-icon-btn" title="Attach files"><i class="fas fa-paperclip"></i></button>
+        <input type="file" id="soiComposeAttachInput" multiple hidden/>
+      </div>
+      <div class="soi-composer-right">
+        <span class="soi-attach-list" id="soiComposeAttachList"></span>
+        <button type="button" id="soiComposeSendBtn" class="so-btn-primary"><i class="fas fa-paper-plane"></i> Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block extra_js %}
+{{ campaigns|json_script:"soiCampaignsData" }}
+{{ accounts|json_script:"soiAccountsData" }}
+
+<script src="{% static 'Email_validate_app/js/quill.min.js' %}"></script>
+<script>
+  // Inbox needs edge-to-edge layout — .soi-page already computes its own
+  // height as 100vh minus the topbar only, so the shared .main-content
+  // padding (which adds nav-h+32px top / 48px bottom) has to be zeroed for
+  // this page specifically. Same body-class-scoped-override pattern as
+  // tb-fullpage/wtib-fp (see so_inbox.css / template_builder.css).
+  document.body.classList.add('soi-fullpage');
+  window.SOI_CSRF = '{{ csrf_token }}';
+  window.SOI_URLS = {
+    conversations: '/Sales-Outreach/inbox/conversations/',
+    thread_base:   '/Sales-Outreach/inbox/',
+    reply:         '/Sales-Outreach/inbox/reply/',
+    upload_image:  '/Sales-Outreach/inbox/upload-image/',
+    compose:       '/Sales-Outreach/inbox/compose/',
+    note:          '/Sales-Outreach/inbox/note/',
+    action:        '/Sales-Outreach/inbox/action/'
+  };
+</script>
+<script src="{% static 'Email_validate_app/js/so_inbox.js' %}"></script>
+{% endblock %}

@@ -1,0 +1,202 @@
+/*
+ * so_campaign_detail.css — SO Campaign Detail page. Redesigned to match
+ * Email Marketing's Campaign Detail page (breadcrumb, % stat cards, a
+ * per-recipient event journey track, details grid, email preview) — own
+ * classes/values, not shared, per this codebase's SO/EM isolation
+ * convention. Reuses so.css's shared .so-card/.so-badge/.sose-pagination.
+ * Class prefix: socd- (SO Campaign Detail).
+ */
+
+.socd-icon-sm { font-size: 12px; }
+.socd-icon-teal-mr { color: var(--teal); margin-right: 8px; }
+
+/* ── BREADCRUMB ──────────────────────────────────────────────────────── */
+.socd-breadcrumb {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-3); margin-bottom: 20px;
+}
+.socd-breadcrumb a {
+  color: var(--teal); text-decoration: none; transition: color .18s;
+  display: flex; align-items: center; gap: 6px;
+}
+.socd-breadcrumb a:hover { color: var(--teal-dk); }
+.socd-breadcrumb .sep { color: var(--border); }
+.socd-breadcrumb .cur { color: var(--ink-2); font-weight: 600; }
+.socd-breadcrumb-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+
+/* ── LIVE SENDING PROGRESS (SO-specific — EM has no equivalent, since EM
+   campaigns are single-shot, not a multi-day drip sequence) ──────────── */
+.socd-mb-20 { margin-bottom: 20px; }
+.socd-mb-24 { margin-bottom: 24px; }
+.socd-progress-row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.socd-progress-label { font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; }
+.socd-progress-value { font-size: 20px; font-weight: 700; color: var(--ink); }
+.socd-continue-note { margin: 12px 0 0; font-size: 12.5px; color: var(--ink-3); }
+
+/* ── STAT CARDS, matching .cd-summary-grid/.cd-stat ──────────────────── */
+.socd-summary-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 16px; margin-bottom: 24px;
+}
+.socd-stat {
+  background: var(--bg); border: 1.5px solid var(--border);
+  border-radius: var(--radius-md); padding: 18px 20px;
+  display: flex; flex-direction: column; gap: 6px;
+  box-shadow: var(--shadow-sm);
+}
+.socd-stat-label {
+  font-family: var(--font-head); font-size: 11px; font-weight: 700;
+  color: var(--ink-3); text-transform: uppercase; letter-spacing: .08em;
+}
+.socd-stat-value { font-family: var(--font-head); font-size: 26px; font-weight: 800; color: var(--ink); line-height: 1; }
+.socd-stat-pct   { font-size: 11.5px; font-weight: 600; color: var(--ink-3); margin-top: 2px; }
+.socd-stat-bar   { height: 4px; border-radius: 2px; background: var(--bg-3); margin-top: 6px; overflow: hidden; }
+.socd-stat-bar-fill { height: 100%; border-radius: 2px; }
+
+.socd-stat.recipients .socd-stat-value    { color: #4F46E5; }
+.socd-stat.recipients .socd-stat-bar-fill { background: #4F46E5; }
+.socd-stat.sent        .socd-stat-value    { color: #0284C7; }
+.socd-stat.sent        .socd-stat-bar-fill { background: #0284C7; }
+.socd-stat.delivered   .socd-stat-value    { color: #059669; }
+.socd-stat.delivered   .socd-stat-bar-fill { background: #059669; }
+.socd-stat.opened      .socd-stat-value    { color: #D97706; }
+.socd-stat.opened      .socd-stat-bar-fill { background: #D97706; }
+.socd-stat.clicked     .socd-stat-value    { color: #7C3AED; }
+.socd-stat.clicked     .socd-stat-bar-fill { background: #7C3AED; }
+.socd-stat.replied     .socd-stat-value    { color: #009977; }
+.socd-stat.replied     .socd-stat-bar-fill { background: #009977; }
+.socd-stat.unsubscribed .socd-stat-value    { color: #CA8A04; }
+.socd-stat.unsubscribed .socd-stat-bar-fill { background: #CA8A04; }
+.socd-stat.bounced     .socd-stat-value    { color: #E11D48; }
+.socd-stat.bounced     .socd-stat-bar-fill { background: #E11D48; }
+.socd-stat.complained  .socd-stat-value    { color: #EA580C; }
+.socd-stat.complained  .socd-stat-bar-fill { background: #EA580C; }
+.socd-stat.failed      .socd-stat-value    { color: var(--ink-3); }
+.socd-stat.failed      .socd-stat-bar-fill { background: var(--ink-3); }
+
+/* ── CARD HEAD, matching .cd-card-head — for the bottom-row Details/Preview
+   cards (the Recipient Events card uses .socd-rec-bar instead, since it also
+   carries a count badge). ─────────────────────────────────────────────── */
+.socd-card-head {
+  padding: 16px 22px; border-bottom: 1px solid var(--border);
+  font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; background: var(--bg-2);
+}
+.socd-card-head i { color: var(--teal); font-size: 14px; }
+
+/* ── RECIPIENT EVENTS BAR, matching .cd-rec-bar ───────────────────────── */
+.socd-rec-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 20px; border-bottom: 1px solid var(--border); background: var(--bg-2);
+}
+.socd-rec-title {
+  font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--ink-3); display: flex; align-items: center; gap: 7px;
+}
+.socd-rec-title i { color: var(--teal); }
+.socd-rec-count {
+  font-size: 12px; font-weight: 600; color: var(--ink-3);
+  background: var(--bg); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px;
+}
+
+/* ── RECIPIENT EVENTS TABLE ───────────────────────────────────────────── */
+.socd-ev-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.socd-ev-table thead th {
+  background: var(--bg-2); padding: 10px 14px; text-align: center;
+  font-family: var(--font-head); font-size: 10.5px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase; color: var(--ink-3);
+  border-bottom: 1px solid var(--border); white-space: nowrap;
+}
+.socd-ev-table tbody tr { border-bottom: 1px solid var(--border); transition: background .15s; }
+.socd-ev-table tbody tr:last-child { border-bottom: none; }
+.socd-ev-table tbody tr:hover { background: var(--bg-2); }
+.socd-ev-table tbody td { padding: 12px 14px; color: var(--ink-2); text-align: center; vertical-align: middle; }
+.socd-ev-table .socd-ev-th-num, .socd-ev-table .socd-ev-td-num { width: 40px; text-align: center; }
+.socd-ev-table .socd-ev-td-num { color: var(--ink-3); font-size: 12px; font-family: monospace; }
+.socd-ev-table .socd-ev-th-email { text-align: left !important; }
+.socd-ev-table .socd-ev-td-email {
+  text-align: left; font-family: monospace; font-size: 13px; color: var(--ink); font-weight: 600;
+  max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.socd-ev-th-journey { min-width: 280px; text-align: center; padding-left: 14px; padding-right: 14px; }
+.socd-ev-td-journey { padding: 12px 14px; text-align: center; }
+.socd-ev-th-last, .socd-ev-td-last { white-space: nowrap; text-align: center; }
+
+/* ── JOURNEY TRACK LEGEND + TRACK (8 stages — SO adds Replied over EM's 7) */
+.socd-ev-legend { display: grid; grid-template-columns: repeat(8, 1fr); }
+.socd-ev-legend span {
+  text-align: center; font-size: 9.5px; font-weight: 600;
+  color: var(--ink-3); white-space: nowrap; cursor: default;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.socd-ev-track {
+  position: relative; display: grid; grid-template-columns: repeat(8, 1fr);
+  align-items: center; width: 100%; padding: 6px 0;
+}
+.socd-ev-rail {
+  position: absolute; left: 0; right: 0; top: 50%;
+  height: 1.5px; background: var(--border);
+  transform: translateY(-50%); z-index: 0; border-radius: 2px;
+}
+.socd-ev-node {
+  position: relative; z-index: 1; width: 9px; height: 9px; border-radius: 50%;
+  margin: 0 auto; cursor: default; transition: transform .18s, box-shadow .18s;
+}
+.socd-ev-node:hover { transform: scale(1.6); }
+.socd-ev-node.sent         { background: #0284C7; box-shadow: 0 0 0 2px rgba(2,132,199,.25); }
+.socd-ev-node.delivered    { background: #059669; box-shadow: 0 0 0 2px rgba(5,150,105,.25); }
+.socd-ev-node.opened       { background: #D97706; box-shadow: 0 0 0 2px rgba(217,119,6,.25); }
+.socd-ev-node.clicked      { background: #7C3AED; box-shadow: 0 0 0 2px rgba(124,58,237,.25); }
+.socd-ev-node.replied      { background: #009977; box-shadow: 0 0 0 2px rgba(0,153,119,.25); }
+.socd-ev-node.bounced      { background: #E11D48; box-shadow: 0 0 0 2px rgba(225,29,72,.25); }
+.socd-ev-node.complained   { background: #EA580C; box-shadow: 0 0 0 2px rgba(234,88,12,.25); }
+.socd-ev-node.unsubscribed { background: #CA8A04; box-shadow: 0 0 0 2px rgba(202,138,4,.25); }
+.socd-ev-node.inactive     { background: var(--bg); border: 1.5px solid var(--border); }
+
+/* ── EVENT + SEQUENCE-STATUS BADGES ───────────────────────────────────── */
+.socd-ev-badge {
+  display: inline-block; font-family: var(--font-head); font-size: 11px; font-weight: 700;
+  padding: 3px 10px; border-radius: 100px; white-space: nowrap;
+}
+.socd-ev-badge.sent         { background: var(--bg-2);    color: var(--ink-3);   border: 1px solid var(--border); }
+.socd-ev-badge.delivered    { background: var(--mint-lt); color: #007A5E;        border: 1px solid rgba(0,198,162,.2); }
+.socd-ev-badge.opened       { background: var(--teal-lt); color: var(--teal-dk); border: 1px solid rgba(0,153,204,.2); }
+.socd-ev-badge.clicked      { background: #F3F0FF;        color: #6C4BC9;        border: 1px solid rgba(108,75,201,.2); }
+.socd-ev-badge.replied      { background: var(--mint-lt); color: #009977;        border: 1px solid rgba(0,153,119,.2); }
+.socd-ev-badge.bounced      { background: #FFF3EF;        color: #C94A1D;        border: 1px solid rgba(255,107,53,.2); }
+.socd-ev-badge.complained   { background: #FFFBEF;        color: #9A6800;        border: 1px solid rgba(255,188,0,.2); }
+.socd-ev-badge.unsubscribed { background: #F3F0FF;        color: #7C3AED;        border: 1px solid rgba(124,58,237,.2); }
+
+.socd-empty { text-align: center; padding: 50px 24px; color: var(--ink-3); }
+.socd-empty i { font-size: 36px; margin-bottom: 12px; display: block; color: var(--border); }
+
+/* ── DETAILS GRID, matching .cd-details-grid ──────────────────────────── */
+.socd-details-grid { display: grid; grid-template-columns: auto 1fr; gap: 0; font-size: 13.5px; }
+.socd-details-grid dt {
+  padding: 11px 20px; font-family: var(--font-head); font-weight: 600;
+  color: var(--ink-3); border-bottom: 1px solid var(--border); white-space: nowrap;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .05em;
+}
+.socd-details-grid dd {
+  padding: 11px 20px; color: var(--ink); border-bottom: 1px solid var(--border);
+  margin: 0; word-break: break-word;
+}
+.socd-details-grid dt:last-of-type,
+.socd-details-grid dd:last-of-type { border-bottom: none; }
+
+/* ── BOTTOM ROW ────────────────────────────────────────────────────────── */
+.socd-bottom-row { display: flex; gap: 20px; align-items: flex-start; }
+@media (max-width: 720px) { .socd-bottom-row { flex-direction: column; } }
+
+/* ── EMAIL PREVIEW (SO's step-1/variant-A content, in place of EM's single
+   template — .cd-tpl-preview's iframe-scaling equivalent) ───────────────── */
+.socd-preview-wrap  { width: 100%; overflow: hidden; border-top: 1px solid var(--border); background: var(--bg-2); }
+.socd-preview-frame { display: block; border: none; pointer-events: none; }
+
+/* ══════════════════════════════════════════════════════
+   DARK MODE
+   ══════════════════════════════════════════════════════ */
+[data-theme="dark"] .socd-stat { background: var(--bg-2); }
+[data-theme="dark"] .socd-ev-badge.clicked      { background: rgba(108,75,201,.2); color: #C4ADFF; border-color: rgba(108,75,201,.3); }
+[data-theme="dark"] .socd-ev-badge.bounced      { background: rgba(201,74,29,.18);  color: #FF8060; border-color: rgba(201,74,29,.3); }
+[data-theme="dark"] .socd-ev-badge.complained   { background: rgba(200,150,0,.16);  color: #FFB83F; border-color: rgba(200,150,0,.28); }

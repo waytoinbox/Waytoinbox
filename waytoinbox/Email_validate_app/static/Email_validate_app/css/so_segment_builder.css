@@ -1,0 +1,51 @@
+/*
+ * so_segment_builder.css — SO Segment Builder (condition-group rule editor +
+ * live preview). Reuses the shared tokens and Email Marketing's segments.css
+ * shell it already links — no new :root here. Class prefix: sgb-.
+ */
+
+/* ── moved from the page's embedded <style> block ─────────────────────── */
+.sgb-toggle-row { display: flex; align-items: center; gap: 10px; }
+.sgb-toggle-section { display: flex; align-items: center; gap: 8px; }
+
+.sgb-group { border: 1.5px solid var(--border, #e5e7eb); border-radius: var(--radius-md); background: var(--bg, #fff); overflow: hidden; }
+.sgb-group-header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: var(--bg-2, #f8f9fb); border-bottom: 1px solid var(--border, #e5e7eb); flex-wrap: wrap; }
+.sgb-group-num { font-size: 13px; font-weight: 700; color: var(--ink-1); min-width: 56px; }
+.sgb-group-match { display: flex; align-items: center; gap: 5px; margin-left: auto; flex-wrap: wrap; }
+.sgb-group-match-lbl { font-size: 12px; color: var(--ink-3); margin-right: 2px; }
+.sgb-radio-sm { display: flex; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); cursor: pointer; padding: 3px 9px; border-radius: 5px; border: 1px solid var(--border, #e5e7eb); background: var(--bg, #fff); user-select: none; }
+.sgb-radio-sm input { accent-color: var(--primary, #0d9488); }
+.sgb-group-del { margin-left: 8px; background: none; border: none; cursor: pointer; color: var(--ink-3); padding: 4px 7px; border-radius: 5px; font-size: 13px; transition: color .15s, background .15s; line-height: 1; }
+.sgb-group-del:hover { color: #ef4444; background: #fef2f2; }
+.sgb-conditions { padding: 10px 14px; display: flex; flex-direction: column; gap: 6px; min-height: 20px; }
+.sgb-add-cond-btn { margin: 0 14px 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--primary, #0d9488); background: none; border: 1.5px dashed var(--primary, #0d9488); border-radius: 6px; padding: 5px 12px; cursor: pointer; font-weight: 500; transition: background .15s; }
+.sgb-add-cond-btn:hover { background: var(--primary-light, #f0fdfa); }
+.sgb-add-cond-btn:disabled { opacity: .4; cursor: not-allowed; }
+.sgb-connector { display: flex; align-items: center; gap: 8px; margin: 10px 0; }
+.sgb-connector-line { flex: 1; height: 1.5px; background: var(--border, #e5e7eb); }
+.sgb-connector-tag { font-size: 11px; font-weight: 700; letter-spacing: .07em; padding: 3px 16px; border: 1.5px solid var(--primary, #0d9488); border-radius: 12px; background: var(--bg, #fff); white-space: nowrap; cursor: pointer; color: var(--primary, #0d9488); transition: background .15s, color .15s; }
+.sgb-connector-tag:hover { background: var(--primary, #0d9488); color: #fff; }
+.sgb-connector-tag.or-tag { color: #f59e0b; border-color: #f59e0b; }
+.sgb-connector-tag.or-tag:hover { background: #f59e0b; color: #fff; }
+.sgb-add-group-wrap { margin-top: 14px; }
+.sgb-add-group-btn { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 500; color: var(--primary, #0d9488); background: none; border: 1.5px solid var(--primary, #0d9488); border-radius: 7px; padding: 7px 18px; cursor: pointer; transition: background .15s; }
+.sgb-add-group-btn:hover { background: var(--primary-light, #f0fdfa); }
+
+/* ── extracted from inline styles ────────────────────────────────────── */
+.sgb-icon-sm { font-size: 11px; }
+.sgb-mb-16 { margin-bottom: 16px; }
+.sgb-mb-12 { margin-bottom: 12px; }
+.sgb-form-tight { margin-bottom: 0; }
+.sgb-optional-label { font-weight: 400; color: var(--ink-3); }
+.sgb-cond-count { font-size: 12px; color: var(--ink-3); font-weight: 400; text-transform: none; letter-spacing: 0; }
+.sgb-save-msg { font-size: 13px; color: var(--ink-3); margin-left: auto; }
+.sgb-scroll-x { overflow-x: auto; }
+.sgb-no-value { color: var(--ink-3); font-size: 12px; font-style: italic; }
+/* .sg-custom-domain (not sgb-) is the existing segments.css input class this
+   page already uses — adding spacing/visibility here layers on top of it,
+   loading after segments.css, rather than renaming a class other markup
+   already depends on. */
+.sg-custom-domain { margin-top: 6px; }
+.sg-custom-domain[hidden] { display: none; }
+.sgb-date-range-row { display: flex; gap: 6px; align-items: center; }
+.sgb-date-to-label { font-size: 12px; color: var(--ink-3); }

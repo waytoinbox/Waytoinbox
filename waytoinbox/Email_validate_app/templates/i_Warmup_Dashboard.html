@@ -1,0 +1,129 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/warmup.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <div class="so-header">
+    <div class="wu-header-title">
+      <div class="wu-header-icon"><i class="fas fa-fire"></i></div>
+      <div>
+        <h1>Warmup</h1>
+        <p>Sends warmup traffic to a shared receiver pool and tracks where it lands. This is a mechanical send-and-check loop — it makes no claim about deliverability or reputation effect.</p>
+      </div>
+    </div>
+    <div class="so-header-actions">
+      <a href="{% url 'so_email_accounts' %}" class="so-btn-secondary"><i class="fas fa-at"></i> Manage Senders</a>
+    </div>
+  </div>
+
+  <div class="wu-status-banner {{ overall_status }}">
+    <span class="wu-status-dot"></span>
+    {% if overall_status == 'running' %}Running
+    {% elif overall_status == 'paused' %}Paused
+    {% elif overall_status == 'stopped' %}Stopped
+    {% else %}Not configured yet{% endif %}
+    <span class="wu-status-sub">
+      {% if overall_status == 'not_configured' %}
+        <a href="{% url 'so_email_accounts' %}" style="color:var(--teal);">Enroll a sender account to get started →</a>
+      {% else %}
+        {{ sender_rows|length }} sender{{ sender_rows|length|pluralize }} enrolled
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="wu-section-heading">Today's Activity</div>
+  <div class="wu-summary-grid">
+    <div class="wu-stat sent">
+      <div class="wu-stat-label">Sent</div>
+      <div class="wu-stat-value">{{ today_stats.sent }}</div>
+    </div>
+    <div class="wu-stat inbox">
+      <div class="wu-stat-label">Inbox</div>
+      <div class="wu-stat-value">{{ today_stats.inbox }}</div>
+    </div>
+    <div class="wu-stat spam">
+      <div class="wu-stat-label">Spam</div>
+      <div class="wu-stat-value">{{ today_stats.spam }}</div>
+    </div>
+    <div class="wu-stat rescued">
+      <div class="wu-stat-label">Rescued → Inbox</div>
+      <div class="wu-stat-value">{{ today_stats.rescued }}</div>
+    </div>
+    <div class="wu-stat other">
+      <div class="wu-stat-label">Other</div>
+      <div class="wu-stat-value">{{ today_stats.other }}</div>
+    </div>
+    <div class="wu-stat not_found">
+      <div class="wu-stat-label">Not Found</div>
+      <div class="wu-stat-value">{{ today_stats.not_found }}</div>
+    </div>
+    <div class="wu-stat read">
+      <div class="wu-stat-label">Read</div>
+      <div class="wu-stat-value">{{ today_stats.read }}</div>
+    </div>
+  </div>
+
+  <div class="wu-section-heading">Placement Rate <span class="wu-muted" style="font-weight:400;text-transform:none;letter-spacing:normal;">(all time, of checked messages)</span></div>
+  <div class="wu-summary-grid">
+    <div class="wu-stat inbox">
+      <div class="wu-stat-label">Originally Inbox</div>
+      <div class="wu-stat-value">{{ total_stats.inbox }}</div>
+      <div class="wu-stat-pct">{% if placement_pct.inbox is not None %}{{ placement_pct.inbox }}%{% else %}—{% endif %}</div>
+    </div>
+    <div class="wu-stat spam">
+      <div class="wu-stat-label">Originally Spam</div>
+      <div class="wu-stat-value">{{ total_stats.spam }}</div>
+      <div class="wu-stat-pct">{% if placement_pct.spam is not None %}{{ placement_pct.spam }}%{% else %}—{% endif %}</div>
+    </div>
+    <div class="wu-stat rescued">
+      <div class="wu-stat-label">Spam Rescued → Inbox</div>
+      <div class="wu-stat-value">{{ total_stats.rescued }}</div>
+      <div class="wu-stat-pct">{% if total_stats.spam %}of {{ total_stats.spam }} spam{% else %}—{% endif %}</div>
+    </div>
+    <div class="wu-stat other">
+      <div class="wu-stat-label">Other</div>
+      <div class="wu-stat-value">{{ total_stats.other }}</div>
+      <div class="wu-stat-pct">{% if placement_pct.other is not None %}{{ placement_pct.other }}%{% else %}—{% endif %}</div>
+    </div>
+  </div>
+
+  <div class="wu-section-heading">Sender Account Performance</div>
+  <div class="so-card">
+    {% if sender_rows %}
+    <div class="so-table-wrap">
+      <table class="so-table">
+        <thead>
+          <tr><th>Sender</th><th>Status</th><th>Sent</th><th>Inbox</th><th>Spam</th><th>Other</th><th>Failed</th><th>Daily target</th></tr>
+        </thead>
+        <tbody>
+          {% for row in sender_rows %}
+          <tr>
+            <td class="mono">{{ row.account.email }}</td>
+            <td><span class="so-badge {{ row.warmup.status }}">{{ row.warmup.get_status_display }}</span></td>
+            <td>{{ row.sent }}</td>
+            <td>{{ row.inbox }}</td>
+            <td>{{ row.spam }}</td>
+            <td>{{ row.other }}</td>
+            <td>{{ row.failed }}</td>
+            <td>{{ row.warmup.daily_current }} / {{ row.warmup.daily_target }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="so-empty">
+      <i class="fas fa-paper-plane"></i>
+      <p>No sender accounts enrolled yet.</p>
+      <a href="{% url 'so_email_accounts' %}" class="so-btn-primary wu-mt-6"><i class="fas fa-plus"></i> Enroll a Sender</a>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+{% endblock %}

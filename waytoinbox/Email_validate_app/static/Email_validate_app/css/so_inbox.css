@@ -1,0 +1,946 @@
+/* Sales Outreach — Inbox. Reuses the global tokens from tokens-reset-utilities.css
+   and the shell/button/badge primitives from so.css — no new :root here. */
+
+/* Scoped to this page only via a body class (i_SO_Inbox.html sets it in JS),
+   same pattern as body.tb-fullpage/.wtib-fp in template_builder.css/
+   wti_builder.css — every other page keeps .main-content's normal padding.
+   .soi-page below already sizes itself as 100vh minus the topbar only, so
+   the shared padding (which adds an extra 32px top / 48px bottom on top of
+   that) was pushing it past its own height calc. Unlike tb-fullpage/wtib-fp,
+   this page keeps the topbar visible (position: fixed, doesn't push
+   document flow) — padding-top must stay at var(--nav-h) to clear it, only
+   the decorative extra padding is zeroed. */
+body.soi-fullpage .main-content { padding: var(--nav-h) 0 0; }
+
+.soi-page {
+  position: relative;
+  display: grid;
+  grid-template-columns: 230px 360px 1fr;
+  gap: 0;
+  height: calc(100vh - var(--nav-h));
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  overflow: hidden;
+}
+
+/* ── Left: folders/filters ─────────────────────────────────────────────── */
+
+.soi-sidebar {
+  border-right: 1px solid var(--border);
+  background: var(--bg-2);
+  overflow-y: auto;
+  padding: 0 6px 24px 16px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.soi-sidebar::-webkit-scrollbar { width: 8px; }
+.soi-sidebar::-webkit-scrollbar-track { background: transparent; }
+.soi-sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.soi-sidebar::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+
+/* Pinned at the top of the sidebar's own scroll — stays visible while the
+   folders/filters below it scroll underneath. Needs its own background
+   (matching .soi-sidebar's) since sticky content still lets whatever's
+   beneath show through otherwise. */
+.soi-sidebar-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-2);
+  padding-top: 16px;
+}
+.soi-sidebar-head h1 {
+  font-family: var(--font-head);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 4px 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.soi-folders { display: flex; flex-direction: column; gap: 2px; margin-bottom: 18px; }
+.soi-folder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--ink-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background .12s, color .12s;
+}
+.soi-folder i { width: 16px; text-align: center; font-size: 12.5px; color: var(--ink-3); }
+.soi-folder span { flex: 1; }
+.soi-folder .soi-count {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  background: var(--bg-3);
+  border-radius: 20px;
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
+}
+.soi-folder:hover { background: var(--bg-3); color: var(--ink); }
+.soi-folder.active { background: var(--teal-lt); color: var(--teal-dk); }
+.soi-folder.active i { color: var(--teal-dk); }
+.soi-folder.active .soi-count { background: var(--teal); color: #fff; }
+
+.soi-filter-group { margin: 0 8px 16px; }
+/* Direct child only — .soi-rd-option (the checkbox rows inside a dropdown's
+   panel) is also a <label>, nested deeper inside .soi-rd, and must not pick
+   up this uppercase/small heading treatment meant for the group's own
+   heading label (e.g. "Tags"). */
+.soi-filter-group > label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 6px;
+}
+.soi-filter-group .so-select { width: 100%; }
+
+/* Multi-select filter dropdowns (Status / Sender Accounts / Campaigns /
+   Classification). Trigger matches .so-select.soi-sort-select's pill look
+   (teal-tinted, no visible border, bold teal text) exactly, so this and the
+   Sort dropdown read as one consistent family of control. The panel stays a
+   simple floating menu (like .soi-more-menu) with a real scrollbar for long
+   lists (Sender Accounts, Campaigns). */
+.soi-rd-label {
+  display: block;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--teal-dk);
+  margin-bottom: 6px;
+}
+.soi-rd { position: relative; border:1px solid var(--border); border-radius: var(--radius-sm); }
+.soi-rd-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  color: var(--teal-dk);
+  background-color: var(--teal-lt);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.soi-rd-trigger:hover { border-color: var(--teal); }
+.soi-rd-trigger.open  {
+  /* border-color: var(--teal); */
+  border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+}
+.soi-rd-trigger-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soi-rd-arrow { width: 16px; text-align: center; font-size: 11px; color: var(--teal-dk); flex-shrink: 0; transition: transform .15s ease; }
+.soi-rd-trigger.open .soi-rd-arrow { transform: rotate(180deg); }
+
+/* In normal document flow, not position:fixed/absolute — expands the
+   sidebar's own content height when open, so .soi-sidebar's existing
+   overflow-y:auto scrollbar is the only scrollbar (no separate one nested
+   inside the panel). Same border/radius treatment as Email Marketing's
+   .crc-rd-panel (teal border, square top since it sits flush under the
+   trigger, rounded bottom only). */
+.soi-rd-panel {
+  display: none;
+  background: var(--bg);
+  /* border: 1.5px solid var(--teal);  */
+  border-top: none;
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  /* box-shadow: 0 6px 20px rgba(0,0,0,.12);  */
+  /* padding: 6px; */
+}
+.soi-rd-panel.open { display: block; }
+
+.soi-rd-search {
+  display: block;
+  width: 95%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  margin: 4px;
+  font-size: 12.5px;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg-2);
+  outline: none;
+}
+.soi-rd-search:focus { border-color: var(--teal); }
+
+.soi-rd-option {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  padding: 6px 8px; border-radius: var(--radius-sm);
+  font-size: 11.5px; font-weight: normal; color: var(--ink-2); line-height: 1;
+  text-align: left; cursor: pointer; margin: 0;
+}
+.soi-rd-option:hover { background: var(--bg-2); }
+.soi-rd-option.selected { color: var(--teal-dk); font-weight: 600; }
+.soi-rd-name { flex: 1; min-width: 0; line-height: 1.3; white-space: normal; word-break: break-word; }
+/* Email addresses specifically stay on one line (truncated with an ellipsis
+   if too long) rather than wrapping — everything else in these dropdowns
+   (campaign names, status/classification labels) still wraps normally.
+   Sidebar-only: the Compose modal's From dropdown has plenty of width to
+   show the full address without truncating. */
+#soiAccountFilter .soi-rd-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* Custom hover tooltip for the truncated account email — a native title=""
+   tooltip is slow (~1s browser delay) and unstyled black-on-white; this
+   fades in immediately and matches the app's teal theme instead. */
+#soiAccountFilter .soi-rd-option { position: relative; }
+#soiAccountFilter .soi-rd-option[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  left: 8px; top: calc(100% + 4px);
+  background: var(--teal-dk);
+  color: #fff;
+  font-size: 11px; font-weight: 600; line-height: 1.4;
+  white-space: nowrap;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  opacity: 0; visibility: hidden; transform: translateY(-2px);
+  transition: opacity .08s ease, transform .08s ease;
+  pointer-events: none;
+  z-index: 40;
+}
+#soiAccountFilter .soi-rd-option[data-tip]:hover::after {
+  opacity: 1; visibility: visible; transform: translateY(0);
+}
+.soi-rd-meta {
+  font-style: normal; font-size: 11px; font-weight: 700; line-height: 16px; color: var(--ink-3);
+  background: var(--bg-3); border-radius: 20px; padding: 0 7px; height: 16px; min-width: 18px;
+  text-align: center; flex-shrink: 0;
+}
+.soi-rd-option.selected .soi-rd-meta { background: var(--teal); color: #fff; }
+.soi-rd-no-results { padding: 10px; font-size: 12.5px; color: var(--ink-3); text-align: center; }
+
+.soi-rd-chk {
+  width: 12px; height: 12px; flex-shrink: 0;
+  accent-color: var(--teal); cursor: pointer; margin: 0;
+}
+
+/* Inbox-only polish for every dropdown on this page (filters + sort) — scoped
+   to .soi-page so it doesn't change .so-select's plain look on other Sales
+   Outreach pages that share the same base class. */
+.soi-page select.so-select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' stroke='%237B93AD' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.soi-page select.so-select:hover  { border-color: var(--ink-3); }
+.soi-page select.so-select:focus  { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-lt); }
+.soi-page select.so-select:disabled { opacity: .55; cursor: not-allowed; }
+
+.soi-tag-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.soi-tag-chip {
+  border: 1.5px solid var(--border);
+  border-left: 4px solid var(--tag-color, var(--teal));
+  background: var(--bg);
+  border-radius: 20px;
+  padding: 3px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.soi-tag-chip.active { background: var(--teal-lt); color: var(--teal-dk); border-color: var(--teal); }
+
+/* ── Middle: conversation list ─────────────────────────────────────────── */
+
+.soi-list-col {
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+/* Height must match .soi-thread-header (top of the thread column) so the two
+   panels' header rows line up flush across the page. */
+.soi-search-wrap {
+  position: relative;
+  height: 60px;
+  box-sizing: border-box;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.soi-search-wrap i { position: absolute; left: 26px; top: 50%; transform: translateY(-50%); color: var(--ink-3); font-size: 12.5px; }
+.soi-search-wrap input {
+  width: 100%;
+  padding: 8px 10px 8px 30px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-family: var(--font-body);
+  background: var(--bg-2);
+}
+.soi-search-wrap input:focus { outline: none; border-color: var(--teal); background: var(--bg); }
+
+.soi-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.soi-checkbox input { width: 15px; height: 15px; accent-color: var(--teal); cursor: pointer; }
+.soi-list-count { flex: 1; font-size: 11.5px; color: var(--ink-3); }
+.soi-list-count.soi-list-count--selecting { font-weight: 700; color: var(--teal-dk); }
+.soi-sort-select {
+  width: auto;
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 6px 30px 6px 12px;
+  color: var(--teal-dk);
+  background-color: var(--teal-lt);
+  border-color: transparent;
+}
+.soi-sort-select:hover  { border-color: var(--teal); background-color: var(--teal-lt); }
+.soi-sort-select:focus  { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-lt); }
+
+.soi-conv-list {
+  flex: 1;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.soi-conv-list::-webkit-scrollbar { width: 8px; }
+.soi-conv-list::-webkit-scrollbar-track { background: transparent; }
+.soi-conv-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.soi-conv-list::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+.soi-list-loading, .soi-list-empty { padding: 40px 16px; text-align: center; color: var(--ink-3); font-size: 13px; }
+.soi-load-more {
+  border: none;
+  border-top: 1px solid var(--border);
+  background: var(--bg-2);
+  color: var(--teal-dk);
+  font-size: 12.5px;
+  font-weight: 600;
+  padding: 10px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.soi-conv-card {
+  display: flex;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  position: relative;
+  transition: background .1s;
+}
+.soi-conv-card:hover { background: var(--bg-2); }
+.soi-conv-card.active { background: var(--teal-lt); }
+.soi-conv-card.unread { background: #FBFEFF; }
+.soi-conv-card.unread .soi-conv-name { font-weight: 700; }
+.soi-conv-card.unread::before {
+  content: '';
+  position: absolute; left: 4px; top: 18px;
+  width: 7px; height: 7px; border-radius: 50%; background: var(--teal);
+}
+.soi-conv-check { padding-top: 2px; }
+.soi-conv-check input { width: 14px; height: 14px; accent-color: var(--teal); cursor: pointer; }
+.soi-conv-body { flex: 1; min-width: 0; }
+.soi-conv-top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
+.soi-conv-name { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.soi-conv-time { font-size: 10.5px; color: var(--ink-3); white-space: nowrap; flex-shrink: 0; }
+.soi-conv-subject { font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soi-conv-card.unread .soi-conv-subject { color: var(--ink); }
+.soi-conv-preview {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--ink-3);
+  margin-top: 3px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.soi-conv-meta-row { display: flex; align-items: center; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.soi-badge-sm {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  background: var(--bg-3);
+  color: var(--ink-3);
+}
+.soi-badge-sm.direction-inbound  { background: var(--teal-lt); color: var(--teal-dk); }
+.soi-badge-sm.direction-outbound { background: var(--bg-3); color: var(--ink-3); }
+.soi-badge-sm.cls-interested, .soi-badge-sm.cls-meeting, .soi-badge-sm.cls-positive { background: var(--mint-lt); color: #0a7a5f; }
+.soi-badge-sm.cls-not_interested, .soi-badge-sm.cls-negative, .soi-badge-sm.cls-unsubscribe { background: #FDECEA; color: var(--warn); }
+.soi-badge-sm.cls-out_of_office { background: #FFF4E0; color: #B8720A; }
+.soi-conv-campaign { font-size: 10.5px; color: var(--ink-3); }
+.soi-conv-msgcount { font-size: 10.5px; color: var(--ink-3); margin-left: 6px; }
+
+/* ── Right: thread ──────────────────────────────────────────────────────── */
+
+.soi-thread-col { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); position: relative; }
+.soi-thread-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ink-3);
+}
+.soi-thread-empty[hidden] { display: none; }
+.soi-thread-empty i { font-size: 36px; opacity: .5; }
+.soi-thread { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.soi-thread[hidden] { display: none; }
+
+/* Height must match .soi-search-wrap (top of the middle column) so the two
+   panels' header rows line up flush across the page. */
+.soi-thread-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 60px;
+  box-sizing: border-box;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.soi-thread-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.soi-avatar {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: var(--teal); color: #fff;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 15px; flex-shrink: 0;
+}
+.soi-thread-name { font-size: 15px; font-weight: 700; color: var(--ink); }
+.soi-thread-meta { font-size: 11.5px; color: var(--ink-3); margin-top: 1px; }
+.soi-thread-meta a { color: var(--teal-dk); text-decoration: none; }
+.soi-thread-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; position: relative; }
+.soi-thread-back {
+  display: none; border: none; background: none; color: var(--ink-2);
+  font-size: 15px; cursor: pointer; padding: 6px; margin-right: -4px;
+}
+
+.soi-more-wrap { position: relative; }
+.soi-more-menu {
+  position: absolute; right: 0; top: calc(100% + 4px);
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md); min-width: 200px; padding: 6px; z-index: 30;
+}
+.soi-more-menu button, .soi-more-menu a {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: none; background: none; border-radius: var(--radius-sm);
+  font-size: 12.5px; color: var(--ink-2); text-align: left; cursor: pointer;
+  text-decoration: none; box-sizing: border-box;
+}
+.soi-more-menu button:hover, .soi-more-menu a:hover { background: var(--bg-2); }
+.soi-more-menu button.soi-danger { color: var(--warn); }
+.soi-more-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.soi-more-menu[hidden], .soi-more-menu a[hidden], .soi-more-menu button[hidden] { display: none; }
+
+.soi-thread-badges { display: flex; align-items: center; gap: 6px; }
+.soi-thread-badges .soi-conv-msgcount { font-size: 10.5px; color: var(--ink-3); }
+
+.soi-paused-banner {
+  display: flex; align-items: center; gap: 12px;
+  margin: 12px 20px 0;
+  padding: 12px 16px;
+  background: #FFF4E0;
+  border: 1px solid #F4D48A;
+  border-radius: var(--radius-md);
+  flex-shrink: 0;
+}
+.soi-paused-banner[hidden] { display: none; }
+.soi-paused-banner i { font-size: 20px; color: #B8720A; }
+.soi-paused-text { flex: 1; }
+.soi-paused-text strong { font-size: 13px; color: #7A5106; }
+.soi-paused-text p { font-size: 12px; color: #8A6415; margin: 2px 0 0; }
+
+/* min-height: 0 overrides the flex default of min-height:auto — without it,
+   a flex child with overflow-y:auto still refuses to shrink below its own
+   content height, so once the composer below it grew taller (Cc/Bcc/Subject
+   rows), .soi-thread's fixed height had nowhere to take the extra space
+   from and the composer's bottom (send button, toolbar) got clipped off. */
+.soi-timeline { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; }
+.soi-tl-item { width: 100%; }
+.soi-tl-item.system, .soi-tl-item.note, .soi-tl-item.event { align-self: center; max-width: 90%; }
+
+.soi-tl-bubble { border-radius: var(--radius-md); padding: 10px 14px; font-size: 13px; line-height: 1.5; }
+.soi-tl-bubble p { margin: 0 0 6px; }
+.soi-tl-bubble p:last-child { margin-bottom: 0; }
+.soi-tl-attach { font-size: 10.5px; color: var(--ink-3); margin-top: 4px; }
+
+/* Full-width message card — header block (subject/date, from/forward, to)
+   over a separate body block, like an opened email rather than a chat bubble. */
+.soi-tl-card { width: 100%; border: 1px solid var(--border); border-radius: var(--radius-md); overflow: hidden; }
+.soi-tl-card-head { padding: 10px 14px; background: var(--bg-2); border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 3px; }
+.soi-tl-item.outbound .soi-tl-card-head { background: var(--teal-lt); }
+.soi-tl-head-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.soi-tl-dir-icon {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 7px; border-radius: 20px;
+  font-size: 10px; font-weight: 700; white-space: nowrap; flex-shrink: 0;
+}
+.soi-tl-dir-icon.inbound  { background: var(--bg-3); color: var(--ink-3); }
+.soi-tl-dir-icon.outbound { background: var(--teal-lt); color: var(--teal-dk); }
+.soi-tl-subject { flex: 1; min-width: 0; font-size: 13px; font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soi-tl-datetime { font-size: 11px; color: var(--ink-3); white-space: nowrap; flex-shrink: 0; }
+.soi-tl-from, .soi-tl-to { flex: 1; min-width: 0; font-size: 11.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soi-tl-from b, .soi-tl-to b { color: var(--ink-3); font-weight: 600; }
+.soi-tl-auto { color: var(--ink-3); font-weight: 400; }
+.soi-tl-forward {
+  border: none; background: none; color: var(--ink-3); cursor: pointer;
+  padding: 2px 6px; flex-shrink: 0; font-size: 12.5px; border-radius: var(--radius-sm);
+}
+.soi-tl-forward:hover { color: var(--teal-dk); background: rgba(0,0,0,.05); }
+.soi-tl-card-body {
+  padding: 14px; 
+  font-size: 13px; line-height: 1.5; color: var(--ink); background: var(--bg); }
+.soi-tl-card-body p { margin: 0 0 6px; }
+.soi-tl-card-body p:last-child { margin-bottom: 0; }
+.soi-tl-reply-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  margin-top: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--ink-2); font-size: 12px; font-weight: 600;
+  cursor: pointer;
+}
+.soi-tl-reply-btn:hover { border-color: var(--teal); color: var(--teal-dk); }
+
+.soi-tl-item.system .soi-tl-bubble {
+  background: transparent; border: none; text-align: center;
+  font-size: 11.5px; color: var(--ink-3); padding: 2px 0;
+}
+.soi-tl-item.event .soi-tl-bubble {
+  background: transparent; border: none; text-align: center;
+  font-size: 11px; color: var(--ink-3); padding: 2px 0;
+}
+.soi-tl-item.note .soi-tl-bubble {
+  background: #FFF9E0; border: 1px dashed #E8CF6B; color: #6B5A0A;
+}
+.soi-tl-note-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #8A7412; margin-bottom: 3px; display: flex; align-items: center; gap: 4px; }
+
+.soi-composer-fields { border: 1px solid var(--border); border-radius: var(--radius-sm); margin-bottom: 8px; }
+.soi-composer-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 40px 6px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+.soi-composer-row:last-child { border-bottom: none; }
+/* [hidden] vs .soi-composer-row{display:flex} are equal specificity (0,1,0);
+   without this, source order lets display:flex win and the Cc/Bcc rows stay
+   visible even while hidden — same class of bug as .soi-more-menu button. */
+.soi-composer-row[hidden] { display: none; }
+.soi-composer-row:focus-within { background: var(--bg-2); }
+.soi-composer-row label { width: 46px; flex-shrink: 0; color: var(--ink-3); font-weight: 600; font-size: 11px; }
+.soi-composer-static { color: var(--ink-2); font-size: 11.5px; }
+.soi-composer-field-input {
+  flex: 1; min-width: 0; border: none; outline: none;
+  font-size: 12.5px; font-family: var(--font-body); color: var(--ink); padding: 3px 0; background: transparent;
+}
+/* "From" sender-account picker reuses the same .soi-rd dropdown component as
+   the Sender Accounts filter in the sidebar (trigger + inline panel, hover
+   tooltip for long emails) instead of a native <select>, just sized to sit
+   inline in this field row and single-select instead of checkbox multi-select. */
+.soi-composer-row .soi-rd { flex: 1; min-width: 0; border-color: var(--border); }
+#soiComposeAccountRd .soi-rd-trigger { padding: 6px 12px; font-size: 12.5px; }
+/* Unlike the sidebar filter's in-flow panel (which is fine growing the
+   sidebar's own scroll region), this one lives inside a bordered field row —
+   growing that row's height when opened looked broken mid-form. Floats as a
+   position:fixed overlay instead (see initSingleSelect's positioning JS),
+   same escape-the-clipping-ancestor pattern as .soi-tb-pop. */
+#soiComposeAccountRd .soi-rd-panel {
+  position: fixed;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md);
+  max-width: 90vw;
+  max-height: 240px;
+  overflow: auto;
+  z-index: 120;
+}
+/* One row per email — nowrap instead of the base .soi-rd-name's wrap, and
+   the panel above is free to grow past the trigger's width (min-width, not
+   width) to fit it rather than wrapping or clipping it. */
+#soiComposeAccountRd .soi-rd-name { white-space: nowrap; }
+.soi-composer-cc-toggles { display: flex; gap: 8px; flex-shrink: 0; }
+.soi-composer-cc-toggle {
+  border: none; background: none; color: var(--ink-3); font-size: 11px; font-weight: 600;
+  cursor: pointer; padding: 2px 4px;
+}
+.soi-composer-cc-toggle:hover, .soi-composer-cc-toggle.active { color: var(--teal-dk); }
+/* Quill's .ql-formats groups are display:inline-block by default, so with
+   this many groups (formatting, align/list, link/undo/redo, insert) they
+   wrap onto multiple lines once the row runs out of width. white-space:nowrap
+   keeps them on one row; overflow-x:auto lets that row scroll horizontally
+   rather than clip on narrow widths. */
+.soi-composer-toolbar.ql-toolbar.ql-snow {
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  border-color: var(--border);
+  background: var(--bg-2);
+  padding: 6px 8px;
+  white-space: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+/* Quill's own toolbar buttons are float:left (not just inline-block) inside
+   each .ql-formats group — floats wrap onto their own extra line based on
+   available width regardless of white-space:nowrap on an ancestor (nowrap
+   only governs inline/text wrapping, not float wrapping). Converting each
+   group to inline-flex lays its buttons out with flexbox instead, which
+   can't wrap unless flex-wrap:wrap is set (it isn't) — the one reliable way
+   to guarantee every group, and the toolbar as a whole, stays one row. */
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-formats {
+  display: inline-flex; align-items: center; flex-wrap: nowrap; vertical-align: middle;
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-formats button,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-formats .ql-picker {
+  float: none;
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-formats::after { content: none; display: none; }
+/* overflow-y:hidden above (needed so overflow-x:auto's single-row scroll
+   doesn't also wrap the toolbar taller) has a side effect: Quill positions
+   the Size/Line-height picker dropdowns and the Link tooltip with
+   top:100% / position:absolute relative to this same element, so that same
+   clipping was hiding them entirely. The compose modal is wide enough that
+   the toolbar never needs to horizontal-scroll, so it can safely drop the
+   clipping and let those popups render normally. */
+.soi-compose-modal .soi-composer-toolbar.ql-toolbar.ql-snow { overflow: visible; }
+/* Custom (non ql-*) toolbar buttons — Undo/Redo/Merge/Emoji/Image/Table —
+   don't get Quill's own .ql-toolbar button styling since they're plain
+   <button> elements carrying Font Awesome icons instead of Quill's SVGs, so
+   they need their own sizing/hover/active treatment to look native next to
+   the rest of the toolbar. */
+.soi-tb-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 24px; margin: 0 1px;
+  padding: 0; border: none; border-radius: 4px;
+  background: none; color: #444; font-size: 13px; cursor: pointer;
+}
+.soi-tb-btn:hover { color: var(--teal); background: var(--teal-lt); }
+.soi-tb-btn.active { color: var(--teal-dk); background: var(--teal-lt); }
+
+/* Theme Quill's own native tools (Bold/Italic/Underline, Align, Lists, Link,
+   and the Size/Colour/Line-height pickers) to the app's teal palette instead
+   of Quill's default blue-ish active state, so every tool in the row reads
+   as one consistent, styled set rather than "custom teal buttons next to
+   stock Quill blue ones". */
+.soi-composer-toolbar.ql-toolbar.ql-snow button {
+  width: 26px; height: 24px; border-radius: 4px; margin: 0 1px;
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow button:hover,
+.soi-composer-toolbar.ql-toolbar.ql-snow button.ql-active,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-item:hover,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-item.ql-selected {
+  color: var(--teal-dk);
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow button:hover .ql-stroke,
+.soi-composer-toolbar.ql-toolbar.ql-snow button.ql-active .ql-stroke,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover .ql-stroke,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-stroke {
+  stroke: var(--teal-dk);
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow button:hover .ql-fill,
+.soi-composer-toolbar.ql-toolbar.ql-snow button.ql-active .ql-fill,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label:hover .ql-fill,
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-label.ql-active .ql-fill {
+  fill: var(--teal-dk);
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker {
+  font-size: 12px; font-family: var(--font-body); color: var(--ink-2);
+}
+/* Font size + line height called out as their own bordered box, separate
+   from the surrounding format/align/list groups.
+   Scoped under .soi-composer-toolbar.ql-toolbar.ql-snow (3 classes) rather
+   than the bare .soi-tb-group-bordered class — Quill's own ".ql-snow
+   .ql-formats { display: inline-block }" is (0,2,0), which beats a bare
+   single-class selector's (0,1,0) regardless of stylesheet order, so
+   display:flex was silently losing and never actually applying. */
+.soi-composer-toolbar.ql-toolbar.ql-snow .soi-tb-group-bordered {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 0 6px; margin-right: 12px !important;
+  /* inline-flex, not flex — flex is block-level, which forced a line break
+     before and after this group, splitting the toolbar into three rows
+     instead of keeping it inline with the other .ql-formats groups. */
+  display: inline-flex; flex-wrap: nowrap; align-items: center; gap: 10px; vertical-align: middle;
+  height: 24px; line-height: 1;
+}
+/* Quill's .ql-formats::after is a clearfix (display:table) for its own
+   float-based buttons — as a 3rd flex item here it could push the two
+   steppers apart onto their own lines. Flexbox needs no clearfix at all. */
+.soi-composer-toolbar.ql-toolbar.ql-snow .soi-tb-group-bordered::after { content: none; display: none; }
+/* Icon + current value + up/down stepper — not a Quill picker/dropdown at
+   all, just plain buttons stepping through the size/lineheight whitelist
+   (see stepFormat() in so_inbox.js). */
+.soi-tb-stepper { display: flex; flex-shrink: 0; white-space: nowrap; align-items: center; gap: 4px; font-size: 12px; color: var(--ink-2); }
+.soi-tb-stepper > i { font-size: 12px; color: var(--ink-3); width: 14px; text-align: center; }
+.soi-tb-stepper-value { min-width: 16px; text-align: center; font-weight: 600; color: var(--ink); }
+.soi-tb-stepper-arrows { display: flex; flex-direction: column; }
+/* Scoped under .soi-composer-toolbar.ql-toolbar.ql-snow (4 classes, 0,4,1)
+   rather than the bare .soi-tb-stepper-arrows class (0,1,1) — both Quill's
+   own ".ql-snow.ql-toolbar button" (0,2,1) and this file's own
+   ".soi-composer-toolbar.ql-toolbar.ql-snow button" (0,3,1) outrank a
+   bare-class selector regardless of source order, so the intended tiny
+   14×11 arrow buttons were silently being forced up to the toolbar's
+   standard 26×24 button size (plus Quill's own 3px 5px padding). */
+.soi-composer-toolbar.ql-toolbar.ql-snow .soi-tb-stepper-arrows button {
+  display: flex; align-items: center; justify-content: center;
+  width: 14px; height: 11px; margin: 0; padding: 0; border: none; background: none;
+  color: var(--ink-3); font-size: 9px; line-height: 1; cursor: pointer;
+}
+.soi-tb-stepper-arrows button:hover { color: var(--teal-dk); }
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-options {
+  border: 1px solid var(--border) !important; border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); padding: 6px !important;
+}
+.soi-composer-toolbar.ql-toolbar.ql-snow .ql-picker-item {
+  border-radius: 3px;
+}
+.ql-snow .ql-tooltip {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-md); font-family: var(--font-body); color: var(--ink-2);
+}
+.ql-snow .ql-tooltip input[type=text] {
+  border: 1px solid var(--border); border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  box-sizing: border-box; line-height: 24px; padding: 0 8px;
+}
+.ql-snow .ql-tooltip input[type=text]:focus { border-color: var(--teal); outline: none; }
+.ql-snow .ql-tooltip a.ql-action, .ql-snow .ql-tooltip a.ql-remove { color: var(--teal-dk); }
+/* Quill's own .ql-container{height:100%} can't resolve against an
+   auto-height ancestor, so it silently degrades to auto and the max-height
+   below never actually clips anything without an explicit overflow-y here —
+   that's what was letting typed text grow past the visible box with no way
+   to scroll down to see or keep writing it. */
+#soiComposeEditor.ql-container.ql-snow {
+  border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+  border-color: var(--border);
+  min-height: 90px;
+  /* No max-height here — this used to be shared with the old, separate
+     reply-composer editor (before Reply/Forward/Compose were unified into
+     this one element), which needed a cap for its own narrower context.
+     Left in place, it silently capped the editor at 220px regardless of the
+     flex-grow sizing below, since removing a property from a MORE specific
+     rule doesn't unset it — the less-specific value here just kept winning. */
+  overflow-y: auto;
+  font-size: 13px;
+  font-family: var(--font-body);
+}
+/* An empty editor (Quill adds .ql-blank while showing the placeholder) has
+   no reason to reserve the same tall min-height as one with real content —
+   shrink the box down to just the placeholder line until something's typed. */
+#soiComposeEditor.ql-container.ql-snow:has(.ql-editor.ql-blank) {
+  min-height: 44px;
+}
+.soi-composer-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
+/* flex-shrink:0 on this in the modal's flex column (see .soi-compose-modal
+   above) already guarantees the footer its full space and keeps it visible
+   without any position:sticky trickery — it's a normal last child now. */
+.soi-compose-modal .soi-composer-footer {
+  background: var(--bg);
+  padding-top: 10px;
+  margin-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.soi-composer-left { display: flex; align-items: center; gap: 4px; position: relative; }
+.soi-composer-right { display: flex; align-items: center; gap: 10px; }
+.soi-attach-list { font-size: 11px; color: var(--ink-3); }
+
+/* Toolbar insert popovers (merge tag / emoji / table) — position:fixed +
+   JS-computed rect (see positionTbPop) so they're never clipped by
+   .soi-thread's overflow:hidden, same fix pattern used for the sidebar
+   flyout submenus and dropdown filter panels elsewhere on this page. */
+.soi-tb-pop {
+  display: none; position: fixed; z-index: 60; background: var(--bg);
+  border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md); padding: 8px;
+}
+.soi-tb-pop.open { display: block; }
+.soi-tb-pop-list { display: flex; flex-direction: column; gap: 2px; min-width: 180px; max-height: 240px; overflow-y: auto; }
+.soi-tb-pop-list button {
+  display: block; width: 100%; text-align: left; padding: 7px 10px; border: none; background: none;
+  border-radius: var(--radius-sm); font-size: 12px; color: var(--ink-2); cursor: pointer;
+}
+.soi-tb-pop-list button:hover { background: var(--bg-2); color: var(--teal-dk); }
+.soi-tb-pop-emoji { display: grid; grid-template-columns: repeat(8, 26px); gap: 2px; max-height: 200px; overflow-y: auto; }
+.soi-tb-pop-emoji button { width: 26px; height: 26px; border: none; background: none; font-size: 16px; cursor: pointer; border-radius: 5px; line-height: 1; }
+.soi-tb-pop-emoji button:hover { background: var(--bg-2); }
+.soi-tb-pop-grid { display: grid; grid-template-columns: repeat(8, 18px); gap: 2px; }
+.soi-tb-pop-grid span { width: 18px; height: 18px; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; display: block; }
+.soi-tb-pop-grid span.on { background: var(--teal); border-color: var(--teal); }
+.soi-tb-pop-gridlbl { text-align: center; font-size: 11px; color: var(--ink-3); margin-top: 6px; }
+
+/* Every scroll surface in the composer/Compose modal (and the message
+   timeline) gets the same slim scrollbar treatment as .soi-sidebar, instead
+   of each browser's bulky default bar. */
+.soi-compose-modal,
+#soiComposeEditor.ql-container.ql-snow,
+.soi-composer-toolbar.ql-toolbar.ql-snow,
+.soi-tb-pop-list, .soi-tb-pop-emoji,
+.soi-timeline {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.soi-compose-modal::-webkit-scrollbar,
+#soiComposeEditor.ql-container.ql-snow::-webkit-scrollbar,
+.soi-composer-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar,
+.soi-tb-pop-list::-webkit-scrollbar, .soi-tb-pop-emoji::-webkit-scrollbar,
+.soi-timeline::-webkit-scrollbar {
+  width: 8px; height: 8px;
+}
+.soi-compose-modal::-webkit-scrollbar-track,
+#soiComposeEditor.ql-container.ql-snow::-webkit-scrollbar-track,
+.soi-composer-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-track,
+.soi-tb-pop-list::-webkit-scrollbar-track, .soi-tb-pop-emoji::-webkit-scrollbar-track,
+.soi-timeline::-webkit-scrollbar-track {
+  background: transparent;
+}
+.soi-compose-modal::-webkit-scrollbar-thumb,
+#soiComposeEditor.ql-container.ql-snow::-webkit-scrollbar-thumb,
+.soi-composer-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-thumb,
+.soi-tb-pop-list::-webkit-scrollbar-thumb, .soi-tb-pop-emoji::-webkit-scrollbar-thumb,
+.soi-timeline::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 20px;
+}
+.soi-compose-modal::-webkit-scrollbar-thumb:hover,
+#soiComposeEditor.ql-container.ql-snow::-webkit-scrollbar-thumb:hover,
+.soi-composer-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-thumb:hover,
+.soi-tb-pop-list::-webkit-scrollbar-thumb:hover, .soi-tb-pop-emoji::-webkit-scrollbar-thumb:hover,
+.soi-timeline::-webkit-scrollbar-thumb:hover {
+  background: var(--teal);
+}
+/* Just the bar — no up/down step-arrow buttons at the track ends (Windows
+   Chrome/Edge render these by default unless explicitly hidden). */
+.soi-compose-modal::-webkit-scrollbar-button,
+#soiComposeEditor.ql-container.ql-snow::-webkit-scrollbar-button,
+.soi-composer-toolbar.ql-toolbar.ql-snow::-webkit-scrollbar-button,
+.soi-tb-pop-list::-webkit-scrollbar-button, .soi-tb-pop-emoji::-webkit-scrollbar-button,
+.soi-timeline::-webkit-scrollbar-button {
+  display: none;
+}
+
+/* ── Note modal ─────────────────────────────────────────────────────────── */
+
+.soi-note-modal-overlay {
+  position: fixed; inset: 0; background: rgba(11,30,61,.4);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.soi-note-modal-overlay[hidden] { display: none; }
+.soi-note-modal { background: var(--bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 22px; width: 420px; max-width: 90vw; }
+.soi-note-modal h3 { margin: 0 0 4px; font-size: 15px; color: var(--ink); }
+.soi-note-modal-sub { font-size: 12px; color: var(--ink-3); margin: 0 0 12px; }
+.soi-note-modal textarea {
+  width: 100%; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
+  padding: 10px; font-size: 13px; font-family: var(--font-body); resize: vertical;
+}
+.soi-note-modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+/* ── Compose ─────────────────────────────────────────────────────────────── */
+
+.soi-compose-btn {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  width: calc(100% - 16px); margin: 60px 8px 0;
+  padding: 10px 14px; border: none; border-radius: var(--radius-md);
+  background: var(--teal); color: #fff; font-family: var(--font-body);
+  font-size: 13.5px; font-weight: 700; cursor: pointer;
+}
+.soi-compose-btn:hover { background: var(--teal-dk); }
+
+.soi-compose-modal-overlay {
+  position: fixed; inset: 0; background: rgba(11,30,61,.4);
+  display: flex; align-items: center; justify-content: right; z-index: 100;
+}
+.soi-compose-modal-overlay[hidden] { display: none; }
+/* Flex column, not plain block-with-overflow: the head/fields/toolbar/
+   footer are flex-shrink:0 (always keep their full natural size, footer
+   always guaranteed visible, never fought over with the editor for space);
+   only the editor is allowed to flex — see below. overflow-y:auto on the
+   modal itself is a last-resort fallback for a pathological short viewport,
+   not something that should engage in normal use anymore. */
+.soi-compose-modal {
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  width: 900px; max-width: 95vw; max-height: 90vh; overflow-y: auto;
+  margin: 0 24px;
+  padding: 25px;
+  display: flex;
+  flex-direction: column;
+}
+/* overflow-y:auto above clips to the rounded corners, so the footer's own
+   rectangular background needs matching bottom radii or its corners show
+   square against the modal's rounded shape once it sits flush to the
+   bottom edge. */
+.soi-compose-modal .soi-composer-footer { flex-shrink: 0; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
+.soi-compose-modal-head { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.soi-compose-modal .soi-composer-fields { flex-shrink: 0; }
+.soi-compose-modal .soi-composer-toolbar { flex-shrink: 0; }
+/* flex-grow:1 but the modal has no fixed height in normal use (max-height
+   is only a cap), so there's never "extra space" to grow into here — this
+   stays inert and the editor sizes to min-height like any normal box (a
+   blank editor stays compact, not stretched). It only actually activates
+   once the fields-toggle JS pins an explicit modal height on collapse
+   (see soiComposeFieldsToggle) — then the editor grows to absorb exactly
+   the space the fields section freed up, instead of the whole modal
+   shrinking or leaving a dead gap above the footer. flex-shrink:1 (still
+   allowed to shrink, never below min-height) is the same safety net as
+   before for a short viewport forcing things to compress. No max-height
+   cap anymore — the modal's own (natural or pinned) height is the only
+   real ceiling, and the editor's own overflow-y:auto still protects long
+   content regardless of how much space it's actually given. */
+.soi-compose-modal #soiComposeEditor.ql-container.ql-snow { flex: 1 1 auto; min-height: 160px; }
+.soi-compose-modal #soiComposeEditor.ql-container.ql-snow:has(.ql-editor.ql-blank) { min-height: 60px; }
+.soi-compose-modal-head h3 { margin: 0; font-size: 15px; color: var(--ink); }
+.soi-compose-modal-head-actions { display: flex; align-items: center; gap: 4px; }
+#soiComposeFieldsToggle i { transition: transform .15s ease; }
+#soiComposeFieldsToggle.collapsed i { transform: rotate(180deg); }
+.soi-composer-fields.collapsed { display: none; }
+
+/* ── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 1100px) {
+  .soi-page { grid-template-columns: 72px 320px 1fr; }
+  .soi-sidebar-head h1 span, .soi-folder span, .soi-filter-group { display: none; }
+  .soi-folder { justify-content: center; }
+  .soi-folder .soi-count { display: none; }
+}
+
+@media (max-width: 860px) {
+  .soi-page { grid-template-columns: 1fr; height: calc(100vh - var(--nav-h)); }
+  .soi-sidebar { display: none; }
+  .soi-list-col { border-right: none; }
+  .soi-list-col.soi-mobile-hidden, .soi-thread-col.soi-mobile-hidden { display: none; }
+  .soi-thread-back { display: inline-flex; align-items: center; }
+}
+
+/* ── extracted from inline styles ────────────────────────────────────── */
+.soi-icon-teal { color: var(--teal); }

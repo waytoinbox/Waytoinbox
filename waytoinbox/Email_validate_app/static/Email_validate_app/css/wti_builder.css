@@ -309,6 +309,41 @@
 }
 .wtib-hint i { color: var(--teal); margin-right: 4px; }
 
+/* ── MERGE TAG PILLS ─────────────────────────────────── */
+.wtib-tag-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 6px 10px 10px;
+}
+.wtib-tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: var(--font-mono, 'Courier New', monospace);
+  background: var(--teal-lt, #e0f5fc);
+  color: var(--teal, #0099cc);
+  border: 1px solid rgba(0,153,204,.25);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: background .12s, border-color .12s;
+}
+.wtib-tag-pill:hover {
+  background: rgba(0,153,204,.2);
+  border-color: rgba(0,153,204,.5);
+}
+[data-theme="dark"] .wtib-tag-pill {
+  background: rgba(0,153,204,.12);
+  border-color: rgba(0,153,204,.3);
+}
+[data-theme="dark"] .wtib-tag-pill:hover {
+  background: rgba(0,153,204,.22);
+}
+
 /* ══════════════════════════════════════════════════════
    FULL-PAGE MODE
    body.wtib-fp hides sidebar + topbar, builder fills viewport

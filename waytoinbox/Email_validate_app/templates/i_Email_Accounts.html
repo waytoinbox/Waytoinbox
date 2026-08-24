@@ -1,0 +1,425 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/campaigns.css' %}"/>
+<style>
+.ea-add-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 9px 18px;
+  border: 1.5px solid var(--teal);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--teal);
+  font-family: var(--font-head);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  text-decoration: none;
+  transition: background .15s, color .15s;
+}
+.ea-add-btn:hover { background: rgba(0,122,94,.07); }
+
+.ea-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.ea-badge.connected { background: #D1FAF0; color: #007A5E; }
+.ea-badge.failed    { background: #FDECEA; color: #C94A1D; }
+.ea-badge.unchecked { background: var(--bg-2); color: var(--ink-3); }
+[data-theme="dark"] .ea-badge.connected { background: rgba(0,107,86,.25); color: #4ADABC; }
+[data-theme="dark"] .ea-badge.failed    { background: rgba(201,74,29,.2);  color: #F4896B; }
+
+.ea-provider-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-head);
+}
+.ea-provider-pill.google    { background: #FEF3F2; color: #B91C1C; border: 1px solid #FCA5A5; }
+.ea-provider-pill.microsoft { background: #EFF6FF; color: #1D4ED8; border: 1px solid #BFDBFE; }
+[data-theme="dark"] .ea-provider-pill.google    { background: rgba(239,68,68,.15); color: #FCA5A5; border-color: rgba(239,68,68,.3); }
+[data-theme="dark"] .ea-provider-pill.microsoft { background: rgba(59,130,246,.15); color: #93C5FD; border-color: rgba(59,130,246,.3); }
+
+/* Delete confirm modal */
+.ea-del-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: rgba(11,30,61,.5);
+  backdrop-filter: blur(2px);
+  align-items: center;
+  justify-content: center;
+}
+.ea-del-overlay.open { display: flex; }
+.ea-del-box {
+  background: var(--bg);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.2);
+  padding: 24px 24px 20px;
+  width: 100%;
+  max-width: 400px;
+  margin: 0 16px;
+}
+.ea-del-box h4 { margin: 0 0 8px; font-size: 15px; color: var(--ink); }
+.ea-del-box p  { margin: 0 0 14px; font-size: 13px; color: var(--ink-3); }
+.ea-del-input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--bg);
+  outline: none;
+  margin-bottom: 14px;
+}
+.ea-del-input:focus { border-color: #C94A1D; }
+.ea-del-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.ea-del-cancel {
+  padding: 8px 18px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-2);
+  font-size: 13px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  cursor: pointer;
+}
+.ea-del-confirm {
+  padding: 8px 18px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: #C94A1D;
+  color: #fff;
+  font-size: 13px;
+  font-family: var(--font-head);
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity .15s;
+}
+.ea-del-confirm:disabled { opacity: .4; cursor: default; }
+
+.ea-test-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 11px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink-2);
+  font-size: 12px;
+  font-family: var(--font-head);
+  font-weight: 600;
+  cursor: pointer;
+  transition: border-color .15s, color .15s;
+}
+.ea-test-btn:hover:not(:disabled) { border-color: var(--teal); color: var(--teal); }
+.ea-test-btn:disabled { opacity: .5; cursor: default; }
+
+.ea-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 56px 24px;
+  gap: 12px;
+  color: var(--ink-3);
+  text-align: center;
+}
+.ea-empty i { font-size: 38px; opacity: .3; }
+.ea-empty p { margin: 0; font-size: 14px; }
+.ea-empty-sub { font-size: 13px; max-width: 340px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="ec-page">
+
+  <div class="ec-header">
+    <div style="display:flex;align-items:center;gap:12px;">
+      <div class="sv-card-icon sv-card-icon--md">📨</div>
+      <div>
+        <h2>Email Accounts</h2>
+        <p>Connect your email accounts for outreach campaigns.</p>
+      </div>
+    </div>
+    <div style="margin-left:auto;">
+      <a href="{% url 'add_email_account' %}" class="ea-add-btn">
+        <i class="fas fa-plus"></i> Add Email Account
+      </a>
+    </div>
+  </div>
+
+  <div class="ec-card">
+
+    {% if accounts %}
+    <div class="ec-table-wrap">
+      <table class="ec-table">
+        <thead>
+          <tr>
+            <th style="width:40px;">#</th>
+            <th>Email Address</th>
+            <th>Provider</th>
+            <th>Status</th>
+            <th>Added</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in accounts %}
+          <tr data-id="{{ acc.id }}">
+            <td style="color:var(--ink-3);font-size:13px;text-align:center;">{{ forloop.counter }}</td>
+            <td style="font-family:monospace;font-size:13px;color:var(--ink-2);">{{ acc.email }}</td>
+            <td>
+              {% if acc.provider == 'google' %}
+                <span class="ea-provider-pill google"><i class="fab fa-google"></i> Google</span>
+              {% else %}
+                <span class="ea-provider-pill microsoft"><i class="fab fa-microsoft"></i> Microsoft 365</span>
+              {% endif %}
+            </td>
+            <td class="ea-status-cell">
+              {% if acc.status == 'connected' %}
+                <span class="ea-badge connected"><i class="fas fa-check-circle"></i> Connected</span>
+              {% elif acc.status == 'failed' %}
+                <span class="ea-badge failed"><i class="fas fa-times-circle"></i> Failed</span>
+              {% else %}
+                <span class="ea-badge unchecked"><i class="fas fa-circle"></i> Not Tested</span>
+              {% endif %}
+            </td>
+            <td style="font-size:13px;color:var(--ink-2);">{{ acc.created_at|date:"M d, Y" }}</td>
+            <td style="text-align:right;white-space:nowrap;">
+              <button class="ea-test-btn" onclick="testAccount({{ acc.id }}, this)">
+                <i class="fas fa-plug"></i> Check
+              </button>
+              <button class="ea-test-btn" style="margin-left:6px;" title="Update password"
+                onclick="openEditModal({{ acc.id }}, '{{ acc.email }}')">
+                <i class="fas fa-key"></i> Update Password
+              </button>
+              <button class="sv-del-btn" style="margin-left:6px;" title="Remove"
+                onclick="openDelModal('{{ acc.email }}', {{ acc.id }}, this.closest('tr'))">
+                <i class="fas fa-trash"></i>
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    {% else %}
+    <div class="ea-empty">
+      <i class="fas fa-at"></i>
+      <p>No email accounts connected yet.</p>
+      <p class="ea-empty-sub">Connect your first email account to start sending outreach campaigns.</p>
+      <a href="{% url 'add_email_account' %}" class="ea-add-btn" style="margin-top:6px;">
+        <i class="fas fa-plus"></i> Add Email Account
+      </a>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<!-- Update Password modal -->
+<div class="ea-del-overlay" id="editModal">
+  <div class="ea-del-box">
+    <h4>Update App Password</h4>
+    <p id="editModalEmail" style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;"></p>
+    <div style="position:relative;">
+      <input class="ea-del-input" type="password" id="editPwdInput" placeholder="Enter new app password" autocomplete="new-password"
+             style="padding-right:40px;width:100%;box-sizing:border-box;"/>
+      <button type="button" onclick="toggleEditPwd()"
+              style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-secondary);padding:0;">
+        <i class="fas fa-eye" id="editPwdEye"></i>
+      </button>
+    </div>
+    <p style="font-size:12px;color:var(--text-secondary);margin-top:6px;">
+      Google shows app passwords as 4 groups of 4 letters — spaces are removed automatically.
+    </p>
+    <div class="ea-del-actions">
+      <button class="ea-del-cancel" id="cancelEdit">Cancel</button>
+      <button class="ea-del-confirm" id="confirmEdit" style="background:#2563EB;">Save Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="ea-del-overlay" id="delModal">
+  <div class="ea-del-box">
+    <h4>Remove Account</h4>
+    <p>Type <strong id="delTarget"></strong> to confirm removal.</p>
+    <input class="ea-del-input" type="text" id="delInput" placeholder="Type email to confirm" autocomplete="off"/>
+    <div class="ea-del-actions">
+      <button class="ea-del-cancel" id="cancelDel">Cancel</button>
+      <button class="ea-del-confirm" id="confirmDel" disabled>Remove</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "email_accounts_action" %}';
+
+function testAccount(id, btn) {
+  var row       = btn.closest('tr');
+  var statusTd  = row.querySelector('.ea-status-cell');
+  btn.disabled  = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+
+  fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'test', id: id }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="fas fa-plug"></i> Check';
+    if (d.status !== 'ok') { WTI.toast(d.message || 'Test failed.', 'error'); return; }
+    if (d.result === 'connected') {
+      statusTd.innerHTML = '<span class="ea-badge connected"><i class="fas fa-check-circle"></i> Connected</span>';
+      WTI.toast('Connection successful!', 'success');
+    } else {
+      statusTd.innerHTML = '<span class="ea-badge failed"><i class="fas fa-times-circle"></i> Failed</span>';
+      WTI.toast(d.error_msg || 'Connection failed.', 'error');
+    }
+  })
+  .catch(function() {
+    btn.disabled  = false;
+    btn.innerHTML = '<i class="fas fa-plug"></i> Check';
+    WTI.toast('Network error. Please try again.', 'error');
+  });
+}
+
+var _delEmail = null;
+var _delId    = null;
+var _delRow   = null;
+
+window.openDelModal = function(email, id, row) {
+  _delEmail = email; _delId = id; _delRow = row;
+  document.getElementById('delTarget').textContent = email;
+  document.getElementById('delInput').value = '';
+  document.getElementById('confirmDel').disabled = true;
+  document.getElementById('delModal').classList.add('open');
+  setTimeout(function() { document.getElementById('delInput').focus(); }, 60);
+};
+
+function closeDelModal() {
+  document.getElementById('delModal').classList.remove('open');
+  _delEmail = null; _delId = null; _delRow = null;
+}
+
+document.getElementById('cancelDel').addEventListener('click', closeDelModal);
+document.getElementById('delModal').addEventListener('click', function(e) {
+  if (e.target === this) closeDelModal();
+});
+
+document.getElementById('delInput').addEventListener('input', function() {
+  document.getElementById('confirmDel').disabled = (this.value !== _delEmail);
+});
+
+// ── Update Password modal ────────────────────────────────────────────────────
+var _editId = null;
+
+window.openEditModal = function(id, email) {
+  _editId = id;
+  document.getElementById('editModalEmail').textContent = email;
+  document.getElementById('editPwdInput').value = '';
+  document.getElementById('editPwdEye').className = 'fas fa-eye';
+  document.getElementById('editPwdInput').type = 'password';
+  document.getElementById('editModal').classList.add('open');
+  setTimeout(function() { document.getElementById('editPwdInput').focus(); }, 60);
+};
+
+function closeEditModal() {
+  document.getElementById('editModal').classList.remove('open');
+  _editId = null;
+}
+
+function toggleEditPwd() {
+  var inp  = document.getElementById('editPwdInput');
+  var icon = document.getElementById('editPwdEye');
+  if (inp.type === 'password') { inp.type = 'text';     icon.className = 'fas fa-eye-slash'; }
+  else                         { inp.type = 'password'; icon.className = 'fas fa-eye'; }
+}
+
+document.getElementById('cancelEdit').addEventListener('click', closeEditModal);
+document.getElementById('editModal').addEventListener('click', function(e) {
+  if (e.target === this) closeEditModal();
+});
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') { closeEditModal(); closeDelModal(); } });
+
+document.getElementById('confirmEdit').addEventListener('click', function() {
+  if (!_editId) return;
+  var pwd = (document.getElementById('editPwdInput').value || '').replace(/\s/g, '');
+  if (!pwd) { WTI.toast('Please enter the new app password.', 'error'); return; }
+  var id = _editId;
+  var btn = this;
+  btn.disabled  = true;
+  btn.textContent = 'Saving…';
+  fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'update_password', id: id, password: pwd }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    btn.disabled  = false;
+    btn.textContent = 'Save Password';
+    if (d.status === 'ok') {
+      closeEditModal();
+      WTI.toast('Password updated. Test the connection to verify.', 'success');
+    } else {
+      WTI.toast(d.message || 'Could not update password.', 'error');
+    }
+  })
+  .catch(function() {
+    btn.disabled  = false;
+    btn.textContent = 'Save Password';
+    WTI.toast('Network error. Please try again.', 'error');
+  });
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+document.getElementById('confirmDel').addEventListener('click', function() {
+  if (!_delId) return;
+  var id = _delId; var row = _delRow; var email = _delEmail;
+  closeDelModal();
+  fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'delete', id: id }),
+  })
+  .then(function(r) { return r.json(); })
+  .then(function(d) {
+    if (d.status === 'ok') {
+      if (row) {
+        row.style.transition = 'opacity .35s';
+        row.style.opacity = '0';
+        setTimeout(function() { row.remove(); }, 360);
+      }
+      WTI.toast('Account removed.', 'success');
+    } else {
+      WTI.toast(d.message || 'Could not remove account.', 'error');
+    }
+  })
+  .catch(function() { WTI.toast('Network error.', 'error'); });
+});
+</script>
+{% endblock %}

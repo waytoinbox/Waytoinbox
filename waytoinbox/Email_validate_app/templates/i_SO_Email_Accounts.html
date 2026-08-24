@@ -1,0 +1,504 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_email_accounts.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <div class="so-header">
+    <div class="soea-header-title">
+      <div class="soea-header-icon"><i class="fas fa-at"></i></div>
+      <div>
+        <h1>Email Accounts</h1>
+        <p>Connect your email accounts for outreach campaigns.</p>
+      </div>
+    </div>
+    <div class="so-header-actions">
+      <a href="{% url 'so_add_email_account' %}" class="so-btn-primary">
+        <i class="fas fa-plus"></i> Add Email Account
+      </a>
+    </div>
+  </div>
+
+  {% if accounts %}
+  <div class="so-card">
+    <div class="soea-section-title">
+      <span><i class="fas fa-at"></i>&nbsp;Email Accounts ({{ accounts|length }})</span>
+      <div class="soea-page-size-wrap">
+        <label for="soeaPageSize">Rows per page</label>
+        <input type="number" id="soeaPageSize" class="soea-page-size-input" min="1" max="25" value="5">
+      </div>
+    </div>
+    <div class="pf-bar" id="soeaPfBar">
+      <div class="pf-search-wrap">
+        <i class="fas fa-search pf-search-icon"></i>
+        <input id="soeaSearch" type="text" class="pf-input" placeholder="Search email…" autocomplete="off">
+        <button id="soeaSearchClear" class="pf-input-clear" style="display:none" type="button">×</button>
+      </div>
+      <select id="soeaProviderFilter" class="pf-select">
+        <option value="">All Providers</option>
+        <option value="google">Google</option>
+        <option value="microsoft">Microsoft</option>
+      </select>
+      <select id="soeaStatusFilter" class="pf-select">
+        <option value="">All Status</option>
+        <option value="connected">Active</option>
+        <option value="failed">Failed</option>
+        <option value="unchecked">Inactive</option>
+      </select>
+      <label class="pf-label" for="soeaDateFrom">From</label>
+      <input id="soeaDateFrom" type="date" class="pf-date">
+      <label class="pf-label" for="soeaDateTo">To</label>
+      <input id="soeaDateTo" type="date" class="pf-date">
+      <button id="soeaClearFilter" class="pf-clear" type="button" style="display:none">
+        <i class="fas fa-times"></i> Clear
+      </button>
+      <span class="pf-count" id="soeaPfCount"></span>
+    </div>
+    <div class="so-table-wrap">
+      <table class="so-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Email Address</th>
+            <th>Daily Limit</th>
+            <th>Status</th>
+            <th>Warmup</th>
+            <th>Added</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for acc in accounts %}
+          <tr id="soea-row-{{ acc.id }}"
+              data-search="{{ acc.email }}"
+              data-provider="{{ acc.provider }}"
+              data-status="{% if acc.status == 'connected' %}connected{% elif acc.status == 'failed' %}failed{% else %}unchecked{% endif %}"
+              data-date="{{ acc.created_at|date:'Y-m-d' }}">
+            <td class="soea-muted">{{ forloop.counter }}</td>
+            <td class="mono">
+              {% if acc.provider == 'google' %}
+              <svg class="soea-provider-icon" viewBox="0 0 48 48" title="{{ acc.get_provider_display }}" aria-hidden="true">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+              </svg>
+              {% else %}
+              <i class="fab fa-microsoft soea-provider-icon microsoft" title="{{ acc.get_provider_display }}"></i>
+              {% endif %}
+              {{ acc.email }}
+            </td>
+            <td class="soea-limit-cell">
+              <span class="soea-limit-icon soea-limit-icon--{{ acc.limit_level }}" title="{{ acc.limit_pct }}% of daily limit used"><i class="fas fa-tachometer-alt"></i></span>
+              <span class="soea-limit-count soea-limit-count--{{ acc.limit_level }}">{{ acc.today_sent }}/{{ acc.daily_limit }}</span>
+            </td>
+            <td class="soea-status-cell">
+              {% if acc.status == 'connected' %}
+                <span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>
+              {% elif acc.status == 'failed' %}
+                <button type="button" class="so-badge-btn so-badge failed" onclick="openUpdatePwd({{ acc.id }}, '{{ acc.email }}')"><i class="fas fa-times-circle"></i> Failed</button>
+              {% else %}
+                <button type="button" class="so-badge-btn so-badge unchecked" onclick="checkAccount({{ acc.id }}, this)"><i class="fas fa-plug-circle-xmark"></i> Inactive</button>
+              {% endif %}
+            </td>
+            <td class="soea-warmup-cell">
+              {% if acc.warmup %}
+                <span class="soea-warmup-icon soea-warmup-icon--{{ acc.warmup.status }}" title="{{ acc.warmup.get_status_display }}"><i class="fas fa-fire"></i></span>
+                <span class="soea-warmup-count soea-warmup-count--{{ acc.warmup.status }}">{{ acc.warmup.daily_current }}/{{ acc.warmup.daily_target }}</span>
+              {% else %}
+                <span class="soea-muted">Not enrolled</span>
+              {% endif %}
+            </td>
+            <td class="soea-date-cell">{{ acc.created_at|date:"M d, Y" }}</td>
+            <td>
+              <div class="so-row-actions">
+                {% if acc.warmup and acc.warmup.status == 'active' %}
+                  <button class="so-icon-btn" onclick="warmupAction('pause', {{ acc.id }})"><i class="fas fa-fire"></i> Pause Warmup</button>
+                  <button class="so-icon-btn danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
+                {% elif acc.warmup and acc.warmup.status == 'paused' %}
+                  <button class="so-icon-btn" onclick="warmupAction('resume', {{ acc.id }})"><i class="fas fa-fire"></i> Resume Warmup</button>
+                  <button class="so-icon-btn danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
+                {% else %}
+                  <button class="so-icon-btn" onclick="openStartWarmup({{ acc.id }}, '{{ acc.email|escapejs }}')"><i class="fas fa-fire"></i> Start Warmup</button>
+                {% endif %}
+                <button class="so-icon-btn danger" onclick="openDelModal('{{ acc.email }}', {{ acc.id }}, this.closest('tr'))">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="soea-pagination" id="soeaPagination">
+      <span class="soea-page-info" id="soeaPageInfo"></span>
+      <div class="soea-page-btns">
+        <button class="soea-page-btn" id="soeaPrevBtn" type="button"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="soea-page-current" id="soeaPageNum"></span>
+        <button class="soea-page-btn" id="soeaNextBtn" type="button">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+  </div>
+  {% else %}
+  <div class="so-card">
+    <div class="so-empty">
+      <i class="fas fa-at"></i>
+      <p>No email accounts connected yet.</p>
+      <p class="so-empty-sub">Add your first account to start sending outreach emails.</p>
+      <a href="{% url 'so_add_email_account' %}" class="so-btn-primary soea-mt-6">
+        <i class="fas fa-plus"></i> Add Email Account
+      </a>
+    </div>
+  </div>
+  {% endif %}
+
+</div>
+
+<!-- Update Password modal -->
+<div class="so-modal-overlay" id="updatePwdModal">
+  <div class="so-modal-box soea-pwd-modal">
+    <div class="soea-modal-head">
+      <div class="soea-modal-icon"><i class="fas fa-key"></i></div>
+      <div>
+        <h4>Update App Password</h4>
+        <p id="updatePwdEmail" class="soea-modal-email"></p>
+      </div>
+    </div>
+    <label class="soea-field-label" for="updatePwdInput">New App Password</label>
+    <div class="soea-pwd-wrap">
+      <input class="so-modal-input soea-pwd-input" type="password" id="updatePwdInput"
+             placeholder="Paste your app password" autocomplete="new-password"/>
+      <button type="button" onclick="toggleUpdatePwd()" class="soea-pwd-toggle">
+        <i class="fas fa-eye" id="updatePwdEye"></i>
+      </button>
+    </div>
+    <p class="soea-pwd-hint">
+      <i class="fas fa-info-circle"></i> Spaces are removed automatically.
+    </p>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="cancelUpdatePwd">Cancel</button>
+      <button class="so-modal-confirm soea-btn-blue" id="confirmUpdatePwd">
+        <i class="fas fa-save"></i> Save Password
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Start Warmup modal -->
+<div class="so-modal-overlay" id="startWarmupModal">
+  <div class="so-modal-box soea-warmup-modal">
+    <div class="soea-modal-head">
+      <div class="soea-modal-icon fire"><i class="fas fa-fire"></i></div>
+      <div>
+        <h4>Start Warmup</h4>
+        <p id="startWarmupEmail" class="soea-modal-email"></p>
+      </div>
+    </div>
+    <div class="soea-ramp-grid">
+      <div class="so-field soea-ramp-field">
+        <label>Daily target</label>
+        <div class="soea-ramp-input-wrap">
+          <input type="number" id="warmupDailyTarget" min="1" value="40"/>
+          <span class="soea-ramp-unit">emails/day</span>
+        </div>
+      </div>
+      <div class="so-field soea-ramp-field">
+        <label>Ramp-up days</label>
+        <div class="soea-ramp-input-wrap">
+          <input type="number" id="warmupRampDays" min="1" value="30"/>
+          <span class="soea-ramp-unit">days</span>
+        </div>
+      </div>
+      <div class="so-field soea-ramp-field">
+        <label>Daily increment</label>
+        <div class="soea-ramp-input-wrap">
+          <input type="number" id="warmupRampIncrement" min="1" value="2"/>
+          <span class="soea-ramp-unit">emails/day</span>
+        </div>
+      </div>
+    </div>
+    <div class="soea-ramp-notice">
+      <i class="fas fa-info-circle"></i>
+      <p>Volume ramps by the daily increment each day until it reaches the daily target, then continues indefinitely at that volume.</p>
+    </div>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="cancelStartWarmup">Cancel</button>
+      <button class="so-modal-confirm soea-btn-fire" id="confirmStartWarmup"><i class="fas fa-fire"></i> Start Warmup</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete confirm modal -->
+<div class="so-modal-overlay" id="delModal">
+  <div class="so-modal-box">
+    <h4>Remove Account</h4>
+    <p>Type <strong id="delTarget"></strong> to confirm removal.</p>
+    <input class="so-modal-input" type="text" id="delInput" placeholder="Type email to confirm" autocomplete="off"/>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="cancelDel">Cancel</button>
+      <button class="so-modal-confirm danger" id="confirmDel" disabled>Remove</button>
+    </div>
+  </div>
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "so_email_account_action" %}';
+var WARMUP_ACTION_URL = '{% url "warmup_sender_action" %}';
+var _editId = null, _delEmail = null, _delId = null, _delRow = null;
+var _warmupStartId = null;
+
+/* ── Warmup controls ─────────────────────────────────── */
+function warmupAction(action, id) {
+  fetch(WARMUP_ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: action, ids: [id] }),
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'ok') { WTI.toast('Warmup updated.', 'success'); setTimeout(() => location.reload(), 500); }
+    else { WTI.toast(d.message || 'Error.', 'error'); }
+  }).catch(() => WTI.toast('Network error.', 'error'));
+}
+function openStartWarmup(id, email) {
+  _warmupStartId = id;
+  document.getElementById('startWarmupEmail').textContent = email || '';
+  document.getElementById('startWarmupModal').classList.add('open');
+}
+document.getElementById('cancelStartWarmup').onclick = function () {
+  document.getElementById('startWarmupModal').classList.remove('open');
+};
+document.getElementById('startWarmupModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
+});
+document.getElementById('confirmStartWarmup').onclick = function () {
+  var id = _warmupStartId;
+  document.getElementById('startWarmupModal').classList.remove('open');
+  fetch(WARMUP_ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({
+      action: 'start', ids: [id],
+      daily_target: document.getElementById('warmupDailyTarget').value,
+      ramp_up_days: document.getElementById('warmupRampDays').value,
+      ramp_up_increment: document.getElementById('warmupRampIncrement').value,
+    }),
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'ok') { WTI.toast('Warmup started.', 'success'); setTimeout(() => location.reload(), 500); }
+    else { WTI.toast(d.message || 'Error.', 'error'); }
+  }).catch(() => WTI.toast('Network error.', 'error'));
+};
+
+/* ── Search / provider / status / date filter, + Prev/Next pagination
+   over whatever currently matches the filter (not the full table) ─────── */
+var _soeaPage = 1;
+
+function soeaMatchingRows() {
+  var q        = document.getElementById('soeaSearch')         ? document.getElementById('soeaSearch').value.trim() : '';
+  var provider = document.getElementById('soeaProviderFilter') ? document.getElementById('soeaProviderFilter').value.trim().toLowerCase() : '';
+  var status   = document.getElementById('soeaStatusFilter')   ? document.getElementById('soeaStatusFilter').value.trim().toLowerCase() : '';
+  var from     = document.getElementById('soeaDateFrom')       ? document.getElementById('soeaDateFrom').value : '';
+  var to       = document.getElementById('soeaDateTo')         ? document.getElementById('soeaDateTo').value   : '';
+  var tbody = document.querySelector('.so-table tbody');
+  var all = tbody ? Array.prototype.slice.call(tbody.querySelectorAll('tr')) : [];
+  var matching = all.filter(function (tr) {
+    return PF.matchesSearch(tr.dataset.search || tr.textContent, q)
+        && PF.matchesStatus(tr.dataset.provider || '', provider)
+        && PF.matchesStatus(tr.dataset.status || '', status)
+        && PF.matchesDate(tr.dataset.date || '', from, to);
+  });
+  return { all: all, matching: matching, hasFilters: !!(q || provider || status || from || to) };
+}
+
+function soeaRender() {
+  var m = soeaMatchingRows();
+  var pageSizeEl = document.getElementById('soeaPageSize');
+  var pageSize = pageSizeEl ? (parseInt(pageSizeEl.value, 10) || 5) : 5;
+  if (pageSize < 1) pageSize = 1;
+  if (pageSize > 25) pageSize = 25;
+  var total = m.matching.length;
+  var pages = Math.ceil(total / pageSize) || 1;
+  if (_soeaPage > pages) _soeaPage = pages;
+  var start = (_soeaPage - 1) * pageSize;
+  var end = Math.min(start + pageSize, total);
+
+  m.all.forEach(function (tr) { tr.style.display = 'none'; });
+  m.matching.forEach(function (tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+
+  var clearBtn = document.getElementById('soeaClearFilter');
+  if (clearBtn) clearBtn.style.display = m.hasFilters ? '' : 'none';
+  var sc = document.getElementById('soeaSearchClear');
+  if (sc) sc.style.display = document.getElementById('soeaSearch').value ? '' : 'none';
+
+  var countEl = document.getElementById('soeaPfCount');
+  if (countEl) {
+    countEl.innerHTML = (m.hasFilters && total !== m.all.length)
+      ? 'Showing <strong>' + total + '</strong> of <strong>' + m.all.length + '</strong>'
+      : '';
+  }
+
+  var infoEl = document.getElementById('soeaPageInfo');
+  if (infoEl) infoEl.textContent = total ? ('Showing ' + (start + 1) + '–' + end + ' of ' + total) : 'No accounts';
+  var numEl = document.getElementById('soeaPageNum');
+  if (numEl) numEl.textContent = _soeaPage + ' / ' + pages;
+  var prevBtn = document.getElementById('soeaPrevBtn');
+  var nextBtn = document.getElementById('soeaNextBtn');
+  if (prevBtn) prevBtn.classList.toggle('disabled', _soeaPage === 1);
+  if (nextBtn) nextBtn.classList.toggle('disabled', _soeaPage === pages);
+}
+
+(function () {
+  var s = document.getElementById('soeaSearch');
+  var sc = document.getElementById('soeaSearchClear');
+  var prov = document.getElementById('soeaProviderFilter');
+  var stat = document.getElementById('soeaStatusFilter');
+  var from = document.getElementById('soeaDateFrom');
+  var to = document.getElementById('soeaDateTo');
+  var clear = document.getElementById('soeaClearFilter');
+  var pageSize = document.getElementById('soeaPageSize');
+  var prevBtn = document.getElementById('soeaPrevBtn');
+  var nextBtn = document.getElementById('soeaNextBtn');
+  var _t = null;
+  function runFromStart() { _soeaPage = 1; clearTimeout(_t); _t = setTimeout(soeaRender, 250); }
+  if (s)    s.addEventListener('input', runFromStart);
+  if (sc)   sc.addEventListener('click', function () { s.value = ''; _soeaPage = 1; soeaRender(); s.focus(); });
+  if (prov) prov.addEventListener('change', function () { _soeaPage = 1; soeaRender(); });
+  if (stat) stat.addEventListener('change', function () { _soeaPage = 1; soeaRender(); });
+  if (from) from.addEventListener('change', function () { _soeaPage = 1; soeaRender(); });
+  if (to)   to.addEventListener('change', function () { _soeaPage = 1; soeaRender(); });
+  if (clear) clear.addEventListener('click', function () {
+    if (s)    s.value = '';
+    if (prov) prov.value = '';
+    if (stat) stat.value = '';
+    if (from) from.value = '';
+    if (to)   to.value = '';
+    _soeaPage = 1;
+    soeaRender();
+  });
+  var _tSize = null;
+  function clampPageSize() {
+    if (!pageSize) return;
+    var v = parseInt(pageSize.value, 10);
+    if (isNaN(v) || v < 1) v = 1;
+    if (v > 25) v = 25;
+    pageSize.value = v;
+  }
+  if (pageSize) {
+    // Typed live (debounced), and hard-clamped to 1–25 once they're done
+    // (on blur/Enter) in case they typed something out of range.
+    pageSize.addEventListener('input', function () {
+      _soeaPage = 1;
+      clearTimeout(_tSize);
+      _tSize = setTimeout(soeaRender, 250);
+    });
+    pageSize.addEventListener('change', function () { clampPageSize(); _soeaPage = 1; soeaRender(); });
+  }
+  if (prevBtn) prevBtn.addEventListener('click', function () { if (!prevBtn.classList.contains('disabled')) { _soeaPage--; soeaRender(); } });
+  if (nextBtn) nextBtn.addEventListener('click', function () { if (!nextBtn.classList.contains('disabled')) { _soeaPage++; soeaRender(); } });
+
+  soeaRender();
+})();
+
+/* ── Check ─────────────────────────────────────────── */
+function checkAccount(id, btn) {
+  var statusTd = btn.closest('.soea-status-cell');
+  var email = btn.closest('tr').dataset.search;
+  var original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+  fetch(ACTION_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'test', id: id }),
+  }).then(r => r.json()).then(d => {
+    if (d.status !== 'ok') {
+      btn.disabled = false;
+      btn.innerHTML = original;
+      WTI.toast(d.message || 'Check failed.', 'error');
+      return;
+    }
+    if (d.result === 'connected') {
+      statusTd.innerHTML = '<span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>';
+      WTI.toast('Connection successful!', 'success');
+    } else {
+      // Failed badge opens Update Password directly (the almost-always cause
+      // of a failed SMTP test), rather than re-running the same check.
+      statusTd.innerHTML = '<button type="button" class="so-badge-btn so-badge failed" onclick="openUpdatePwd(' + id + ', \'' + email + '\')"><i class="fas fa-times-circle"></i> Failed</button>';
+      WTI.toast(d.error_msg || 'Connection failed.', 'error');
+    }
+  }).catch(() => {
+    btn.disabled = false;
+    btn.innerHTML = original;
+    WTI.toast('Network error.', 'error');
+  });
+}
+
+/* ── Update Password modal ──────────────────────────── */
+function openUpdatePwd(id, email) {
+  _editId = id;
+  document.getElementById('updatePwdEmail').textContent = email;
+  document.getElementById('updatePwdInput').value = '';
+  document.getElementById('updatePwdModal').classList.add('open');
+  setTimeout(() => document.getElementById('updatePwdInput').focus(), 60);
+}
+function closeUpdatePwd() { document.getElementById('updatePwdModal').classList.remove('open'); _editId = null; }
+function toggleUpdatePwd() {
+  var i = document.getElementById('updatePwdInput'), e = document.getElementById('updatePwdEye');
+  i.type = i.type === 'password' ? 'text' : 'password';
+  e.className = i.type === 'password' ? 'fas fa-eye' : 'fas fa-eye-slash';
+}
+document.getElementById('cancelUpdatePwd').onclick = closeUpdatePwd;
+document.getElementById('updatePwdModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUpdatePwd(); });
+document.getElementById('confirmUpdatePwd').onclick = function() {
+  var pwd = (document.getElementById('updatePwdInput').value || '').replace(/\s/g, '');
+  if (!pwd) { WTI.toast('Enter the new app password.', 'error'); return; }
+  var btn = this; btn.disabled = true; btn.textContent = 'Saving…';
+  fetch(ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'update_password', id: _editId, password: pwd }),
+  }).then(r => r.json()).then(d => {
+    btn.disabled = false; btn.textContent = 'Save Password';
+    if (d.status === 'ok') { closeUpdatePwd(); WTI.toast('Password updated. Run Check to verify.', 'success'); }
+    else { WTI.toast(d.message || 'Error.', 'error'); }
+  }).catch(() => { btn.disabled = false; btn.textContent = 'Save Password'; WTI.toast('Network error.', 'error'); });
+};
+
+/* ── Delete modal ───────────────────────────────────── */
+function openDelModal(email, id, row) {
+  _delEmail = email; _delId = id; _delRow = row;
+  document.getElementById('delTarget').textContent = email;
+  document.getElementById('delInput').value = '';
+  document.getElementById('confirmDel').disabled = true;
+  document.getElementById('delModal').classList.add('open');
+  setTimeout(() => document.getElementById('delInput').focus(), 60);
+}
+function closeDelModal() { document.getElementById('delModal').classList.remove('open'); _delEmail = _delId = _delRow = null; }
+document.getElementById('cancelDel').onclick = closeDelModal;
+document.getElementById('delModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDelModal(); });
+document.getElementById('delInput').addEventListener('input', function() {
+  document.getElementById('confirmDel').disabled = (this.value !== _delEmail);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    closeDelModal(); closeUpdatePwd();
+    document.getElementById('startWarmupModal').classList.remove('open');
+  }
+});
+document.getElementById('confirmDel').onclick = function() {
+  if (!_delId) return;
+  var id = _delId, row = _delRow; closeDelModal();
+  fetch(ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify({ action: 'delete', id: id }),
+  }).then(r => r.json()).then(d => {
+    if (d.status === 'ok') {
+      if (row) { row.style.transition = 'opacity .3s'; row.style.opacity = '0'; setTimeout(() => row.remove(), 320); }
+      WTI.toast('Account removed.', 'success');
+    } else { WTI.toast(d.message || 'Error.', 'error'); }
+  }).catch(() => WTI.toast('Network error.', 'error'));
+};
+</script>
+{% endblock %}

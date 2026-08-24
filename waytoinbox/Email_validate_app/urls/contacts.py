@@ -13,6 +13,7 @@ urlpatterns = [
     path("Email_Campaigns/list/<int:list_id>/import-contacts/", views.import_contacts, name="import_contacts"),
     path("Email_Campaigns/contacts/", views.all_contacts, name="all_contacts"),
     path("Email_Campaigns/contacts/page/", views.all_contacts_page, name="all_contacts_page"),
+    path("Email_Campaigns/contacts/<int:contact_id>/detail/", views.contact_detail, name="contact_detail"),
     path("Email_Campaigns/list/<int:list_id>/rename/",        views.list_rename,         name="list_rename"),
     path("Email_Campaigns/list/<int:list_id>/duplicate/",     views.list_duplicate,      name="list_duplicate"),
     path("Email_Campaigns/list/<int:list_id>/download/",      views.list_download,       name="list_download"),

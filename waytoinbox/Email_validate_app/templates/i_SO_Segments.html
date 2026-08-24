@@ -1,0 +1,225 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/segments.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_segments.css' %}"/>
+{% endblock %}
+{% block content %}
+
+<div class="sg-page">
+
+  <!-- Header -->
+  <div class="sg-header">
+    <div class="sos-header-icon-row">
+      <div class="sv-card-icon sv-card-icon--md">🗂️</div>
+      <div>
+        <h2>Lists &amp; Segments</h2>
+        <p>Manage your prospect lists and dynamic segments.</p>
+      </div>
+    </div>
+    <a href="{% url 'so_segment_builder' %}" class="btn btn-primary btn-sm">
+      <i class="fas fa-plus"></i> Create Segment
+    </a>
+  </div>
+
+  <!-- Tab bar -->
+  <div class="sos-tabbar">
+    <a href="{% url 'so_lists' %}" class="sos-tab">
+      <i class="fas fa-layer-group"></i> Lists
+    </a>
+    <a href="{% url 'so_segments' %}" class="sos-tab active">
+      <i class="fas fa-sliders-h"></i> Segments
+    </a>
+  </div>
+
+  <!-- Table card -->
+  <div class="sg-card">
+    <div class="sg-bar">
+      <span class="sg-bar-title"><i class="fas fa-sliders-h"></i>&nbsp; Segments ({{ total }})</span>
+    </div>
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_show_date=True pf_search_placeholder="Search segments…" %}
+
+    <div class="sg-table-wrap">
+      {% if segments %}
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Segment Name</th>
+            <th class="sg-col-center">Prospects</th>
+            <th class="sg-col-center">Status</th>
+            <th>Created</th>
+            <th class="sg-col-center">Actions</th>
+          </tr>
+        </thead>
+        <tbody id="sgTableBody">
+          {% for seg in segments %}
+          <tr data-id="{{ seg.id }}" data-name="{{ seg.name|lower }}" data-search="{{ seg.name }} {{ seg.description }}" data-status="{{ seg.status }}" data-date="{{ seg.created_at|date:'Y-m-d' }}">
+            <td class="muted">{{ forloop.counter }}</td>
+            <td>
+              <div class="sos-name">{{ seg.name }}</div>
+              {% if seg.description %}<div class="sos-desc">{{ seg.description|truncatechars:60 }}</div>{% endif %}
+            </td>
+            <td class="sg-col-center">
+              <span class="sg-count"><i class="fas fa-users"></i> {{ seg.prospect_count }}</span>
+            </td>
+            <td class="sg-col-center">
+              <span class="sg-badge {{ seg.status }}">
+                <i class="fas fa-circle sos-dot"></i>
+                {% if seg.status == 'active' %}Active{% else %}Inactive{% endif %}
+              </span>
+            </td>
+            <td class="muted">
+              <span class="ltime ltime-date" data-utc="{{ seg.created_at|date:'c' }}">{{ seg.created_at|date:"d M Y" }}</span>
+            </td>
+            <td class="sg-col-center">
+              <div class="sg-actions sos-actions-center">
+                <a href="{% url 'so_segment_prospects' seg.id %}" class="sg-action-btn" title="View Prospects"><i class="fas fa-users"></i> View</a>
+                <a href="{% url 'so_segment_builder_edit' seg.id %}" class="sg-action-btn" title="Edit"><i class="fas fa-pen"></i> Edit</a>
+                <button class="sg-action-btn" onclick="duplicateSegment({{ seg.id }}, this)" title="Duplicate"><i class="fas fa-copy"></i></button>
+                <a href="{% url 'so_segment_download' seg.id %}" class="sg-action-btn" title="Download CSV"><i class="fas fa-download"></i></a>
+                <div class="sg-del-confirm" id="del-{{ seg.id }}">
+                  <span>Delete?</span>
+                  <button class="sg-del-yes" onclick="deleteSegment({{ seg.id }}, this)">Yes</button>
+                  <button class="sg-del-no" onclick="cancelDel({{ seg.id }})">No</button>
+                </div>
+                <button class="sg-action-btn danger" onclick="confirmDel({{ seg.id }}, this)" id="delbtn-{{ seg.id }}">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="sg-empty">
+        <i class="fas fa-sliders-h"></i>
+        <p>No segments yet.</p>
+        <a href="{% url 'so_segment_builder' %}" class="btn btn-primary btn-sm"><i class="fas fa-plus"></i> Create your first segment</a>
+      </div>
+      {% endif %}
+    </div>
+
+    {% if segments %}
+    <div class="sg-pag" id="sgPagBar">
+      <span class="sg-pag-info" id="sgPagInfo"></span>
+      <div class="sg-pag-btns">
+        <button class="sg-pag-btn" id="sgPrev"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="sg-pag-cur" id="sgPagNum"></span>
+        <button class="sg-pag-btn" id="sgNext">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+const CSRF = '{{ csrf_token }}';
+const PAGE = 10;
+let currentPage = 1;
+
+/* ── Pagination ─────────────────────────────────────────────── */
+function getVisibleRows(){
+  return [...document.querySelectorAll('#sgTableBody tr:not([data-filtered="1"])')];
+}
+function sgPaginate(){
+  const rows  = getVisibleRows();
+  const total = rows.length;
+  const pages = Math.max(1, Math.ceil(total / PAGE));
+  if(currentPage > pages) currentPage = pages;
+  rows.forEach((r,i) => r.style.display = (i>=(currentPage-1)*PAGE && i<currentPage*PAGE) ? '' : 'none');
+  document.querySelectorAll('#sgTableBody tr[data-filtered="1"]').forEach(r=>r.style.display='none');
+  const start = total===0 ? 0 : (currentPage-1)*PAGE+1;
+  const end   = Math.min(currentPage*PAGE, total);
+  const info  = document.getElementById('sgPagInfo');
+  const num   = document.getElementById('sgPagNum');
+  const bar   = document.getElementById('sgPagBar');
+  if(info) info.textContent = total===0 ? 'No results' : `Showing ${start}–${end} of ${total}`;
+  if(num)  num.textContent  = `${currentPage} / ${pages}`;
+  document.getElementById('sgPrev')?.classList.toggle('disabled', currentPage<=1);
+  document.getElementById('sgNext')?.classList.toggle('disabled', currentPage>=pages);
+  if(bar) bar.style.display = total<=PAGE && currentPage===1 ? 'none' : 'flex';
+}
+document.getElementById('sgPrev')?.addEventListener('click', ()=>{ if(currentPage>1){currentPage--;sgPaginate();} });
+document.getElementById('sgNext')?.addEventListener('click', ()=>{ const rows=getVisibleRows(); if(currentPage<Math.ceil(rows.length/PAGE)){currentPage++;sgPaginate();} });
+
+/* ── PF Filters ─────────────────────────────────────────────── */
+PF.init({ debounce:250, urlSync:false });
+PF.wire(function(){
+  const f = PF.getFilters();
+  document.querySelectorAll('#sgTableBody tr').forEach(tr=>{
+    const ok = PF.matchesSearch(tr.dataset.search||'', f.search)
+            && PF.matchesStatus(tr.dataset.status||'', f.status)
+            && PF.matchesDate(tr.dataset.date||'', f.dateFrom, f.dateTo);
+    tr.dataset.filtered = ok ? '0' : '1';
+  });
+  currentPage=1;
+  sgPaginate();
+  PF.setCount(getVisibleRows().length, {{ total }});
+});
+sgPaginate();
+
+/* ── Serial number renumber ─────────────────────────────────── */
+function sgRenumber() {
+  document.querySelectorAll('#sgTableBody tr').forEach(function(r, i) {
+    var td = r.querySelector('td:first-child');
+    if (td) td.textContent = i + 1;
+  });
+}
+
+/* ── Delete ─────────────────────────────────────────────────── */
+function confirmDel(id, btn){
+  btn.style.display = 'none';
+  document.getElementById('del-'+id).classList.add('show');
+}
+function cancelDel(id){
+  document.getElementById('del-'+id).classList.remove('show');
+  document.getElementById('delbtn-'+id).style.display = '';
+}
+async function deleteSegment(id, btn){
+  btn.disabled = true;
+  try{
+    const res  = await fetch(`/Sales-Outreach/segments/${id}/`, {
+      method:'DELETE', headers:{'X-CSRFToken':CSRF}
+    });
+    const data = await res.json();
+    if(data.status === 'ok'){
+      const row = document.querySelector(`tr[data-id="${id}"]`);
+      if(row){ row.style.transition='opacity .3s'; row.style.opacity='0'; setTimeout(()=>{ row.remove(); sgRenumber(); sgPaginate(); }, 300); }
+      WTI.toast(data.message || 'Segment deleted.', 'success');
+    } else {
+      cancelDel(id);
+      WTI.toast(data.message || 'Could not delete segment.', 'error');
+    }
+  }catch(e){
+    cancelDel(id);
+    WTI.toast('Network error.', 'error');
+  }
+}
+
+/* ── Duplicate ──────────────────────────────────────────────── */
+async function duplicateSegment(id, btn){
+  btn.disabled = true;
+  try{
+    const res  = await fetch(`/Sales-Outreach/segments/${id}/duplicate/`, {
+      method:'POST', headers:{'X-CSRFToken':CSRF}
+    });
+    const data = await res.json();
+    btn.disabled = false;
+    if(data.status === 'ok'){
+      WTI.toast(`"${data.segment.name}" created.`, 'success');
+      setTimeout(() => location.reload(), 800);
+    } else {
+      WTI.toast(data.message || 'Duplicate failed.', 'error');
+    }
+  }catch(e){
+    btn.disabled = false;
+    WTI.toast('Network error.', 'error');
+  }
+}
+</script>
+{% endblock %}

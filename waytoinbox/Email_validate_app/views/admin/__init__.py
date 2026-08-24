@@ -39,3 +39,8 @@ from Email_validate_app.views.admin.audit import admin_audit
 from Email_validate_app.views.admin.system import admin_system, admin_system_logs
 from Email_validate_app.views.admin.settings import admin_settings, admin_settings_update
 from Email_validate_app.views.admin.profile import admin_profile
+from Email_validate_app.views.admin.warmup import (
+    admin_warmup_receivers,
+    admin_warmup_receiver_oauth_start, admin_warmup_receiver_oauth_callback,
+    admin_warmup_receiver_pause, admin_warmup_receiver_resume, admin_warmup_receiver_delete,
+)

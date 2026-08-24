@@ -1,0 +1,199 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_add_email_account.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="ec-page">
+<div class="aw-wrap">
+  <a href="{% url 'so_email_accounts' %}" class="aw-back">
+    <i class="fas fa-arrow-left aw-icon-sm"></i> Back to Email Accounts
+  </a>
+  <div class="aw-card">
+    <div class="aw-steps">
+      <div class="aw-step active" id="awStep1"><span>1</span> Provider</div>
+      <div class="aw-divider"></div>
+      <div class="aw-step" id="awStep2"><span>2</span> Connection</div>
+      <div class="aw-divider"></div>
+      <div class="aw-step" id="awStep3"><span>3</span> Setup</div>
+      <div class="aw-divider"></div>
+      <div class="aw-step" id="awStep4"><span>4</span> Details</div>
+    </div>
+
+    <!-- Step 1 -->
+    <div id="wizPanel1">
+      <p class="aw-panel-title">Choose your provider</p>
+      <p class="aw-panel-sub">Select the email service you want to connect.</p>
+      <div class="aw-options">
+        <div class="aw-option" onclick="chooseProvider('google')">
+          <div class="aw-option-icon google"><i class="fab fa-google"></i></div>
+          <div><div class="aw-option-label">Google</div><div class="aw-option-sub">Gmail / G-Suite</div></div>
+        </div>
+        <div class="aw-option" onclick="chooseProvider('microsoft')">
+          <div class="aw-option-icon microsoft"><i class="fab fa-microsoft"></i></div>
+          <div><div class="aw-option-label">Microsoft 365</div><div class="aw-option-sub">Office 365 / Outlook</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Step 2 -->
+    <div id="wizPanel2" hidden>
+      <p class="aw-panel-title">Select a connection option</p>
+      <p class="aw-panel-sub" id="step2Sub"></p>
+      <div class="aw-options">
+        <div class="aw-option disabled">
+          <div class="aw-soon-badge">Coming Soon</div>
+          <div class="aw-option-icon oauth"><i class="fas fa-key"></i></div>
+          <div><div class="aw-option-label">OAuth</div><div class="aw-option-sub" id="oauthSub">Sign in with Google</div></div>
+        </div>
+        <div class="aw-option" onclick="chooseMethod()">
+          <div class="aw-option-icon apppass"><i class="fas fa-lock"></i></div>
+          <div><div class="aw-option-label">App Password</div><div class="aw-option-sub">Use a generated app password</div></div>
+        </div>
+      </div>
+      <div class="aw-actions">
+        <button class="aw-btn-back" onclick="goStep(1)"><i class="fas fa-arrow-left"></i> Back</button>
+      </div>
+    </div>
+
+    <!-- Step 3 -->
+    <div id="wizPanel3" hidden>
+      <p class="aw-panel-title" id="step3Title"></p>
+      <p class="aw-panel-sub">Follow the steps below to generate an App Password.</p>
+      <div id="instrGoogle">
+        <div class="aw-instructions">
+          <p class="aw-instr-title"><i class="fas fa-shield-alt aw-icon-teal-mr6"></i>Enable 2-Step Verification &amp; generate an App Password</p>
+          <ol>
+            <li>Go to your <strong>Google Account</strong> → <strong>Security</strong> settings</li>
+            <li>Enable <strong>2-Step Verification</strong></li>
+            <li>Return to Security → <strong>App Passwords</strong></li>
+            <li>Enter a name (e.g. WayToInbox) → click <strong>Generate</strong></li>
+            <li>Copy the 16-character password shown</li>
+          </ol>
+          <a class="aw-tutorial-link" href="https://support.google.com/accounts/answer/185833" target="_blank" rel="noopener">
+            <i class="fas fa-external-link-alt"></i> View Google guide
+          </a>
+        </div>
+      </div>
+      <div id="instrMicrosoft" hidden>
+        <div class="aw-instructions">
+          <p class="aw-instr-title"><i class="fas fa-shield-alt aw-icon-teal-mr6"></i>Enable SMTP Auth &amp; generate an App Password</p>
+          <ol>
+            <li>Sign in to your Microsoft account settings</li>
+            <li>Enable <strong>Multi-factor authentication</strong></li>
+            <li>Go to <strong>Security info</strong> → <strong>Add sign-in method</strong> → choose <strong>App password</strong></li>
+            <li>Give it a name and copy the generated password</li>
+            <li>Ensure <strong>SMTP AUTH</strong> is enabled for your mailbox</li>
+          </ol>
+          <a class="aw-tutorial-link" href="https://support.microsoft.com/en-us/account-billing/manage-app-passwords-for-two-step-verification-d6dc8c6d-4bf7-4851-ad95-6d07799387e9" target="_blank" rel="noopener">
+            <i class="fas fa-external-link-alt"></i> View Microsoft guide
+          </a>
+        </div>
+      </div>
+      <div class="aw-actions">
+        <button class="aw-btn-back" onclick="goStep(2)"><i class="fas fa-arrow-left"></i> Back</button>
+        <button class="aw-btn-next" onclick="goStep(4)">Next <i class="fas fa-arrow-right"></i></button>
+      </div>
+    </div>
+
+    <!-- Step 4 -->
+    <div id="wizPanel4" hidden>
+      <p class="aw-panel-title">Connect your account</p>
+      <div id="providerBadge" class="so-provider aw-provider-badge google">
+        <i id="providerIcon" class="fab fa-google"></i>
+        <span id="providerLabel">Google — Gmail / G-Suite</span>
+      </div>
+      <div class="so-field">
+        <label>Display Name</label>
+        <input type="text" id="awDisplay" placeholder="Your Name" maxlength="200"/>
+      </div>
+      <div class="so-field">
+        <label>Email <span class="req">*</span></label>
+        <input type="email" id="awEmail" placeholder="you@gmail.com" maxlength="255" autocomplete="email"/>
+      </div>
+      <div class="so-field">
+        <label>App Password <span class="req">*</span></label>
+        <div class="aw-pwd-wrap">
+          <input type="password" id="awPassword" placeholder="Enter your app password" maxlength="200"
+                 autocomplete="off" class="aw-pwd-input"/>
+          <button type="button" tabindex="-1" onclick="togglePwd()" class="aw-pwd-toggle">
+            <i class="fas fa-eye" id="awPwdEye"></i>
+          </button>
+        </div>
+        <span class="so-field-hint">Google shows the password as 4 groups of 4 letters — paste as-is, spaces are removed automatically.</span>
+      </div>
+      <p class="aw-err" id="awErr" hidden></p>
+      <div class="aw-actions">
+        <button class="aw-btn-back" onclick="goStep(3)"><i class="fas fa-arrow-left"></i> Back</button>
+        <button class="aw-btn-next" id="awSaveBtn" onclick="saveAccount()">
+          <i class="fas fa-save"></i> Save Account
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "so_email_account_action" %}';
+var LIST_URL   = '{% url "so_email_accounts" %}';
+var _provider  = '';
+
+function goStep(n) {
+  [1,2,3,4].forEach(i => {
+    document.getElementById('wizPanel'+i).hidden = (i !== n);
+    var s = document.getElementById('awStep'+i);
+    s.classList.remove('active','done');
+    if (i<n) s.classList.add('done');
+    if (i===n) s.classList.add('active');
+  });
+  if (n===4) updateBadge();
+}
+function chooseProvider(p) {
+  _provider = p;
+  document.getElementById('step2Sub').textContent = p==='google'?'Connect your Gmail / G-Suite account.':'Connect your Office 365 / Outlook account.';
+  document.getElementById('oauthSub').textContent = p==='google'?'Sign in with Google':'Sign in with Microsoft';
+  goStep(2);
+}
+function chooseMethod() {
+  document.getElementById('step3Title').textContent = _provider==='google'?'Connect Your Google Account':'Connect Your Microsoft 365 Account';
+  document.getElementById('instrGoogle').hidden    = _provider!=='google';
+  document.getElementById('instrMicrosoft').hidden = _provider!=='microsoft';
+  goStep(3);
+}
+function updateBadge() {
+  var b = document.getElementById('providerBadge');
+  var i = document.getElementById('providerIcon');
+  var l = document.getElementById('providerLabel');
+  b.className = 'so-provider aw-provider-badge ' + _provider;
+  if (_provider==='google') { i.className='fab fa-google'; l.textContent='Google — Gmail / G-Suite'; }
+  else { i.className='fab fa-microsoft'; l.textContent='Microsoft 365 — Office 365 / Outlook'; }
+}
+function togglePwd() {
+  var i = document.getElementById('awPassword'), e = document.getElementById('awPwdEye');
+  i.type = i.type==='password'?'text':'password';
+  e.className = i.type==='password'?'fas fa-eye':'fas fa-eye-slash';
+}
+function saveAccount() {
+  var email = document.getElementById('awEmail').value.trim();
+  var pwd   = document.getElementById('awPassword').value.replace(/\s/g,'');
+  var err   = document.getElementById('awErr');
+  err.hidden=true;
+  if (!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { err.textContent='Valid email required.'; err.hidden=false; return; }
+  if (!pwd) { err.textContent='App password is required.'; err.hidden=false; return; }
+  var btn=document.getElementById('awSaveBtn');
+  btn.disabled=true; btn.innerHTML='<i class="fas fa-spinner fa-spin"></i> Saving…';
+  fetch(ACTION_URL,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'add',provider:_provider,display_name:document.getElementById('awDisplay').value.trim(),email:email,password:pwd}),
+  }).then(r=>r.json()).then(d=>{
+    if(d.status!=='ok'){btn.disabled=false;btn.innerHTML='<i class="fas fa-save"></i> Save Account';err.textContent=d.message||'Error.';err.hidden=false;return;}
+    WTI.toast('Account connected!','success');
+    setTimeout(()=>window.location.href=LIST_URL,700);
+  }).catch(()=>{btn.disabled=false;btn.innerHTML='<i class="fas fa-save"></i> Save Account';err.textContent='Network error.';err.hidden=false;});
+}
+document.getElementById('awPassword').addEventListener('keydown', e=>{ if(e.key==='Enter') saveAccount(); });
+</script>
+{% endblock %}

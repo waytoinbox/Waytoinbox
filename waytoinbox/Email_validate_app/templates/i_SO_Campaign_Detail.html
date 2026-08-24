@@ -1,0 +1,418 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_campaign_detail.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <!-- Breadcrumb -->
+  <div class="socd-breadcrumb">
+    <a href="{% url 'so_campaigns' %}"><i class="fas fa-arrow-left"></i> Email Sender</a>
+    <span class="sep">/</span>
+    <span class="cur">{{ campaign.name }}</span>
+    <div class="socd-breadcrumb-actions">
+      <span class="so-badge {{ campaign.status }}">{{ campaign.get_status_display }}</span>
+      {% if campaign.status == 'draft' or campaign.status == 'scheduled' or campaign.status == 'failed' or campaign.status == 'cancelled' %}
+        <a href="{% url 'so_campaign_edit' campaign.id %}" class="so-btn-secondary"><i class="fas fa-pen"></i> Edit</a>
+      {% endif %}
+      {% if campaign.status == 'scheduled' or campaign.status == 'sending' %}
+        <button class="so-btn-secondary" onclick="pauseCampaign()"><i class="fas fa-pause"></i> Pause</button>
+      {% endif %}
+      {% if campaign.status == 'paused' %}
+        <button class="so-btn-secondary" onclick="resumeCampaign()"><i class="fas fa-play"></i> Resume</button>
+      {% endif %}
+      {% if campaign.status == 'scheduled' or campaign.status == 'sending' or campaign.status == 'paused' %}
+        <button class="so-btn-secondary" onclick="cancelCampaign()"><i class="fas fa-ban"></i> Cancel</button>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Live sending progress — only meaningful while the sequence is actually
+       running; a draft or a fully completed campaign has nothing to show here. -->
+  {% if campaign.status == 'sending' or campaign.status == 'scheduled' %}
+  <div class="so-card socd-mb-24">
+    <div class="socd-card-head"><i class="fas fa-bolt"></i> Live Sending Progress</div>
+    <div class="socd-progress-row" style="padding:18px 22px;">
+      <div>
+        <div class="socd-progress-label">Sent today</div>
+        <div class="socd-progress-value">{{ contacts_sent_today }}</div>
+      </div>
+      <div>
+        <div class="socd-progress-label">Remaining</div>
+        <div class="socd-progress-value">{{ contacts_remaining }} prospect{{ contacts_remaining|pluralize }}</div>
+      </div>
+      <div>
+        <div class="socd-progress-label">Campaign pool capacity</div>
+        <div class="socd-progress-value">{{ combined_daily_capacity }}/day</div>
+      </div>
+    </div>
+    {% if contacts_remaining > 0 %}
+    <p class="socd-continue-note" style="padding:0 22px 18px;">
+      <i class="fas fa-info-circle"></i>
+      {{ contacts_remaining }} prospect{{ contacts_remaining|pluralize }} will continue sending
+      {% if contacts_sent_today >= combined_daily_capacity and combined_daily_capacity > 0 %}tomorrow{% else %}automatically{% endif %}.
+    </p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <!-- ── Summary Stats ──────────────────────────────────── -->
+  <div class="socd-summary-grid">
+    <div class="socd-stat recipients">
+      <div class="socd-stat-label">Recipients</div>
+      <div class="socd-stat-value">{{ recipient_count }}</div>
+      <div class="socd-stat-pct">100%</div>
+      <div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:100%"></div></div>
+    </div>
+    <div class="socd-stat sent">
+      <div class="socd-stat-label">Sent</div>
+      <div class="socd-stat-value">{{ campaign.total_sent }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.sent is not None %}{{ stat_pct.sent }}%{% else %}—{% endif %}</div>
+      {% if recipient_count %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_sent recipient_count 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat delivered">
+      <div class="socd-stat-label">Delivered</div>
+      <div class="socd-stat-value">{{ campaign.total_delivered }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.delivered is not None %}{{ stat_pct.delivered }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_delivered campaign.total_sent 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat opened">
+      <div class="socd-stat-label">Opened</div>
+      <div class="socd-stat-value">{{ campaign.total_opened }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.opened is not None %}{{ stat_pct.opened }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_opened campaign.total_delivered 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat clicked">
+      <div class="socd-stat-label">Clicked</div>
+      <div class="socd-stat-value">{{ campaign.total_clicked }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.clicked is not None %}{{ stat_pct.clicked }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_clicked campaign.total_delivered 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat replied">
+      <div class="socd-stat-label">Replied</div>
+      <div class="socd-stat-value">{{ campaign.total_replied }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.replied is not None %}{{ stat_pct.replied }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_replied campaign.total_delivered 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat unsubscribed">
+      <div class="socd-stat-label">Unsubscribed</div>
+      <div class="socd-stat-value">{{ campaign.total_unsubscribed }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.unsubscribed is not None %}{{ stat_pct.unsubscribed }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_unsubscribed campaign.total_delivered 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat bounced">
+      <div class="socd-stat-label">Bounced</div>
+      <div class="socd-stat-value">{{ campaign.total_bounced }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.bounced is not None %}{{ stat_pct.bounced }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_bounced campaign.total_sent 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat complained">
+      <div class="socd-stat-label">Complained</div>
+      <div class="socd-stat-value">{{ campaign.total_complained }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.complained is not None %}{{ stat_pct.complained }}%{% else %}—{% endif %}</div>
+      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_complained campaign.total_sent 100 %}%"></div></div>{% endif %}
+    </div>
+    <div class="socd-stat failed">
+      <div class="socd-stat-label">Failed</div>
+      <div class="socd-stat-value">{{ campaign.total_failed }}</div>
+      <div class="socd-stat-pct">{% if stat_pct.failed is not None %}{{ stat_pct.failed }}%{% else %}—{% endif %}</div>
+      {% if recipient_count %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_failed recipient_count 100 %}%"></div></div>{% endif %}
+    </div>
+  </div>
+
+  <!-- ── Recipient Events Table ─────────────────────────── -->
+  <div class="so-card">
+
+    <div class="socd-rec-bar">
+      <span class="socd-rec-title"><i class="fas fa-envelope"></i> Recipient Events</span>
+      <span class="socd-rec-count">{{ recipient_rows|length }} Recipient{{ recipient_rows|length|pluralize }}</span>
+    </div>
+
+    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_search_placeholder="Search email…" pf_show_date=False %}
+
+    {% if recipient_rows %}
+    <div class="so-table-wrap">
+      <table class="socd-ev-table">
+        <thead>
+          <tr>
+            <th class="socd-ev-th-num">#</th>
+            <th class="socd-ev-th-email">Email</th>
+            <th>Sequence Status</th>
+            <th class="socd-ev-th-journey">
+              <div class="socd-ev-legend">
+                <span>Sent</span>
+                <span>Delivery</span>
+                <span>Open</span>
+                <span>Click</span>
+                <span>Reply</span>
+                <span>Bounce</span>
+                <span>Complaint</span>
+                <span>Unsub</span>
+              </div>
+            </th>
+            <th class="socd-ev-th-last">Last Event</th>
+          </tr>
+        </thead>
+        <tbody id="recipientBody">
+          {% for row in recipient_rows %}
+          <tr data-search="{{ row.email }}" data-status="{{ row.last_event|default:'' }}">
+            <td class="socd-ev-td-num">{{ forloop.counter }}</td>
+            <td class="socd-ev-td-email" title="{{ row.email }}">{{ row.email }}</td>
+            <td><span class="so-badge {{ row.cc_status }}">{{ row.cc_status_display }}</span></td>
+            <td class="socd-ev-td-journey">
+              <div class="socd-ev-track">
+                <div class="socd-ev-rail"></div>
+                <span class="socd-ev-node {% if row.sent %}sent{% else %}inactive{% endif %}" title="Sent"></span>
+                <span class="socd-ev-node {% if row.delivered %}delivered{% else %}inactive{% endif %}" title="Delivered"></span>
+                <span class="socd-ev-node {% if row.opened %}opened{% else %}inactive{% endif %}" title="Opened"></span>
+                <span class="socd-ev-node {% if row.clicked %}clicked{% else %}inactive{% endif %}" title="Clicked"></span>
+                <span class="socd-ev-node {% if row.replied %}replied{% else %}inactive{% endif %}" title="Replied"></span>
+                <span class="socd-ev-node {% if row.bounced %}bounced{% else %}inactive{% endif %}" title="Bounced"></span>
+                <span class="socd-ev-node {% if row.complained %}complained{% else %}inactive{% endif %}" title="Complained"></span>
+                <span class="socd-ev-node {% if row.unsubscribed %}unsubscribed{% else %}inactive{% endif %}" title="Unsubscribed"></span>
+              </div>
+            </td>
+            <td class="socd-ev-td-last">
+              {% if row.last_event %}
+              <span class="socd-ev-badge {{ row.last_event }}">
+                {% if row.last_event == 'sent' %}Sent
+                {% elif row.last_event == 'delivered' %}Delivered
+                {% elif row.last_event == 'opened' %}Opened
+                {% elif row.last_event == 'clicked' %}Clicked
+                {% elif row.last_event == 'replied' %}Replied
+                {% elif row.last_event == 'bounced' %}Bounced
+                {% elif row.last_event == 'complained' %}Complained
+                {% elif row.last_event == 'unsubscribed' %}Unsubscribed
+                {% endif %}
+              </span>
+              {% else %}—{% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="sose-pagination" id="recipientPagBar">
+      <span class="sose-page-info" id="recipientPagInfo"></span>
+      <div class="sose-page-btns">
+        <button class="sose-page-btn disabled" id="recipientPrevBtn" type="button"><i class="fas fa-chevron-left"></i> Prev</button>
+        <span class="sose-page-current" id="recipientPagNum"></span>
+        <button class="sose-page-btn" id="recipientNextBtn" type="button">Next <i class="fas fa-chevron-right"></i></button>
+      </div>
+    </div>
+    {% else %}
+    <div class="socd-empty">
+      <i class="fas fa-inbox"></i>
+      <p>No recipients enrolled yet.</p>
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- ── Bottom Row: Details + Email Preview ────────────── -->
+  <div class="socd-bottom-row">
+
+    <!-- Campaign Details -->
+    <div class="so-card" style="flex:1;min-width:0;">
+      <div class="socd-card-head"><i class="fas fa-info-circle"></i> Campaign Details</div>
+      <dl class="socd-details-grid">
+        <dt>Campaign Name</dt>
+        <dd>{{ campaign.name }}</dd>
+
+        <dt>Status</dt>
+        <dd>
+          <span class="so-badge {{ campaign.status }}">{{ campaign.get_status_display }}</span>
+          {% if campaign.status == 'sent' and campaign.sent_at %}
+            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.sent_at|date:"M d, Y · H:i" }}</span>
+          {% elif campaign.status == 'scheduled' and campaign.schedule_at %}
+            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.schedule_at|date:"M d, Y · H:i" }}</span>
+          {% endif %}
+        </dd>
+
+        <dt>Subject</dt>
+        <dd>{{ campaign.subject|default:"—" }}</dd>
+        <dt>Sender Name</dt>
+        <dd>{{ campaign.from_name|default:"—" }}</dd>
+        <dt>Sending Accounts</dt>
+        <dd>
+          {% for r in campaign.account_rotations.all %}{{ r.account.email }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+        </dd>
+        <dt>Reply-To</dt>
+        <dd>{{ campaign.reply_to|default:"—" }}</dd>
+        <dt>Lists</dt>
+        <dd>
+          {% for l in campaign.recipient_lists.all %}{{ l.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+        </dd>
+        <dt>Segments</dt>
+        <dd>
+          {% for s in campaign.recipient_segments.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+        </dd>
+        <dt>Recipients</dt>
+        <dd>{{ recipient_count }}</dd>
+        <dt>Created</dt>
+        <dd>{{ campaign.created_at|date:"M d, Y · H:i" }}</dd>
+      </dl>
+    </div>
+
+    <!-- Email Preview -->
+    <div class="so-card" style="flex:1;min-width:0;">
+      <div class="socd-card-head"><i class="fas fa-envelope-open-text"></i> Email Preview</div>
+      {% if campaign.html_body %}
+        <div class="socd-preview-wrap" id="socd-preview-wrap">
+          <iframe id="socd-preview-frame" sandbox="allow-same-origin" scrolling="no" class="socd-preview-frame"></iframe>
+        </div>
+        {{ campaign.html_body|json_script:"socd-html-content" }}
+        <script>
+        (function () {
+          var dataEl = document.getElementById('socd-html-content');
+          var frame  = document.getElementById('socd-preview-frame');
+          var wrap   = document.getElementById('socd-preview-wrap');
+          if (!dataEl || !frame || !wrap) return;
+
+          var html = JSON.parse(dataEl.textContent);
+          frame.srcdoc = html;
+
+          var RENDER_W = 600;
+
+          function scaleFrame() {
+            var wrapW = wrap.clientWidth;
+            var scale = wrapW / RENDER_W;
+            frame.style.width = RENDER_W + 'px';
+            frame.style.transform = 'scale(' + scale + ')';
+            frame.style.transformOrigin = 'top left';
+            var renderH = Math.round(frame.scrollHeight || 500);
+            frame.style.height = renderH + 'px';
+            wrap.style.height = Math.round(renderH * scale) + 'px';
+          }
+
+          frame.addEventListener('load', function () {
+            try {
+              var body = frame.contentDocument.body;
+              var h = body ? body.scrollHeight : 500;
+              frame.style.height = h + 'px';
+              var scale = wrap.clientWidth / RENDER_W;
+              wrap.style.height = Math.round(h * scale) + 'px';
+            } catch(e) {}
+          });
+
+          scaleFrame();
+          window.addEventListener('resize', scaleFrame);
+          if (window.ResizeObserver) {
+            new ResizeObserver(scaleFrame).observe(wrap);
+          }
+        })();
+        </script>
+      {% else %}
+        <div class="socd-empty" style="padding:40px 24px;">
+          <i class="fas fa-file-alt" style="font-size:32px;"></i>
+          <p style="margin-top:10px;">No content yet for this campaign.</p>
+        </div>
+      {% endif %}
+    </div>
+
+  </div>
+
+</div>
+
+<script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script>
+var CSRF = '{{ csrf_token }}';
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  if (params.get('notice') === 'locked') {
+    WTI.toast("This campaign has already started sending, so it can't be edited.", 'error');
+    params.delete('notice');
+    var qs = params.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }
+})();
+function cancelCampaign() {
+  if(!confirm('Cancel this campaign?')) return;
+  fetch('{% url "so_campaign_action" campaign.id %}',{
+    method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'cancel'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign cancelled.','success');setTimeout(()=>location.reload(),700);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function pauseCampaign() {
+  fetch('{% url "so_campaign_action" campaign.id %}',{
+    method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'pause'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign paused.','success');setTimeout(()=>location.reload(),700);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function resumeCampaign() {
+  fetch('{% url "so_campaign_action" campaign.id %}',{
+    method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'resume'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign resumed.','success');setTimeout(()=>location.reload(),700);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+
+(function () {
+  var PAGE = 15;
+
+  function socdPaginate(tbodyId, prevId, nextId, infoId, numId, barId) {
+    var tbody = document.getElementById(tbodyId);
+    if (!tbody) return null;
+    var bar = document.getElementById(barId);
+    var prevBtn = document.getElementById(prevId);
+    var nextBtn = document.getElementById(nextId);
+    var infoEl  = document.getElementById(infoId);
+    var numEl   = document.getElementById(numId);
+    var cur = 1;
+
+    function visibleRows() {
+      return Array.prototype.filter.call(tbody.querySelectorAll('tr'), function(tr) {
+        return tr.dataset.filtered !== 'true';
+      });
+    }
+    function render() {
+      var all = visibleRows(), total = all.length;
+      var pages = Math.ceil(total / PAGE) || 1;
+      if (cur > pages) cur = pages;
+      var start = (cur - 1) * PAGE, end = Math.min(start + PAGE, total);
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) { tr.style.display = 'none'; });
+      all.forEach(function(tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+      if (infoEl) infoEl.textContent = total ? 'Showing ' + (start+1) + '–' + end + ' of ' + total : 'No results';
+      if (numEl)  numEl.textContent  = cur + ' / ' + pages;
+      if (prevBtn) prevBtn.classList.toggle('disabled', cur === 1);
+      if (nextBtn) nextBtn.classList.toggle('disabled', cur === pages);
+      if (bar) bar.style.display = total <= PAGE ? 'none' : '';
+    }
+    if (prevBtn) prevBtn.addEventListener('click', function() { if (cur > 1) { cur--; render(); } });
+    if (nextBtn) nextBtn.addEventListener('click', function() {
+      if (cur < Math.ceil(visibleRows().length / PAGE)) { cur++; render(); }
+    });
+    render();
+    return { refresh: function() { cur = 1; render(); } };
+  }
+
+  var _pag = socdPaginate('recipientBody', 'recipientPrevBtn', 'recipientNextBtn', 'recipientPagInfo', 'recipientPagNum', 'recipientPagBar');
+
+  PF.init({ debounce: 250, urlSync: false });
+  PF.wire(function () {
+    var f     = PF.getFilters();
+    var tbody = document.getElementById('recipientBody');
+    if (!tbody) return;
+    var total = 0;
+    Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function(tr) {
+      var match = PF.matchesSearch(tr.dataset.search || '', f.search)
+                && PF.matchesStatus(tr.dataset.status || '', f.status);
+      tr.dataset.filtered = match ? 'false' : 'true';
+      if (match) total++;
+    });
+    if (_pag) _pag.refresh();
+    PF.setCount(total, {{ recipient_rows|length }});
+  });
+})();
+</script>
+{% endblock %}

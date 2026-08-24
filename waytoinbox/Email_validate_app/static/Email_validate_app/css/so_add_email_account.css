@@ -1,0 +1,57 @@
+/*
+ * so_add_email_account.css — SO "Add Email Account" wizard (provider choice,
+ * connection method, app-password instructions, connect form).
+ * Reuses the shared tokens and so.css shell — no new :root here.
+ * Class prefix: aw- (Add Wizard).
+ */
+
+/* ── moved from the page's embedded <style> block ─────────────────────── */
+.aw-wrap { max-width: 600px; margin: 0 auto; }
+.aw-back { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-3); font-size: 13px; text-decoration: none; margin-bottom: 18px; }
+.aw-back:hover { color: var(--teal); }
+.aw-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); padding: 30px 32px 26px; }
+.aw-steps { display: flex; align-items: center; margin-bottom: 26px; }
+.aw-step { display: flex; align-items: center; gap: 7px; font-size: 12.5px; font-family: var(--font-head); font-weight: 600; color: var(--ink-3); white-space: nowrap; }
+.aw-step span { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 50%; font-size: 11px; font-weight: 700; background: var(--bg-2); color: var(--ink-3); border: 1.5px solid var(--border); }
+.aw-step.active { color: var(--teal); }
+.aw-step.active span { background: var(--teal); color: #fff; border-color: var(--teal); }
+.aw-step.done span { background: #00C6A2; color: #fff; border-color: #00C6A2; }
+.aw-divider { flex: 1; height: 2px; background: var(--border); margin: 0 10px; }
+.aw-panel-title { margin: 0 0 6px; font-family: var(--font-head); font-size: 17px; font-weight: 800; color: var(--ink); }
+.aw-panel-sub { margin: 0 0 20px; font-size: 13px; color: var(--ink-3); }
+.aw-options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 8px; }
+.aw-option { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 16px 18px; border: 2px solid var(--border); border-radius: 12px; cursor: pointer; transition: border-color .18s, box-shadow .18s; background: var(--bg); text-align: center; position: relative; }
+.aw-option:hover:not(.disabled) { border-color: var(--teal); box-shadow: 0 0 0 3px rgba(0,122,94,.1); }
+.aw-option.disabled { opacity: .5; cursor: default; }
+.aw-option-icon { width: 48px; height: 48px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+.aw-option-icon.google    { background: #FEF3F2; color: #EA4335; }
+.aw-option-icon.microsoft { background: #EFF6FF; color: #0078D4; }
+.aw-option-icon.apppass   { background: #F0FDF4; color: #16A34A; }
+.aw-option-icon.oauth     { background: var(--bg-2); color: var(--ink-3); }
+.aw-option-label { font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink); }
+.aw-option-sub { font-size: 12px; color: var(--ink-3); margin-top: -4px; }
+.aw-soon-badge { position: absolute; top: 10px; right: 10px; background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); border-radius: 20px; font-size: 10px; font-family: var(--font-head); font-weight: 700; padding: 2px 7px; }
+.aw-instructions { background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 16px 18px; margin-bottom: 18px; }
+.aw-instructions ol { margin: 10px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; }
+.aw-instructions li { font-size: 13.5px; color: var(--ink-2); line-height: 1.5; }
+.aw-tutorial-link { display: inline-flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 13px; font-family: var(--font-head); font-weight: 700; color: var(--teal); text-decoration: none; }
+.aw-tutorial-link:hover { text-decoration: underline; }
+.aw-actions { display: flex; gap: 10px; margin-top: 22px; justify-content: flex-end; }
+.aw-btn-back { padding: 10px 22px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); background: none; color: var(--ink-2); font-size: 13.5px; font-family: var(--font-head); font-weight: 700; cursor: pointer; }
+.aw-btn-next { padding: 10px 22px; border: none; border-radius: var(--radius-sm); background: var(--teal); color: #fff; font-size: 13.5px; font-family: var(--font-head); font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 7px; }
+/* .aw-err used to default to display:none, with JS clearing it via inline
+   style to show an error (inline always beats a class rule) — now hidden by
+   the native [hidden] attribute instead, so no unconditional display here. */
+.aw-err { color: #C94A1D; font-size: 12.5px; margin-top: 10px; }
+
+/* ── extracted from inline styles ────────────────────────────────────── */
+.aw-icon-sm { font-size: 11px; }
+.aw-instr-title { margin: 0; font-size: 13px; font-weight: 700; color: var(--ink); }
+.aw-icon-teal-mr6 { color: var(--teal); margin-right: 6px; }
+.aw-provider-badge { margin-bottom: 20px; padding: 6px 14px; font-size: 13px; }
+.aw-pwd-wrap { position: relative; }
+.aw-pwd-input { padding-right: 40px; width: 100%; box-sizing: border-box; }
+.aw-pwd-toggle {
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  background: none; border: none; cursor: pointer; color: var(--ink-3); padding: 4px;
+}

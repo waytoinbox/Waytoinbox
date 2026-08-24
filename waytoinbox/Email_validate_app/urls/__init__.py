@@ -18,4 +18,13 @@ urlpatterns = [
     path('', include('Email_validate_app.urls.api')),
     path('', include('Email_validate_app.urls.admin')),
     path('', include('Email_validate_app.urls.analytics')),
+    path('', include('Email_validate_app.urls.email_accounts')),
+    path('', include('Email_validate_app.urls.so_email_accounts')),
+    path('', include('Email_validate_app.urls.so_prospects')),
+    path('', include('Email_validate_app.urls.so_lists')),
+    path('', include('Email_validate_app.urls.so_segments')),
+    path('', include('Email_validate_app.urls.so_sender')),
+    path('', include('Email_validate_app.urls.so_inbox')),
+    path('', include('Email_validate_app.urls.so_tracking')),
+    path('', include('Email_validate_app.urls.warmup')),
 ]

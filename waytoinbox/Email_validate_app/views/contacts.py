@@ -243,6 +243,7 @@ def campaign_contacts_page(request, list_id):
         rows = []
         for i, c in enumerate(page_obj):
             rows.append({
+                'id':         c.id,
                 'row_num':    start + i,
                 'name':       c.display_name,
                 'email':      c.email,
@@ -299,17 +300,40 @@ def add_campaign_contact(request, list_id):
         return JsonResponse({'status': 'error', 'message': f'{email} is already in this list.'}, status=400)
 
     from Email_validate_app.models import CampaignEvent
-    is_unsubscribed = CampaignEvent.objects.filter(user_id=user_id, email=email, event_type='unsubscribe').exists()
 
     first_name  = _body.get('first_name', '').strip()
     last_name   = _body.get('last_name', '').strip()
     phone       = _body.get('phone', '').strip()
-    if is_unsubscribed:
-        contact_status = 'unsubscribed'
-    elif _body.get('consent') == '1':
-        contact_status = 'subscribed'
+
+    # Determine what the user intends to set
+    uploaded_status = 'subscribed' if _body.get('consent') == '1' else 'never_subscribed'
+
+    # Hard unsubscribe (CloudWatch / link click) always wins
+    if CampaignEvent.objects.filter(user_id=user_id, email=email, event_type='unsubscribe').exists():
+        existing_status = 'unsubscribed'
     else:
-        contact_status = 'never_subscribed'
+        # Highest-priority status this contact has in any other list
+        _PRIORITY = {'unsubscribed': 3, 'never_subscribed': 2, 'subscribed': 1}
+        existing_status = None
+        for s in CampaignEmail.objects.filter(
+            user_id=user_id, email=email, deleted_at__isnull=True
+        ).exclude(list_id=list_id).values_list('subscribed', flat=True):
+            if _PRIORITY.get(s, 0) > _PRIORITY.get(existing_status or '', 0):
+                existing_status = s
+
+    # Resolution matrix — lower consent always wins
+    _MATRIX = {
+        ('subscribed',       'subscribed'):       'subscribed',
+        ('subscribed',       'unsubscribed'):     'unsubscribed',
+        ('subscribed',       'never_subscribed'): 'never_subscribed',
+        ('never_subscribed', 'subscribed'):       'never_subscribed',
+        ('never_subscribed', 'unsubscribed'):     'unsubscribed',
+        ('never_subscribed', 'never_subscribed'): 'never_subscribed',
+    }
+    if existing_status is None:
+        contact_status = uploaded_status
+    else:
+        contact_status = _MATRIX.get((uploaded_status, existing_status), uploaded_status)
 
     CampaignEmail.objects.create(
         user_id=user_id,
@@ -330,7 +354,7 @@ def upload_campaign_contacts(request, list_id):
     if not request.session.get('logged_in'):
         return JsonResponse({'status': 'error', 'message': 'Not authenticated'}, status=403)
 
-    from Email_validate_app.models import CampaignList, CampaignEmail
+    from Email_validate_app.models import CampaignList, CampaignEmail, CampaignEvent
     import csv, io, re
     user_id = get_user_id(request)
 
@@ -354,22 +378,66 @@ def upload_campaign_contacts(request, list_id):
 
         email_re = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
 
-        # Fetch emails already in this list to skip duplicates
+        # Emails already in this list — skip duplicates
         existing_emails = set(
             CampaignEmail.objects.filter(list_id=list_id, deleted_at__isnull=True)
             .values_list('email', flat=True)
         )
 
-        conflicting_emails = set(
-            CampaignEmail.objects.filter(
-                user_id=user_id, subscribed='never_subscribed', deleted_at__isnull=True
-            ).exclude(list_id=list_id).values_list('email', flat=True)
+        # Hard unsubscribes from CloudWatch/link clicks — always wins, can never be re-subscribed
+        hard_unsub = set(
+            CampaignEvent.objects.filter(user_id=user_id, event_type='unsubscribe')
+            .values_list('email', flat=True)
         )
 
+        # Highest-priority status this contact already has in any other list
+        _STATUS_PRIORITY = {'unsubscribed': 3, 'never_subscribed': 2, 'subscribed': 1}
+        other_statuses = {}
+        for ce in CampaignEmail.objects.filter(
+            user_id=user_id, deleted_at__isnull=True
+        ).exclude(list_id=list_id).values('email', 'subscribed'):
+            e, s = ce['email'], ce['subscribed']
+            if _STATUS_PRIORITY.get(s, 0) > _STATUS_PRIORITY.get(other_statuses.get(e, ''), 0):
+                other_statuses[e] = s
+
+        def get_existing(email):
+            if email in hard_unsub:
+                return 'unsubscribed'
+            return other_statuses.get(email)
+
+        # Status resolution matrix — lower consent always wins
+        _MATRIX = {
+            ('subscribed',       'subscribed'):       'subscribed',
+            ('subscribed',       'unsubscribed'):     'unsubscribed',
+            ('subscribed',       'never_subscribed'): 'never_subscribed',
+            ('never_subscribed', 'subscribed'):       'never_subscribed',
+            ('never_subscribed', 'unsubscribed'):     'unsubscribed',
+            ('never_subscribed', 'never_subscribed'): 'never_subscribed',
+            ('unsubscribed',     'subscribed'):       'never_subscribed',
+            ('unsubscribed',     'unsubscribed'):     'unsubscribed',
+            ('unsubscribed',     'never_subscribed'): 'unsubscribed',
+        }
+
+        def _parse_status(val):
+            v = str(val).strip().lower().replace(' ', '_').replace('-', '_')
+            if v in ('subscribed', 'subscribe', 'yes', 'true', '1', 'opt_in', 'optin'):
+                return 'subscribed'
+            if v in ('unsubscribed', 'unsubscribe', 'opt_out', 'optout'):
+                return 'unsubscribed'
+            if v in ('never_subscribed', 'never', 'no', 'false', '0'):
+                return 'never_subscribed'
+            return None
+
+        def resolve_status(uploaded, existing):
+            if existing is None:
+                # Brand-new contact: unsubscribed in file = they never opted in
+                return 'never_subscribed' if uploaded == 'unsubscribed' else uploaded
+            return _MATRIX.get((uploaded, existing), uploaded)
+
+        has_status_col = 'status' in headers
         to_create = []
         seen = set()
         skipped = 0
-        skipped_conflict = 0
 
         for row in reader:
             row = {k.strip().lower(): v.strip() for k, v in row.items()}
@@ -382,9 +450,11 @@ def upload_campaign_contacts(request, list_id):
                 skipped += 1
                 continue
 
-            if email in conflicting_emails:
-                skipped_conflict += 1
-                continue
+            uploaded_status = _parse_status(row.get('status', '')) if has_status_col else None
+            if uploaded_status is None:
+                uploaded_status = 'subscribed'
+
+            final_status = resolve_status(uploaded_status, get_existing(email))
 
             phone = row.get('phone', '')
             to_create.append(CampaignEmail(
@@ -393,21 +463,14 @@ def upload_campaign_contacts(request, list_id):
                 first_name=row.get('first_name', ''),
                 last_name=row.get('last_name', ''),
                 email=email,
-                subscribed='subscribed',
+                subscribed=final_status,
                 extra_data={'phone': phone} if phone else {},
             ))
 
-        if not to_create and skipped == 0 and skipped_conflict == 0:
+        if not to_create and skipped == 0:
             return JsonResponse({'status': 'error', 'message': 'No valid email addresses found in the file.'}, status=400)
-
-        if not to_create and skipped_conflict == 0:
+        if not to_create:
             return JsonResponse({'status': 'error', 'message': f'All {skipped} email(s) already exist in this list.'}, status=400)
-
-        if not to_create and skipped_conflict > 0:
-            return JsonResponse({
-                'status': 'error',
-                'message': f'Contact already exists as Never Subscribed in another list. ({skipped_conflict} email(s) blocked)',
-            }, status=400)
 
         CampaignEmail.objects.bulk_create(to_create, ignore_conflicts=True)
         _sync_campaign_list_counts(list_id)
@@ -415,9 +478,7 @@ def upload_campaign_contacts(request, list_id):
         msg = f'{len(to_create)} contact(s) imported.'
         if skipped:
             msg += f' {skipped} duplicate(s) skipped.'
-        if skipped_conflict:
-            msg += f' {skipped_conflict} skipped — Contact already exists as Never Subscribed in another list.'
-        return JsonResponse({'status': 'ok', 'imported': len(to_create), 'skipped': skipped, 'skipped_conflict': skipped_conflict, 'message': msg})
+        return JsonResponse({'status': 'ok', 'imported': len(to_create), 'skipped': skipped, 'message': msg})
 
     except Exception as exc:
         return JsonResponse({'status': 'error', 'message': f'Could not parse file: {exc}'}, status=400)
@@ -536,7 +597,9 @@ def import_contacts(request, list_id):
             return 'subscribed'
         if v in ('unsubscribed', 'unsubscribe', 'opt_out', 'optout'):
             return 'unsubscribed'
-        return None  # neversubscribed and all others are invalid for uploads
+        if v in ('never_subscribed', 'never', 'no', 'false', '0'):
+            return 'never_subscribed'
+        return None
 
     # Parse file into list of dicts
     fname = uploaded.name.lower()
@@ -619,14 +682,17 @@ def import_contacts(request, list_id):
             return 'unsubscribed'
         return other_statuses.get(email)
 
-    # Status resolution matrix
+    # Status resolution matrix — lower consent always wins
     _MATRIX = {
-        ('subscribed',   'subscribed'):       'subscribed',
-        ('subscribed',   'unsubscribed'):     'unsubscribed',
-        ('subscribed',   'never_subscribed'): 'never_subscribed',
-        ('unsubscribed', 'subscribed'):       'never_subscribed',
-        ('unsubscribed', 'unsubscribed'):     'unsubscribed',
-        ('unsubscribed', 'never_subscribed'): 'never_subscribed',
+        ('subscribed',       'subscribed'):       'subscribed',
+        ('subscribed',       'unsubscribed'):     'unsubscribed',
+        ('subscribed',       'never_subscribed'): 'never_subscribed',
+        ('never_subscribed', 'subscribed'):       'never_subscribed',
+        ('never_subscribed', 'unsubscribed'):     'unsubscribed',
+        ('never_subscribed', 'never_subscribed'): 'never_subscribed',
+        ('unsubscribed',     'subscribed'):       'never_subscribed',
+        ('unsubscribed',     'unsubscribed'):     'unsubscribed',
+        ('unsubscribed',     'never_subscribed'): 'unsubscribed',
     }
 
     def resolve_status(uploaded, existing):
@@ -867,5 +933,45 @@ def all_contacts_page(request):
             'subscribed':       normalized['subscribed'],
             'unsubscribed':     normalized['unsubscribed'],
             'never_subscribed': normalized['never_subscribed'],
+        },
+    })
+
+
+def contact_detail(request, contact_id):
+    """Return full detail JSON for a single contact."""
+    if not request.session.get('logged_in'):
+        return JsonResponse({'status': 'error', 'message': 'Not authenticated'}, status=403)
+
+    from Email_validate_app.models import CampaignEmail, CampaignEvent
+    user_id = get_user_id(request)
+
+    try:
+        contact = CampaignEmail.objects.select_related('list').get(
+            id=contact_id, user_id=user_id, deleted_at__isnull=True,
+        )
+    except CampaignEmail.DoesNotExist:
+        return JsonResponse({'status': 'error', 'message': 'Contact not found.'}, status=404)
+
+    extra = contact.extra_data or {}
+    hard_unsub = CampaignEvent.objects.filter(
+        user_id=user_id, email=contact.email, event_type='unsubscribe',
+    ).exists()
+
+    return JsonResponse({
+        'status': 'ok',
+        'contact': {
+            'id':         contact.id,
+            'first_name': contact.first_name,
+            'last_name':  contact.last_name,
+            'email':      contact.email,
+            'subscribed': contact.subscribed,
+            'hard_unsub': hard_unsub,
+            'phone':      extra.get('phone', ''),
+            'company':    extra.get('company', ''),
+            'extra_data': {k: v for k, v in extra.items() if k not in ('phone', 'company')},
+            'list_id':    contact.list_id,
+            'list_name':  contact.list.list_name,
+            'created_at': contact.created_at.strftime('%d %b %Y, %H:%M'),
+            'updated_at': contact.updated_at.strftime('%d %b %Y, %H:%M'),
         },
     })

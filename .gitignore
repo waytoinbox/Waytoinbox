@@ -19,6 +19,7 @@ private_uploads/
 .env
 .env.*
 !.env.example
+.claude
 
 # OS
 .DS_Store

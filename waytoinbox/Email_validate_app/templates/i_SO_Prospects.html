@@ -1,0 +1,228 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_prospects.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <div class="so-header">
+    <div class="sop-header-title">
+      <div class="sop-header-icon"><i class="fas fa-address-book"></i></div>
+      <div>
+        <h1>Prospects</h1>
+        <p>Manage the people you're reaching out to.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stat Cards -->
+  <div class="sop-stats">
+    <div class="sop-stat-card">
+      <div class="sop-stat-label">Total Contacts</div>
+      <div class="sop-stat-value">{{ stats.total }}</div>
+    </div>
+    <div class="sop-stat-card subscribed">
+      <div class="sop-stat-label">Subscribed</div>
+      <div class="sop-stat-value">{{ stats.subscribed }}</div>
+    </div>
+    <div class="sop-stat-card unsubscribed">
+      <div class="sop-stat-label">Unsubscribed</div>
+      <div class="sop-stat-value">{{ stats.unsubscribed }}</div>
+    </div>
+    <div class="sop-stat-card never">
+      <div class="sop-stat-label">Never Subscribed</div>
+      <div class="sop-stat-value">{{ stats.never_subscribed }}</div>
+    </div>
+  </div>
+
+  <div class="so-card">
+    <div class="pf-bar">
+      <form method="get" class="sop-filter-form" id="sopFilterForm">
+        <div class="pf-search-wrap">
+          <i class="fas fa-search pf-search-icon"></i>
+          <input class="pf-input" type="text" name="q" value="{{ search }}" placeholder="Search by email, name, or company…" autocomplete="off"/>
+        </div>
+        <select class="pf-select" name="status" onchange="this.form.submit()">
+          <option value="">All statuses</option>
+          <option value="subscribed" {% if status_filter == 'subscribed' %}selected{% endif %}>Subscribed</option>
+          <option value="unsubscribed" {% if status_filter == 'unsubscribed' %}selected{% endif %}>Unsubscribed</option>
+          <option value="never_subscribed" {% if status_filter == 'never_subscribed' %}selected{% endif %}>Never Subscribed</option>
+        </select>
+        <label class="pf-label" for="sopDateFrom">From</label>
+        <input id="sopDateFrom" type="date" class="pf-date" name="date_from" value="{{ date_from }}" onchange="this.form.submit()">
+        <label class="pf-label" for="sopDateTo">To</label>
+        <input id="sopDateTo" type="date" class="pf-date" name="date_to" value="{{ date_to }}" onchange="this.form.submit()">
+        {% if search or status_filter or date_from or date_to %}
+        <a href="{% url 'so_prospects' %}" class="pf-clear"><i class="fas fa-times"></i> Clear</a>
+        {% endif %}
+      </form>
+      <div class="sop-page-size-wrap">
+        <label for="sopPageSize">Rows per page</label>
+        <input type="number" id="sopPageSize" name="page_size" form="sopFilterForm"
+               class="sop-page-size-input" min="1" max="100" value="{{ page_size }}">
+      </div>
+    </div>
+    {% if page_obj.object_list %}
+    <div class="so-table-wrap">
+      <table class="so-table">
+        <thead>
+          <tr>
+            <th>#</th><th>Email</th><th>Name</th>
+            <th>Status</th><th>Lists</th><th>Added</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="prospectsBody">
+          {% for p in page_obj %}
+          <tr id="pr-{{ p.id }}">
+            <td class="sop-muted">{{ forloop.counter }}</td>
+            <td class="mono">{{ p.email }}</td>
+            <td>{{ p.first_name }} {{ p.last_name }}</td>
+            <td><span class="so-badge {{ p.status }}">{{ p.get_status_display }}</span></td>
+            <td>
+              {% with lists=p.prospect_lists.all %}
+              {% if lists %}
+                {% for pl in lists|slice:":3" %}<span class="sop-list-tag">{{ pl.so_list.name }}</span>{% endfor %}
+                {% if lists|length > 3 %}<span class="sop-list-more">+{{ lists|length|add:"-3" }} more</span>{% endif %}
+              {% else %}
+                <span class="sop-list-none">—</span>
+              {% endif %}
+              {% endwith %}
+            </td>
+            <td class="sop-date-cell">{{ p.created_at|date:"M d, Y" }}</td>
+            <td>
+              <div class="so-row-actions">
+                <button class="so-icon-btn danger" onclick="deleteProspect({{ p.id }}, this.closest('tr'))">
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="sop-pagination">
+      <span class="sop-page-info">Showing {{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+      <div class="sop-page-btns">
+        {% if page_obj.has_previous %}
+          <a class="sop-page-btn" href="?page={{ page_obj.previous_page_number }}&amp;q={{ search|urlencode }}&amp;status={{ status_filter|urlencode }}&amp;date_from={{ date_from|urlencode }}&amp;date_to={{ date_to|urlencode }}&amp;page_size={{ page_size }}"><i class="fas fa-chevron-left"></i> Prev</a>
+        {% else %}
+          <span class="sop-page-btn disabled"><i class="fas fa-chevron-left"></i> Prev</span>
+        {% endif %}
+        <span class="sop-page-current">Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>
+        {% if page_obj.has_next %}
+          <a class="sop-page-btn" href="?page={{ page_obj.next_page_number }}&amp;q={{ search|urlencode }}&amp;status={{ status_filter|urlencode }}&amp;date_from={{ date_from|urlencode }}&amp;date_to={{ date_to|urlencode }}&amp;page_size={{ page_size }}">Next <i class="fas fa-chevron-right"></i></a>
+        {% else %}
+          <span class="sop-page-btn disabled">Next <i class="fas fa-chevron-right"></i></span>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="so-empty">
+      <i class="fas fa-address-book"></i>
+      <p>No prospects yet.</p>
+      <p class="so-empty-sub">Add prospects manually or import a CSV file.</p>
+    </div>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- Add Prospect modal -->
+<div class="so-modal-overlay" id="addModal">
+  <div class="so-modal-box sop-modal-medium">
+    <h4>Add Prospect</h4>
+    <div class="sop-form-grid-2">
+      <div class="so-field sop-field-tight"><label>First Name</label><input type="text" id="addFirst" placeholder="First name"/></div>
+      <div class="so-field sop-field-tight"><label>Last Name</label><input type="text" id="addLast" placeholder="Last name"/></div>
+    </div>
+    <div class="so-field"><label>Email <span class="req sop-required">*</span></label><input type="email" id="addEmail" placeholder="email@example.com"/></div>
+    <div class="so-field"><label>Company</label><input type="text" id="addCompany" placeholder="Company name"/></div>
+    <div class="so-field"><label>Phone</label><input type="text" id="addPhone" placeholder="+1 555 000 0000"/></div>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="cancelAdd">Cancel</button>
+      <button class="so-modal-confirm" id="confirmAdd">Add Prospect</button>
+    </div>
+  </div>
+</div>
+
+<!-- Import CSV modal -->
+<div class="so-modal-overlay" id="importModal">
+  <div class="so-modal-box sop-modal-small">
+    <h4>Import Prospects from CSV</h4>
+    <p>Columns: <code>email</code>, <code>first_name</code>, <code>last_name</code>, <code>company</code>, <code>phone</code>. First row must be headers.</p>
+    <input type="file" id="importFile" accept=".csv" class="sop-file-input"/>
+    <div class="so-modal-actions">
+      <button class="so-modal-cancel" id="cancelImport">Cancel</button>
+      <button class="so-modal-confirm" id="confirmImport">Import</button>
+    </div>
+  </div>
+</div>
+
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "so_prospects_action" %}';
+var IMPORT_URL = '{% url "so_prospects_import" %}';
+
+document.getElementById('sopPageSize').addEventListener('change', function () {
+  var v = Math.max(1, Math.min(100, parseInt(this.value, 10) || 5));
+  this.value = v;
+  document.getElementById('sopFilterForm').submit();
+});
+
+function openAddModal() { document.getElementById('addModal').classList.add('open'); setTimeout(()=>document.getElementById('addEmail').focus(),60); }
+function closeAddModal() { document.getElementById('addModal').classList.remove('open'); }
+function openImport() { document.getElementById('importModal').classList.add('open'); }
+function closeImport() { document.getElementById('importModal').classList.remove('open'); }
+
+document.getElementById('cancelAdd').onclick    = closeAddModal;
+document.getElementById('cancelImport').onclick = closeImport;
+document.getElementById('addModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeAddModal(); });
+document.getElementById('importModal').addEventListener('click', e=>{ if(e.target===e.currentTarget) closeImport(); });
+document.addEventListener('keydown', e=>{ if(e.key==='Escape'){closeAddModal();closeImport();} });
+
+document.getElementById('confirmAdd').onclick = function() {
+  var email = document.getElementById('addEmail').value.trim();
+  if (!email||!email.includes('@')) { WTI.toast('Valid email required.','error'); return; }
+  var btn=this; btn.disabled=true; btn.textContent='Adding…';
+  fetch(ACTION_URL,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'add',email:email,
+      first_name:document.getElementById('addFirst').value.trim(),
+      last_name:document.getElementById('addLast').value.trim(),
+      company:document.getElementById('addCompany').value.trim(),
+      phone:document.getElementById('addPhone').value.trim(),
+    })
+  }).then(r=>r.json()).then(d=>{
+    btn.disabled=false; btn.textContent='Add Prospect';
+    if(d.status==='ok'){closeAddModal();WTI.toast('Prospect added.','success');setTimeout(()=>location.reload(),600);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>{btn.disabled=false;btn.textContent='Add Prospect';WTI.toast('Network error.','error');});
+};
+
+document.getElementById('confirmImport').onclick = function() {
+  var file = document.getElementById('importFile').files[0];
+  if (!file) { WTI.toast('Select a CSV file.','error'); return; }
+  var btn=this; btn.disabled=true; btn.textContent='Importing…';
+  var fd=new FormData(); fd.append('file',file);
+  fetch(IMPORT_URL,{method:'POST',headers:{'X-CSRFToken':CSRF},body:fd})
+  .then(r=>r.json()).then(d=>{
+    btn.disabled=false; btn.textContent='Import';
+    if(d.status==='ok'){closeImport();WTI.toast('Imported: '+d.created+' created, '+d.updated+' updated, '+d.skipped+' skipped.','success');setTimeout(()=>location.reload(),800);}
+    else{WTI.toast(d.message||'Import failed.','error');}
+  }).catch(()=>{btn.disabled=false;btn.textContent='Import';WTI.toast('Network error.','error');});
+};
+
+function deleteProspect(id, row) {
+  if (!confirm('Remove this prospect?')) return;
+  fetch(ACTION_URL,{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'delete',id:id})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){row.style.transition='opacity .3s';row.style.opacity='0';setTimeout(()=>row.remove(),320);WTI.toast('Removed.','success');}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+</script>
+{% endblock %}

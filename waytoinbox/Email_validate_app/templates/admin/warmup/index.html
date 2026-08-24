@@ -1,0 +1,165 @@
+{% extends 'admin/base.html' %}
+{% block title %}Warmup Receiver Pool{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">Warmup Receiver Pool</span>
+{% endblock %}
+
+{% block content %}
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title">Warmup Receiver Pool</h1>
+    <p class="admin-page-subtitle">Fixed, shared Gmail receiver accounts every user's warmup senders draw from. Users cannot connect or manage these themselves.</p>
+  </div>
+  {% if oauth_configured %}
+    <a href="{% url 'admin_warmup_receiver_oauth_start' %}" class="btn-admin btn-admin-primary"><i class="fab fa-google"></i> Connect Receiver</a>
+  {% else %}
+    <button class="btn-admin btn-admin-primary" disabled title="Set GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI in .env first"><i class="fab fa-google"></i> Connect Receiver</button>
+  {% endif %}
+</div>
+
+<div class="admin-card" style="margin-bottom:16px;">
+  <div class="admin-card-header">
+    <form method="get" class="admin-filter-bar" style="flex:1;">
+      <div class="admin-search">
+        <i class="fas fa-search"></i>
+        <input type="text" name="q" value="{{ q }}" placeholder="Search receiver email…"/>
+      </div>
+      <select name="status" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not status %}selected{% endif %}>All Statuses</option>
+        <option value="pending"   {% if status == 'pending'   %}selected{% endif %}>Pending</option>
+        <option value="connected" {% if status == 'connected' %}selected{% endif %}>Connected</option>
+        <option value="paused"    {% if status == 'paused'    %}selected{% endif %}>Paused</option>
+        <option value="revoked"   {% if status == 'revoked'   %}selected{% endif %}>Revoked</option>
+      </select>
+      <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;"><i class="fas fa-search"></i> Search</button>
+      {% if q or status %}<a href="{% url 'admin_warmup_receivers' %}" class="btn-admin btn-admin-outline"><i class="fas fa-times"></i> Clear</a>{% endif %}
+    </form>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-table-wrap">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Last received</th>
+          <th>Landing</th>
+          <th>Read</th>
+          <th>Last checked</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for receiver in page_obj %}
+        <tr id="wu-row-{{ receiver.id }}">
+          <td class="td-strong">{{ receiver.email }}</td>
+          <td id="wu-status-{{ receiver.id }}">
+            {% if receiver.status == 'connected' %}<span class="badge badge-success"><span class="badge-dot"></span>Connected</span>
+            {% elif receiver.status == 'paused' %}<span class="badge badge-warning"><span class="badge-dot"></span>Paused</span>
+            {% elif receiver.status == 'revoked' %}<span class="badge badge-danger"><span class="badge-dot"></span>Revoked</span>
+            {% else %}<span class="badge badge-grey">Pending</span>{% endif %}
+          </td>
+          <td style="font-size:12px;color:var(--ink-3);">{% if receiver.last_message %}{{ receiver.last_message.created_at|date:"M j, Y H:i" }}{% else %}—{% endif %}</td>
+          <td>
+            {% if receiver.last_message and receiver.last_message.landing_location %}
+              {% if receiver.last_message.landing_location == 'inbox' %}<span class="badge badge-success">Inbox</span>
+              {% elif receiver.last_message.landing_location == 'spam' %}<span class="badge badge-danger">Spam</span>
+              {% elif receiver.last_message.landing_location == 'other' %}<span class="badge badge-purple">Other</span>
+              {% else %}<span class="badge badge-grey">Not Found</span>{% endif %}
+              {% if receiver.last_message.rescued_to_inbox %}<span class="badge badge-purple">Rescued</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>{% if receiver.last_message %}{% if receiver.last_message.marked_read %}<i class="fas fa-check-circle" style="color:#059669;"></i>{% else %}<i class="fas fa-times-circle" style="color:var(--ink-3);"></i>{% endif %}{% else %}—{% endif %}</td>
+          <td style="font-size:12px;color:var(--ink-3);">{% if receiver.last_checked_at %}{{ receiver.last_checked_at|date:"M j, Y H:i" }}{% else %}—{% endif %}</td>
+          <td>
+            <div style="display:flex;gap:6px;align-items:center;">
+              {% if receiver.status == 'paused' %}
+                <button class="btn-admin btn-admin-sm btn-admin-outline" onclick="warmupReceiverAction('resume', {{ receiver.id }})" title="Resume">
+                  <i class="fas fa-play"></i>
+                </button>
+              {% elif receiver.status == 'connected' %}
+                <button class="btn-admin btn-admin-sm btn-admin-outline" onclick="warmupReceiverAction('pause', {{ receiver.id }})" title="Pause">
+                  <i class="fas fa-pause"></i>
+                </button>
+              {% endif %}
+              {% if receiver.status == 'revoked' %}
+                <a href="{% url 'admin_warmup_receiver_oauth_start' %}" class="btn-admin btn-admin-sm btn-admin-outline" title="Reconnect">
+                  <i class="fas fa-redo"></i>
+                </a>
+              {% endif %}
+              <button class="btn-admin btn-admin-sm btn-admin-danger" onclick="deleteWarmupReceiver({{ receiver.id }}, '{{ receiver.email|escapejs }}')" title="Delete">
+                <i class="fas fa-trash"></i>
+              </button>
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="7"><div class="admin-empty"><i class="fas fa-inbox"></i><div class="admin-empty-title">No receivers in the pool yet</div><div class="admin-empty-sub">Connect a Gmail account above to add it to the shared warmup receiver pool.</div></div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if page_obj.paginator.num_pages > 1 %}
+  <div class="admin-pagination">
+    <span>{{ page_obj.start_index }}–{{ page_obj.end_index }} of {{ total }}</span>
+    <div class="admin-pagination-pages">
+      {% if page_obj.has_previous %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}page={{ page_obj.previous_page_number }}"><i class="fas fa-chevron-left"></i></a>{% endif %}
+      {% for num in page_obj.paginator.page_range %}
+        {% if num == page_obj.number %}<span class="pg-current">{{ num }}</span>
+        {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}page={{ num }}">{{ num }}</a>{% endif %}
+      {% endfor %}
+      {% if page_obj.has_next %}<a href="?{% if q %}q={{ q }}&{% endif %}{% if status %}status={{ status }}&{% endif %}page={{ page_obj.next_page_number }}"><i class="fas fa-chevron-right"></i></a>{% endif %}
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+<script>
+function warmupReceiverAction(action, rid) {
+  WTI.apiFetch(`/wti-admin/warmup-receivers/${rid}/${action}/`, {method:'POST'})
+    .then(res => {
+      if (res.ok) { WTI.toast('Updated.', 'success'); setTimeout(() => location.reload(), 400); }
+    });
+}
+
+function deleteWarmupReceiver(rid, email) {
+  Admin.Modal.confirm(
+    'Remove Receiver',
+    `Remove <strong>${email}</strong> from the shared warmup pool? This cannot be undone.`,
+    () => {
+      WTI.apiFetch(`/wti-admin/warmup-receivers/${rid}/delete/`, {method:'POST'})
+        .then(res => {
+          if (res.ok) {
+            document.getElementById(`wu-row-${rid}`).remove();
+            WTI.toast(res.data.message || 'Removed.', 'success');
+          }
+        });
+    },
+    'Remove', true
+  );
+}
+
+(function () {
+  var params = new URLSearchParams(window.location.search);
+  var messages = {
+    oauth_not_configured:   ['Warmup Gmail OAuth is not configured yet. Set GOOGLE_OAUTH_CLIENT_ID/SECRET/REDIRECT_URI in .env.', 'error'],
+    oauth_state_mismatch:   ['Could not verify the Google sign-in — please try connecting again.', 'error'],
+    oauth_failed:           ['Google sign-in failed. Please try again.', 'error'],
+    oauth_no_refresh_token: ['Google did not grant a refresh token. Revoke access at myaccount.google.com/permissions and try again.', 'error'],
+    oauth_profile_failed:   ['Connected, but could not read the Gmail account’s address. Please try again.', 'error'],
+  };
+  var err = params.get('error');
+  if (err && messages[err]) { WTI.toast(messages[err][0], messages[err][1]); }
+  if (params.get('connected')) { WTI.toast('Receiver account connected.', 'success'); }
+  if (err || params.get('connected')) {
+    params.delete('error'); params.delete('connected');
+    var qs = params.toString();
+    history.replaceState(null, '', window.location.pathname + (qs ? '?' + qs : ''));
+  }
+})();
+</script>
+{% endblock %}

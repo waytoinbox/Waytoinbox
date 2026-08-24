@@ -1,0 +1,36 @@
+{% comment %}
+Option rows for the Sales Outreach recipient combobox.
+Included twice by i_SO_New_Campaign.html (include list + exclude list); the
+enclosing .soc-rd-list gives each copy its own id, and the JS scopes to that.
+
+Context: `lists` (SOList queryset), `segments_data` (list of {id,name,count}).
+{% endcomment %}
+{% if lists %}
+<div class="soc-rd-group">Prospect Lists</div>
+{% for lst in lists %}
+<label class="soc-rd-option" data-type="list" data-id="{{ lst.id }}" data-label="{{ lst.name }}" data-count="{{ lst.subscribed_count }}">
+  <input type="checkbox" class="soc-rd-chk" value="list__{{ lst.id }}"/>
+  <i class="fas fa-list soc-icon-faint"></i>
+  <span class="soc-rd-name">{{ lst.name }}</span>
+  <span class="soc-rd-meta">{{ lst.subscribed_count }} subscribed</span>
+</label>
+{% endfor %}
+{% endif %}
+{% if segments_data %}
+<div class="soc-rd-group">Segments</div>
+{% for seg in segments_data %}
+<label class="soc-rd-option" data-type="segment" data-id="{{ seg.id }}" data-label="{{ seg.name }}" data-count="{{ seg.count }}">
+  <input type="checkbox" class="soc-rd-chk" value="segment__{{ seg.id }}"/>
+  <i class="fas fa-filter soc-icon-faint"></i>
+  <span class="soc-rd-name">{{ seg.name }}</span>
+  <span class="soc-rd-meta">{{ seg.count }} subscribed</span>
+</label>
+{% endfor %}
+{% endif %}
+{% if not lists and not segments_data %}
+<div class="soc-rd-empty">
+  No lists or segments yet.
+  <a href="{% url 'so_lists' %}" class="soc-link-teal">Create one →</a>
+</div>
+{% endif %}
+<div class="soc-rd-no-results" hidden>No matches found.</div>

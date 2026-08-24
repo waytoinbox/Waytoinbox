@@ -295,3 +295,33 @@
 [data-theme="dark"] .badge-sub.unsub { background: rgba(180,83,9,.18); color: #FCD34D; border-color: rgba(180,83,9,.3); }
 
 [data-theme="dark"] .cc-error { background: rgba(201,74,29,.18); border-color: rgba(201,74,29,.3); color: #FF8060; }
+
+/* ── CONTACT DETAIL (shared cd-* classes) ─────────────────────────────── */
+.cd-email-link { cursor: pointer; }
+.cd-email-link:hover { color: var(--teal); text-decoration: underline; }
+.cd-title {
+  margin: 0 0 18px; font-family: var(--font-head);
+  font-size: 16px; font-weight: 800; color: var(--ink);
+  display: flex; align-items: center; gap: 8px;
+}
+.cd-table { width: 100%; border-collapse: collapse; }
+.cd-table tr { border-bottom: 1px solid var(--border); }
+.cd-table td { padding: 9px 6px; }
+.cd-label {
+  font-size: 11.5px; font-weight: 700; color: var(--ink-3);
+  white-space: nowrap; width: 36%; font-family: var(--font-head);
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.cd-value { font-size: 13.5px; color: var(--ink); }
+.cd-mono  { font-family: monospace; font-size: 13px; }
+.cd-badge {
+  display: inline-block; padding: 3px 10px;
+  border-radius: 20px; font-size: 12px; font-weight: 600;
+}
+.cd-badge-subscribed       { background: #D1FAF0; color: #007A5E; }
+.cd-badge-never_subscribed { background: #F0EDFF; color: #5B21B6; }
+.cd-badge-unsubscribed     { background: #FDECEA; color: #C94A1D; }
+
+[data-theme="dark"] .cd-badge-subscribed     { background: rgba(0,107,86,.25);  color: #4ADABC;  }
+[data-theme="dark"] .cd-badge-never_subscribed { background: rgba(91,33,182,.2); color: #B69FFF; }
+[data-theme="dark"] .cd-badge-unsubscribed   { background: rgba(201,74,29,.2);  color: #F4896B;  }
