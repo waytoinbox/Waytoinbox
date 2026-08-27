@@ -4,42 +4,162 @@
  * here. Class prefix: soea- (SO Email Accounts).
  */
 
-.soea-muted { color: var(--ink-3); }
-.soea-date-cell { color: var(--ink-3); font-size: 12.5px; }
 .soea-mt-6 { margin-top: 6px; }
+
+/* Connection column — a plain status indicator badge for all three states
+   (Active/Failed/Inactive), no action button attached to it. */
+
+/* Reconnect (Failed/Inactive only) — lives in the Actions cell, icon-only
+   like its Analytics/kebab siblings there, so no size override of its own;
+   reuses the exact same handlers the Connection badge itself used to call
+   directly — openUpdatePwd for Failed (an app-password problem is by far
+   the most common cause of a failed SMTP test), checkAccount for Inactive
+   (re-runs the existing live connection test) — no new backend action, no
+   OAuth pretense (OAuth stays Coming Soon/disabled on the Add Account
+   page). */
 
 /* Warmup column + Start Warmup modal — warmup status/config actually live on
    this page now (not a separate Warmup Senders page), so the account and
-   its warmup state stay visible/actionable in one place. Same plain
-   icon-plus-number language as .soea-limit-* (Daily Limit column), just
-   colored by warmup status instead of usage criticality. */
-.soea-warmup-cell { display: flex; align-items: center; gap: 8px; }
-.soea-warmup-icon { flex-shrink: 0; font-size: 17px; color: var(--teal-dk); }
+   its warmup state stay visible/actionable in one place. A visible status
+   label (not just an icon + count, previously only distinguishable via a
+   hover title) is the main Phase 4 change here — Active/Paused/Stopped/
+   Completed/Not Started must all be recognizable without opening the
+   Actions menu. The daily_current/daily_target count is shown only for
+   Active/Paused (the only states where it's actually progressing) —
+   Stopped/Completed/Not Started show just the label, matching the
+   explicit before/after states requested. */
+.soea-warmup-inner { display: flex; align-items: center; gap: 8px; }
+.soea-warmup-icon { flex-shrink: 0; font-size: 16px; color: var(--teal-dk); }
 .soea-warmup-icon--paused    { color: #A16207; }
 .soea-warmup-icon--stopped   { color: var(--ink-3); }
 .soea-warmup-icon--completed { color: #15803D; }
+.soea-warmup-icon--none      { color: var(--ink-4, var(--ink-3)); opacity: .5; cursor: default; }
 [data-theme="dark"] .soea-warmup-icon--paused    { color: #FDE047; }
 [data-theme="dark"] .soea-warmup-icon--completed { color: #86EFAC; }
-.soea-warmup-count { font-family: var(--font-head); font-weight: 700; font-size: 13px; color: var(--ink); }
+.soea-warmup-text { display: flex; flex-direction: column; gap: 1px; }
+.soea-warmup-label {
+  font-family: var(--font-head); font-weight: 700; font-size: 12px; color: var(--teal-dk);
+  line-height: 1.3; white-space: nowrap;
+}
+.soea-warmup-label--paused    { color: #A16207; }
+.soea-warmup-label--stopped   { color: var(--ink-3); }
+.soea-warmup-label--completed { color: #15803D; }
+.soea-warmup-label--none      { color: var(--ink-3); font-weight: 600; }
+[data-theme="dark"] .soea-warmup-label--paused    { color: #FDE047; }
+[data-theme="dark"] .soea-warmup-label--completed { color: #86EFAC; }
+.soea-warmup-count { font-family: var(--font-head); font-weight: 700; font-size: 12px; color: var(--ink); line-height: 1.3; white-space: nowrap; }
 .soea-warmup-count--paused    { color: #A16207; }
 .soea-warmup-count--stopped   { color: var(--ink-3); }
 .soea-warmup-count--completed { color: #15803D; }
 
-/* Daily Limit cell — today's sent count against the account's daily_limit
-   (e.g. "35/50"), with a plain gauge icon (no background badge) colored by
-   criticality, matching the healthy/warn/critical convention
-   services/dashboard_service.py already uses for credit bars (there: <10%
-   remaining = critical; here it's usage%, so the thresholds are inverted —
-   >=90% used = critical, >=70% = warn). */
-.soea-limit-cell { display: flex; align-items: center; gap: 8px; }
-.soea-limit-icon { flex-shrink: 0; font-size: 17px; color: var(--teal-dk); }
-.soea-limit-icon--warn     { color: #A16207; }
-.soea-limit-icon--critical { color: #B91C1C; }
-[data-theme="dark"] .soea-limit-icon--warn     { color: #FDE047; }
-[data-theme="dark"] .soea-limit-icon--critical { color: #FCA5A5; }
+/* Daily Usage cell (was "Daily Limit") — today's sent count against the
+   account's daily_limit (e.g. "35/50") plus a compact progress bar using
+   the exact same pre-computed limit_pct/limit_level the count's color
+   already used (no new threshold/calculation — this is presentation
+   only). Replaces the old plain gauge icon, which took up icon-sized
+   space without conveying more than the number already did. */
+.soea-limit-inner { display: flex; flex-direction: column; gap: 4px; min-width: 74px; }
 .soea-limit-count { font-family: var(--font-head); font-weight: 700; font-size: 13px; color: var(--ink); }
 .soea-limit-count--warn     { color: #A16207; }
 .soea-limit-count--critical { color: #B91C1C; }
+[data-theme="dark"] .soea-limit-count--warn     { color: #FDE047; }
+[data-theme="dark"] .soea-limit-count--critical { color: #FCA5A5; }
+.soea-limit-bar-track {
+  display: block; width: 100%; height: 5px; border-radius: 3px;
+  background: var(--bg-2); border: 1px solid var(--border); overflow: hidden;
+}
+.soea-limit-bar-fill { display: block; height: 100%; border-radius: 3px; background: var(--teal); }
+.soea-limit-bar-fill--warn     { background: #A16207; }
+.soea-limit-bar-fill--critical { background: #B91C1C; }
+[data-theme="dark"] .soea-limit-bar-fill--warn     { background: #FDE047; }
+[data-theme="dark"] .soea-limit-bar-fill--critical { background: #FCA5A5; }
+
+/* Zero-result filter state (#soeaEmptyRow) — a single subtle row shown
+   inside <tbody> only when accounts exist but the current search/filters
+   match none of them. Deliberately not the full-page .so-empty state,
+   which is reserved for "no accounts at all". */
+.soea-empty-filter-row {
+  text-align: center; padding: 32px 20px;
+  color: var(--ink-3); font-family: var(--font-body); font-size: 13px;
+}
+
+/* Reply column — replies / prospects contacted, last 7 days, with a small
+   "7d" caption under the count so the time window reads at a glance
+   instead of only being available via the hover title. Campaigns column —
+   distinct non-deleted campaigns this account is a sender for, unchanged
+   single-line icon+number. */
+.soea-reply-inner, .soea-campaigns-inner { display: flex; align-items: center; gap: 8px; }
+.soea-reply-icon, .soea-campaigns-icon { flex-shrink: 0; font-size: 14px; color: var(--teal-dk); }
+.soea-reply-text { display: flex; flex-direction: column; gap: 1px; }
+.soea-reply-count, .soea-campaigns-count {
+  font-family: var(--font-head); font-weight: 700; font-size: 13px; color: var(--ink); line-height: 1.3;
+}
+.soea-reply-window { font-size: 10px; color: var(--ink-3); line-height: 1.3; }
+
+/* Email Account cell (V4.8) — icon + address must always stay on one row:
+   never wrap, never get clipped, never force .so-table-wrap's horizontal
+   scrollbar. inline-flex + white-space:nowrap keeps icon and text glued
+   together instead of the browser being free to line-break between them
+   at narrow widths (e.g. with the left sidebar expanded on a laptop-size
+   viewport, which is what was wrapping this cell to two lines). */
+.soea-email-inner { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; max-width: 100%; }
+.soea-email-text { white-space: nowrap; }
+
+/* Column width hints (V4.6 — Phase 4) — table-layout stays auto (unchanged
+   from so.css's .so-table), so these are sizing hints the browser can
+   still expand on if content needs it, not hard clips. Email Account is
+   deliberately left unconstrained so it gets whatever space the others
+   don't need. */
+.soea-col-connection { width: 110px; }
+.soea-col-usage      { width: 130px; }
+.soea-col-warmup      { width: 130px; }
+.soea-col-reply       { width: 84px; }
+.soea-col-campaigns   { width: 84px; }
+.soea-col-actions     { width: 150px; text-align: center; }
+.soea-actions-cell    { text-align: center; }
+
+/* Actions column (V4.7) — Analytics and the kebab menu now share one cell
+   instead of two separate columns. Inner-div flex wrapper (not on the
+   <td>), matching every other merged/stacked cell on this page. */
+.soea-actions-inner { display: flex; align-items: center; justify-content: center; gap: 6px; }
+.soea-actions-inner .so-icon-btn { white-space: nowrap; }
+
+/* Actions column — single kebab trigger + floating menu, replacing the
+   former row of separate icon buttons (same floating-menu shape as
+   .soi-more-menu on the Inbox page, duplicated locally since this page
+   doesn't load so_inbox.css).
+   position:fixed (not absolute) is required here: .so-table-wrap sets
+   overflow-x:auto, which per spec forces overflow-y to also clip rather
+   than stay visible — an absolutely-positioned menu on a row near the
+   bottom of the table got truncated at the wrap's edge (surfacing as the
+   menu appearing to hide under .soea-pagination just below the table),
+   the same overflow-clipping bug class already fixed for the Quill color
+   picker and the subsequence merge-tag menu elsewhere in this app. Exact
+   top/left are set inline by JS from the trigger's own bounding rect. */
+.soea-row-menu-wrap { position: relative; display: inline-block; }
+.soea-row-menu {
+  position: fixed;
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md); min-width: 190px; padding: 6px; z-index: 1000;
+}
+/* [hidden] vs an explicit display value is equal specificity — same class of
+   bug already documented elsewhere on this page/app; explicit override
+   keeps the menu actually hidden. */
+.soea-row-menu[hidden] { display: none; }
+.soea-row-menu button, .soea-row-menu a {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 8px 10px; border: none; background: none; border-radius: var(--radius-sm);
+  font-family: var(--font-body); font-size: 13.5px; color: var(--ink); cursor: pointer;
+  text-align: left; box-sizing: border-box; text-decoration: none;
+}
+.soea-row-menu button:hover, .soea-row-menu a:hover { background: var(--bg-2); }
+/* Edit Account hidden from the menu per request (page/route stays reachable
+   directly) — .soea-row-menu a sets its own display:flex above, so a bare
+   [hidden] attribute ties in specificity and silently fails; same bug class
+   already documented elsewhere on this page. */
+.soea-row-menu a[hidden] { display: none; }
+.soea-row-menu button.soea-menu-danger { color: #C94A1D; }
+.soea-row-menu hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
 
 /* Start Warmup modal — icon header (like .soea-pwd-modal's) + a boxed ramp
    grid with per-field unit labels + an info-style notice, matching the

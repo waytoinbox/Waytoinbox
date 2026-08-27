@@ -98,27 +98,27 @@
               </a>
             </li>
             <li class="nav-item">
+              <a href="{% url 'sender_verify' %}" class="nav-link" data-tooltip="Sender Verify">
+                <i class="fas fa-shield-alt"></i>
+                <span class="nav-link-text">Sender Verify</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'list_segment' %}" class="nav-link" data-tooltip="Contact List">
+                <i class="fas fa-layer-group"></i>
+                <span class="nav-link-text">Contact List</span>
+              </a>
+            </li>
+            <li class="nav-item">
               <a href="{% url 'all_contacts' %}" class="nav-link" data-tooltip="Contacts">
                 <i class="fas fa-address-book"></i>
                 <span class="nav-link-text">Contacts</span>
               </a>
             </li>
             <li class="nav-item">
-              <a href="{% url 'list_segment' %}" class="nav-link" data-tooltip="Lists &amp; Segments">
-                <i class="fas fa-layer-group"></i>
-                <span class="nav-link-text">Lists &amp; Segments</span>
-              </a>
-            </li>
-            <li class="nav-item">
               <a href="{% url 'templates_page' %}" class="nav-link" data-tooltip="Templates">
                 <i class="fas fa-paint-brush"></i>
                 <span class="nav-link-text">Templates</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="{% url 'sender_verify' %}" class="nav-link" data-tooltip="Sender Verify">
-                <i class="fas fa-shield-alt"></i>
-                <span class="nav-link-text">Sender Verify</span>
               </a>
             </li>
           </ul>
@@ -132,21 +132,21 @@
           </a>
           <ul class="nested-submenu">
             <li class="nav-item">
-              <a href="{% url 'so_inbox' %}" class="nav-link" data-tooltip="Inbox">
-                <i class="fas fa-inbox"></i>
-                <span class="nav-link-text">Inbox</span>
-              </a>
-            </li>
-            <li class="nav-item">
               <a href="{% url 'so_email_accounts' %}" class="nav-link" data-tooltip="Email Accounts">
                 <i class="fas fa-at"></i>
                 <span class="nav-link-text">Email Accounts</span>
               </a>
             </li>
             <li class="nav-item">
-              <a href="{% url 'so_campaigns' %}" class="nav-link" data-tooltip="Email Sender">
+              <a href="{% url 'so_campaigns' %}" class="nav-link" data-tooltip="Sequences">
                 <i class="fas fa-paper-plane"></i>
-                <span class="nav-link-text">Email Sender</span>
+                <span class="nav-link-text">Sequences</span>
+              </a>
+            </li>
+            <li class="nav-item">
+              <a href="{% url 'so_lists' %}" class="nav-link" data-tooltip="Prospect List">
+                <i class="fas fa-layer-group"></i>
+                <span class="nav-link-text">Prospect List</span>
               </a>
             </li>
             <li class="nav-item">
@@ -156,17 +156,24 @@
               </a>
             </li>
             <li class="nav-item">
-              <a href="{% url 'so_lists' %}" class="nav-link" data-tooltip="Lists &amp; Segments">
-                <i class="fas fa-layer-group"></i>
-                <span class="nav-link-text">Lists &amp; Segments</span>
+              <a href="{% url 'so_inbox' %}" class="nav-link" data-tooltip="Inbox">
+                <i class="fas fa-inbox"></i>
+                <span class="nav-link-text">Inbox</span>
+              </a>
+            </li>
+            <li class="nav-item" hidden>
+              <a href="{% url 'so_analytics_overview' %}" class="nav-link" data-tooltip="Analytics">
+                <i class="fas fa-chart-pie"></i>
+                <span class="nav-link-text">Analytics</span>
               </a>
             </li>
           </ul>
         </li>
 
         <!-- Warmup — one single page, so a plain direct link, not a
-             collapsible submenu-toggle like the other Services sections. -->
-        <li class="nav-item">
+             collapsible submenu-toggle like the other Services sections.
+             Hidden from the nav per request; /Warmup/ itself still works. -->
+        <li class="nav-item" hidden>
           <a href="{% url 'warmup_dashboard' %}" class="nav-link" data-tooltip="Warmup">
             <i class="fas fa-fire"></i>
             <span class="nav-link-text">Warmup</span>

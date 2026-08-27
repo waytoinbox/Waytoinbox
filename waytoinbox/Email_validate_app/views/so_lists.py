@@ -665,6 +665,8 @@ def so_list_import_prospects(request, list_id):
 
     if 'email' not in mapping.values():
         return JsonResponse({'status': 'error', 'message': 'Email field must be mapped.'}, status=400)
+    if 'status' not in mapping.values():
+        return JsonResponse({'status': 'error', 'message': 'Status field must be mapped.'}, status=400)
     if 'first_name' not in mapping.values() and 'last_name' not in mapping.values():
         return JsonResponse({
             'status': 'error',
@@ -672,7 +674,7 @@ def so_list_import_prospects(request, list_id):
         }, status=400)
 
     email_col      = next(c for c, s in mapping.items() if s == 'email')
-    status_col     = next((c for c, s in mapping.items() if s == 'status'),     None)
+    status_col     = next(c for c, s in mapping.items() if s == 'status')
     first_name_col = next((c for c, s in mapping.items() if s == 'first_name'), None)
     last_name_col  = next((c for c, s in mapping.items() if s == 'last_name'),  None)
     company_col    = next((c for c, s in mapping.items() if s == 'company'),    None)
@@ -742,7 +744,7 @@ def so_list_import_prospects(request, list_id):
             email = (row.get(email_col) or '').strip().lower()
             if not email or not EMAIL_RE.match(email) or email in in_list_emails:
                 continue
-            uploaded_status = _normalize_status(row.get(status_col)) if status_col else 'subscribed'
+            uploaded_status = _normalize_status(row.get(status_col))
             if uploaded_status is None:
                 continue
             existing = existing_status(email)
@@ -775,7 +777,7 @@ def so_list_import_prospects(request, list_id):
 
     for i, row in enumerate(rows):
         raw_email  = (row.get(email_col) or '').strip().lower()
-        raw_status = (row.get(status_col) or '').strip() if status_col else ''
+        raw_status = (row.get(status_col) or '').strip()
 
         if not raw_email:
             skipped_rows.append({'row': i + 2, 'email': '(empty)', 'uploaded_status': raw_status, 'reason': 'Missing email'})
@@ -790,16 +792,13 @@ def so_list_import_prospects(request, list_id):
             skipped_rows.append({'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status, 'reason': 'Already exists in this list'})
             continue
 
-        if status_col:
-            uploaded_status = _normalize_status(raw_status)
-            if uploaded_status is None:
-                skipped_rows.append({
-                    'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status,
-                    'reason': f'Invalid status value "{raw_status}"',
-                })
-                continue
-        else:
-            uploaded_status = 'subscribed'
+        uploaded_status = _normalize_status(raw_status)
+        if uploaded_status is None:
+            skipped_rows.append({
+                'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status,
+                'reason': f'Invalid status value "{raw_status}"',
+            })
+            continue
 
         seen.add(raw_email)
         final_status = _resolve_status(uploaded_status, existing_status(raw_email))

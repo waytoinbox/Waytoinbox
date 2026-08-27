@@ -31,6 +31,74 @@ def _next_utc_midnight():
     return datetime.combine(today_utc + timedelta(days=1), dt_time.min, tzinfo=dt_timezone.utc)
 
 
+# ── Shared WarmupMessage counting (V4.4 — moved here from
+# views/warmup_dashboard.py, which now imports these instead of keeping its
+# own copy, so the per-account Analytics Warmup tab can reuse the exact same
+# counting logic instead of duplicating it) ─────────────────────────────────
+
+def compute_message_counts(qs):
+    """landing/read counts for any WarmupMessage queryset — used for both
+    the /Warmup/ dashboard's today/total stat cards (queryset = all of a
+    user's messages) and the per-account Analytics Warmup tab (queryset =
+    one account's messages)."""
+    return {
+        'sent':      qs.filter(sent_at__isnull=False).count(),
+        'inbox':     qs.filter(landing_location='inbox').count(),
+        'spam':      qs.filter(landing_location='spam').count(),
+        'rescued':   qs.filter(landing_location='spam', rescued_to_inbox=True).count(),
+        'other':     qs.filter(landing_location='other').count(),
+        'not_found': qs.filter(landing_location='not_found').count(),
+        'read':      qs.filter(marked_read=True).count(),
+    }
+
+
+def pct(num, den):
+    if not den:
+        return None
+    v = round(num / den * 100, 1)
+    return int(v) if v == int(v) else v
+
+
+def compute_account_warmup_analytics(account):
+    """One account's warmup snapshot for the per-account Analytics Warmup
+    tab: status, today's target/sent, landing breakdown (today + all-time),
+    and placement percentages — the same metrics/terminology the /Warmup/
+    dashboard already shows, just scoped to a single account's own
+    WarmupMessage rows instead of every account the user owns.
+
+    Returns None if this account was never enrolled in warmup at all (no
+    SOEmailAccountWarmup row), so callers can render a clean "not started"
+    state instead of a zeroed-out one."""
+    from Email_validate_app.models import SOEmailAccountWarmup, WarmupMessage
+
+    try:
+        warmup = account.warmup
+    except SOEmailAccountWarmup.DoesNotExist:
+        return None
+
+    all_msgs = WarmupMessage.objects.filter(sender_account=account)
+    today_msgs = all_msgs.filter(created_at__date=now().date())
+    today_stats = compute_message_counts(today_msgs)
+    total_stats = compute_message_counts(all_msgs)
+    checked_total = total_stats['inbox'] + total_stats['spam'] + total_stats['other']
+
+    return {
+        'status':         warmup.status,
+        'status_display': warmup.get_status_display(),
+        'daily_target':   warmup.daily_target,
+        'daily_current':  warmup.daily_current,
+        'todays_target':  get_todays_target(warmup),
+        'today':          today_stats,
+        'total':          total_stats,
+        'failed':         all_msgs.filter(status='send_failed').count(),
+        'placement_pct': {
+            'inbox': pct(total_stats['inbox'], checked_total),
+            'spam':  pct(total_stats['spam'], checked_total),
+            'other': pct(total_stats['other'], checked_total),
+        },
+    }
+
+
 def get_todays_target(warmup) -> int:
     """Continuous, computed fresh every call — never mutated by a scheduled
     task, so there's no midnight-rollover job and no drift risk. Ramps
@@ -164,6 +232,42 @@ def start_warmup(account_ids, daily_target=None, ramp_up_days=None, ramp_up_incr
             warmup.save(update_fields=update_fields)
         results.append(warmup)
     return results
+
+
+def update_warmup_settings(account, daily_target=None, ramp_up_days=None, ramp_up_increment=None):
+    """The real update path start_warmup()'s get_or_create was missing for
+    an ALREADY-enrolled account (V4.5): that function's `if not created`
+    branch only ever touches `status`/`started_at`, so re-running Start
+    with new ramp values silently discarded them. This function updates
+    ONLY the three ramp config fields — it never touches status/started_at
+    (that stays exclusively Start/Pause/Resume/Stop's job) and never
+    creates a row (Edit must not enroll an account in warmup as a side
+    effect of saving unrelated fields). Returns the updated
+    SOEmailAccountWarmup, or None if this account was never enrolled.
+
+    get_todays_target() reads daily_target/ramp_up_increment live off the
+    model instance every call, so it automatically reflects these new
+    values on its very next call — no second target calculation needed."""
+    from Email_validate_app.models import SOEmailAccountWarmup
+
+    try:
+        warmup = account.warmup
+    except SOEmailAccountWarmup.DoesNotExist:
+        return None
+
+    update_fields = []
+    if daily_target is not None:
+        warmup.daily_target = daily_target
+        update_fields.append('daily_target')
+    if ramp_up_days is not None:
+        warmup.ramp_up_days = ramp_up_days
+        update_fields.append('ramp_up_days')
+    if ramp_up_increment is not None:
+        warmup.ramp_up_increment = ramp_up_increment
+        update_fields.append('ramp_up_increment')
+    if update_fields:
+        warmup.save(update_fields=update_fields)
+    return warmup
 
 
 def pause_warmup(account_ids):

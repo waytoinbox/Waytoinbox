@@ -392,13 +392,47 @@
 }
 .soc-var-name:focus { border-color: var(--teal); }
 
-.soc-step-wait { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink-2); }
-.soc-wait-days {
-  width: 62px; border: 1.5px solid var(--border); border-radius: 7px;
+/* A/B weight — sits right under the variation name, same row shape as the
+   wait-days/wait-hours controls below. */
+.soc-var-weight-row { display: flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--ink-3); margin-bottom: 8px; }
+.soc-var-weight {
+  width: 56px; border: 1.5px solid var(--border); border-radius: 7px;
+  padding: 6px 8px; font-size: 13px; text-align: center; color: var(--ink);
+  background: var(--bg); outline: none;
+}
+.soc-var-weight:focus { border-color: var(--teal); }
+
+.soc-step-wait { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); flex-wrap: wrap; }
+.soc-wait-days, .soc-wait-hours {
+  width: 56px; border: 1.5px solid var(--border); border-radius: 7px;
   padding: 7px 9px; font-size: 13px; text-align: center; color: var(--ink);
   background: var(--bg); outline: none;
 }
-.soc-wait-days:focus { border-color: var(--teal); }
+.soc-wait-days:focus, .soc-wait-hours:focus { border-color: var(--teal); }
+
+/* ── Sender rotation weights (Settings step) — one row per currently
+   selected account, only visible once at least one is checked. ────────── */
+/* Explicit display:flex on the bare class beats the native [hidden]{display:
+   none} UA rule at equal specificity (same bug class as .soc-recipient-
+   estimate/.soc-wizard-panel below) -- without this override the container's
+   own padding/border rendered as a visible empty box even while [hidden]. */
+.soc-sender-weights[hidden] { display: none; }
+.soc-sender-weight-hint { margin-top: 0; }
+.soc-sender-weights {
+  display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+  padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  background: var(--bg-2);
+}
+.soc-sender-weight-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.soc-sender-weight-email { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soc-sender-weight-field { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+.soc-sender-weight-field label { font-size: 11.5px; color: var(--ink-3); }
+.soc-sender-weight-input {
+  width: 56px; border: 1.5px solid var(--border); border-radius: 7px;
+  padding: 5px 7px; font-size: 13px; text-align: center; color: var(--ink);
+  background: var(--bg); outline: none;
+}
+.soc-sender-weight-input:focus { border-color: var(--teal); }
 
 .soc-add-step {
   width: 100%; border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg);
@@ -423,12 +457,20 @@
 .soc-subseq-card-head > i { color: var(--teal); font-size: 14px; flex-shrink: 0; }
 .soc-subseq-name {
   border: none; background: transparent; font-size: 13.5px; font-weight: 700;
-  color: var(--ink); outline: none; flex: 1; min-width: 90px; padding: 4px 2px;
+  color: var(--ink); outline: none; flex: 0 1 30%; min-width: 90px; padding: 4px 2px;
   border-radius: 5px;
 }
 .soc-subseq-name:focus { background: var(--bg-3, #eef1f4); }
 .soc-subseq-trigger {
   font-size: 12px; color: var(--ink-3); white-space: nowrap; display: flex; align-items: center; gap: 5px;
+  /* Pushes itself and the three siblings after it (.soc-pill,
+     .soc-subseq-toggle, .soc-subseq-del) to the right edge of the flex
+     row -- standard flexbox auto-margin technique, only needed on the
+     first item of the trailing group since the rest already follow it
+     directly in DOM order. Scoped to this class specifically (not the
+     shared .soc-pill) since .soc-pill is reused elsewhere on the page in
+     unrelated flex contexts. */
+  margin-left: auto;
 }
 .soc-subseq-days {
   width: 44px; border: 1.5px solid var(--border); border-radius: 6px;
@@ -442,6 +484,36 @@
 .soc-subseq-toggle:hover { color: var(--teal); background: var(--teal-lt, #f0faf7); }
 .soc-subseq-del:hover { color: #C94A1D; background: #FDECEA; }
 [data-theme="dark"] .soc-subseq-del:hover { background: rgba(201,74,29,.18); }
+
+/* ── Branch Conditions (Step 3, alongside Subsequences) ─────────────── */
+.soc-cond-list { display: flex; flex-direction: column; gap: 10px; }
+.soc-cond-card {
+  border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg);
+  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+  transition: border-color .15s, opacity .15s;
+}
+.soc-cond-card.inactive { opacity: .55; }
+.soc-cond-row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
+.soc-cond-field {
+  display: flex; flex-direction: column; gap: 4px; font-size: 11.5px;
+  color: var(--ink-3); font-weight: 600; min-width: 150px; flex: 1;
+}
+.soc-cond-field-sm { min-width: 110px; flex: 0 0 auto; }
+.soc-cond-field select, .soc-cond-field input[type="number"] {
+  border: 1.5px solid var(--border); border-radius: 7px; padding: 6px 8px;
+  font-size: 13px; color: var(--ink); background: var(--bg); outline: none;
+}
+.soc-cond-field select:focus, .soc-cond-field input[type="number"]:focus { border-color: var(--teal); }
+.soc-cond-active-lbl {
+  display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2, var(--ink));
+  white-space: nowrap; margin-left: auto;
+}
+.soc-cond-del {
+  background: none; border: none; color: var(--ink-3); cursor: pointer;
+  padding: 6px 8px; border-radius: 5px; font-size: 12.5px; line-height: 1; flex-shrink: 0;
+}
+.soc-cond-del:hover { color: #C94A1D; background: #FDECEA; }
+[data-theme="dark"] .soc-cond-del:hover { background: rgba(201,74,29,.18); }
 
 .soc-sub-merge-menu {
   position: absolute; top: 100%; left: 0; margin-top: 4px; z-index: 20;
@@ -481,6 +553,11 @@
 /* Quill */
 #socQuillEditor.ql-container.ql-snow { border: none; font-size: 14px; }
 #socQuillEditor .ql-editor { min-height: 200px; max-height: 200px; overflow-y: auto; }
+/* Subsequence editor -- same fixed height/scroll behavior as the main
+   editor above, not left at Quill's own default (auto-growing, unbounded)
+   height. */
+#socSubQuillEditor.ql-container.ql-snow { border: none; font-size: 14px; }
+#socSubQuillEditor .ql-editor { min-height: 200px; max-height: 200px; overflow-y: auto; }
 .soc-tb-sep { display: inline-block; width: 1px; height: 20px; background: var(--border); margin: 0 8px; vertical-align: middle; }
 
 /* Sequence step's Quill toolbar — same single-row + teal-themed treatment as
@@ -759,6 +836,30 @@
   text-transform: uppercase; letter-spacing: .04em; color: var(--ink-3);
 }
 .soc-review-value { font-size: 13.5px; color: var(--ink); text-align: right; }
+
+/* Email Preview (Step 5) -- reuses .soc-review-summary/.soc-review-row
+   above for the From/Subject/Preheader rows; this is just the body box. */
+.soc-email-preview-body {
+  margin-top: 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px; max-height: 240px; overflow-y: auto; font-size: 14px; color: var(--ink);
+  background: var(--bg);
+}
+
+/* Launch readiness checklist (Step 6) -- checklist rows reuse .soc-reason
+   (already styled for the content-score modal's warn/info rows); only the
+   "ready" checkmark colour needs adding here. Warning banner reuses the
+   exact same amber palette as .soc-source-note above, for visual
+   consistency with the app's one existing warning-banner style. */
+.soc-launch-checklist { display: flex; flex-direction: column; }
+.soc-launch-checklist .soc-reason i.fa-check-circle { color: var(--teal); }
+.soc-launch-warning {
+  margin-top: 14px; padding: 12px 14px; border: 1px solid #F5D98B; border-radius: var(--radius-sm);
+  background: #FFF8E6; color: #7A5A00; font-size: 13px;
+}
+[data-theme="dark"] .soc-launch-warning { background: rgba(245,217,139,.10); color: #E8C978; border-color: rgba(245,217,139,.35); }
+.soc-launch-warning strong { display: flex; align-items: center; gap: 6px; }
+.soc-launch-warning p { margin: 6px 0 0; }
+.soc-launch-message { margin-top: 14px; font-size: 13.5px; color: var(--ink-2); }
 
 /* ── Sending Days & Hours (inside Send Option) ──────────────────────── */
 .soc-window-toggle {

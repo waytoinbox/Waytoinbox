@@ -10,6 +10,7 @@ single, direct, untracked message (no open pixel, no click-wrapping, no
 unsubscribe footer) — a manual reply is correspondence, not a bulk send.
 """
 
+import hashlib
 import html as html_lib
 import logging
 import re
@@ -80,6 +81,46 @@ def _preview_text(html_str):
     return _WHITESPACE_RE.sub(' ', cleaned).strip()
 
 
+def _headerless_fingerprint(account_id, direction, from_email, to_email, subject, body_text, body_html, sent_at):
+    """Deterministic fallback dedup key for a message that had no Message-ID
+    header — everything a Message-ID would otherwise let us tell two emails
+    apart by, hashed together:
+
+    - account + direction: scopes the fingerprint to this one mailbox side of
+      one conversation direction — never compared across accounts (a
+      different account's identical-looking message gets its own uniqueness
+      scope entirely, via the (account, headerless_fingerprint) constraint).
+    - normalized from/to/subject: the visible envelope identity.
+    - normalized body content (via _preview_text's HTML/whitespace
+      normalization, not the 300-char display preview — the full normalized
+      text, so near-identical-looking-but-different bodies still diverge).
+    - the exact parsed sent_at (from the email's own Date header, via
+      _parse_message_date in so_imap.py) — included un-rounded specifically
+      so two genuinely separate emails that happen to share every other
+      field (sender, recipient, subject, body) still get different
+      fingerprints whenever their timestamps differ, rather than collapsing
+      into one. The SAME physical message re-synced later carries the exact
+      same Date header every time, so the fingerprint is stable across
+      repeated IMAP passes.
+
+    Fields are joined with an ASCII unit separator (not plain concatenation)
+    so e.g. from_email='a'+subject='bc' can never hash the same as
+    from_email='ab'+subject='c'.
+    """
+    body = (body_text or '').strip() or (_preview_text(body_html) if body_html else '')
+    parts = [
+        str(account_id or ''),
+        direction or '',
+        (from_email or '').strip().lower(),
+        (to_email or '').strip().lower(),
+        _WHITESPACE_RE.sub(' ', (subject or '').strip()).lower(),
+        body,
+        sent_at.isoformat() if sent_at else '',
+    ]
+    raw = '\x1f'.join(parts)
+    return hashlib.sha256(raw.encode('utf-8', errors='replace')).hexdigest()
+
+
 def upsert_conversation_message(*, thread_key, account, direction, subject, body_html, body_text,
                                  from_email, to_email, message_id, in_reply_to='',
                                  has_attachments=False, sent_at=None, is_sequence_step=False,
@@ -101,12 +142,26 @@ def upsert_conversation_message(*, thread_key, account, direction, subject, body
     message_id = (message_id or '').strip() or None
     sent_at = sent_at or now()
 
+    # Messages with a real Message-ID keep using that exact existing dedup
+    # path, unchanged. Only a headerless message computes a fingerprint at
+    # all — message_id and headerless_fingerprint are never both set on the
+    # same row.
+    fingerprint = None
+    if not message_id:
+        fingerprint = _headerless_fingerprint(
+            account.id if account else None, direction, from_email, to_email,
+            subject, body_text, body_html, sent_at,
+        )
+
     # This physical email may already be recorded under a DIFFERENT
     # conversation (e.g. a campaign send re-observed via a Sent-folder scan,
     # or — as found in this table's existing data — a single reply whose
     # References header matched more than one campaign contact at once).
     # Catch that BEFORE creating a conversation for it.
     if message_id and SOMessage.objects.filter(account=account, message_id=message_id).exists():
+        conv = SOConversation.objects.filter(thread_key=thread_key).first()
+        return conv, None
+    if fingerprint and SOMessage.objects.filter(account=account, headerless_fingerprint=fingerprint).exists():
         conv = SOConversation.objects.filter(thread_key=thread_key).first()
         return conv, None
 
@@ -127,12 +182,17 @@ def upsert_conversation_message(*, thread_key, account, direction, subject, body
                 is_sequence_step=is_sequence_step,
                 subject=subject, body_html=body_html, body_text=(body_text or '')[:5000],
                 from_email=from_email, to_email=to_email,
-                message_id=message_id, in_reply_to=in_reply_to,
+                message_id=message_id, headerless_fingerprint=fingerprint, in_reply_to=in_reply_to,
                 has_attachments=has_attachments, sent_at=sent_at,
             )
     except IntegrityError:
-        # Concurrent-sync race on the same (account, message_id) — the other
-        # writer won, nothing more to do here.
+        # Concurrent-sync race on the same (account, message_id) OR the same
+        # (account, headerless_fingerprint) — the other writer won, nothing
+        # more to do here. This is the actual concurrency-safety mechanism
+        # for both dedup paths: the app-level .exists() checks above are a
+        # cheap common-case shortcut, but only the unique_together
+        # constraint (caught here) is safe against two workers racing to
+        # insert the same physical message at the same instant.
         return conversation, None
 
     fields = {
@@ -161,7 +221,8 @@ def unsubscribe_contact(cc):
         user_id=cc.campaign.user_id, email=cc.email, deleted_at__isnull=True,
     ).update(status='unsubscribed')
     SOEvent.objects.create(
-        campaign=cc.campaign, prospect=cc.prospect, email=cc.email, event_type='unsubscribed',
+        campaign=cc.campaign, prospect=cc.prospect, account_id=cc.account_id,
+        message_id=cc.message_id, email=cc.email, event_type='unsubscribed',
     )
     SOCampaign.objects.filter(id=cc.campaign_id).update(total_unsubscribed=F('total_unsubscribed') + 1)
     _stop_sequence(cc, 'unsubscribed')

@@ -10,30 +10,16 @@ def _auth(request):
         return redirect(reverse('login'))
 
 
-def _counts(qs):
-    return {
-        'sent':      qs.filter(sent_at__isnull=False).count(),
-        'inbox':     qs.filter(landing_location='inbox').count(),
-        'spam':      qs.filter(landing_location='spam').count(),
-        'rescued':   qs.filter(landing_location='spam', rescued_to_inbox=True).count(),
-        'other':     qs.filter(landing_location='other').count(),
-        'not_found': qs.filter(landing_location='not_found').count(),
-        'read':      qs.filter(marked_read=True).count(),
-    }
-
-
-def _pct(num, den):
-    if not den:
-        return None
-    v = round(num / den * 100, 1)
-    return int(v) if v == int(v) else v
-
-
 def warmup_dashboard(request):
     r = _auth(request)
     if r:
         return r
     from Email_validate_app.models import SOEmailAccountWarmup, WarmupMessage
+    # V4.4 — _counts/_pct moved to services/warmup.py (compute_message_counts/
+    # pct) so the per-account Analytics Warmup tab can reuse the exact same
+    # counting logic instead of duplicating it; imported here under their
+    # original local names so nothing below this line has to change.
+    from Email_validate_app.services.warmup import compute_message_counts as _counts, pct as _pct
 
     user_id = get_user_id(request)
 

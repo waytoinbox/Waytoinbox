@@ -37,7 +37,7 @@ def so_send_campaign_task(self, campaign_id):
         SOCampaign, SOCampaignContact, SOListProspect, SOEvent, SOProspect,
     )
     from Email_validate_app.services.so_segment_builder import build_so_segment_queryset
-    from Email_validate_app.services.so_drip import pick_variant_label
+    from Email_validate_app.services.so_drip import pick_weighted_account
 
     lock_key = f'{_LOCK_PREFIX}:{campaign_id}'
     if not cache.add(lock_key, '1', timeout=_LOCK_TIMEOUT):
@@ -64,15 +64,17 @@ def so_send_campaign_task(self, campaign_id):
 
         # account_rotations was prefetched above; .all() respects the model's
         # default ordering (['order']). Built once, reused both as the
-        # "does this campaign have anywhere to send from" gate and as the pool
-        # each new contact is round-robin assigned across below. Only
+        # "does this campaign have anywhere to send from" gate and as the
+        # pool each new contact is weighted-assigned across below (V2.4.8 —
+        # kept as SOEmailAccountRotation objects, not just .account, so each
+        # one's .weight is available to pick_weighted_account). Only
         # connected accounts participate — a failed/unchecked account must
         # never be handed out to a brand-new contact.
-        accounts = [
-            r.account for r in campaign.account_rotations.all()
+        rotations = [
+            r for r in campaign.account_rotations.all()
             if not r.account.deleted_at and r.account.status == 'connected'
         ]
-        if not accounts:
+        if not rotations:
             logger.error('so_send: no valid email account for campaign %s', campaign_id)
             SOCampaign.objects.filter(id=campaign_id).update(status='failed', updated_at=now())
             return {'status': 'no_account'}
@@ -133,12 +135,8 @@ def so_send_campaign_task(self, campaign_id):
         existing_emails = set(
             SOCampaignContact.objects.filter(campaign_id=campaign_id).values_list('email', flat=True)
         )
-        step0 = campaign.steps.filter(order=0).prefetch_related('variants').first()
-        variants0 = list(step0.variants.all()) if step0 else []
-
         start_at = campaign.schedule_at or now()
         new_ccs = []
-        i = 0
         for email, prospect in prospect_map.items():
             if email in existing_emails:
                 continue
@@ -148,16 +146,24 @@ def so_send_campaign_task(self, campaign_id):
                 email=email,
                 status='active',
                 current_step=0,
-                variant_label=pick_variant_label(campaign_id, email, variants0),
+                # V4.x variation-weight fix — deliberately '' (never the
+                # model's own 'A' default), the permanent per-contact
+                # sentinel meaning "use per-step deterministic weighted
+                # selection" (see services/so_drip.py::_resolve_step_and_
+                # variant). No longer pre-picked here against step 0's
+                # variants alone — each step now resolves independently, at
+                # send time, against its OWN configured weights.
+                variant_label='',
                 next_action_at=start_at,
-                # Sticky round-robin across the campaign's selected accounts —
-                # this recipient's whole sequence sends from the same account.
-                # Enumeration order over prospect_map is stable (dict insertion
-                # order), so the same recipient list always distributes the same
-                # way. i only advances for genuinely new contacts, not skips.
-                account=accounts[i % len(accounts)],
+                # Sticky weighted assignment (V2.4.8) across the campaign's
+                # selected accounts, deterministic per (campaign, email) so a
+                # retried enrollment lands on the same account rather than
+                # re-rolling it — this recipient's whole sequence then sends
+                # from this same account for every subsequent step (see
+                # so_drip.py::_get_contact_account, which just returns
+                # cc.account once it's set).
+                account=pick_weighted_account(campaign_id, email, rotations),
             ))
-            i += 1
         if new_ccs:
             SOCampaignContact.objects.bulk_create(new_ccs, ignore_conflicts=True)
             logger.info('so_send: campaign %s enrolled %s new contact(s)', campaign_id, len(new_ccs))

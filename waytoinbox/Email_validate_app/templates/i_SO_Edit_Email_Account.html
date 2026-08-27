@@ -1,0 +1,118 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_add_email_account.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_edit_email_account.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="ec-page">
+<div class="aw-wrap">
+  <a href="{% url 'so_email_accounts' %}" class="aw-back">
+    <i class="fas fa-arrow-left aw-icon-sm"></i> Back to Email Accounts
+  </a>
+  <div class="aw-card">
+    <p class="aw-panel-title">Edit Email Account</p>
+    <p class="aw-panel-sub soee-email-sub">{{ acc.email }}</p>
+
+    <div class="soee-section-title">Account Details</div>
+    <div class="so-field">
+      <label>Display Name</label>
+      <input type="text" id="eeaDisplay" value="{{ acc.display_name }}" placeholder="e.g. Sales Team" maxlength="200"/>
+    </div>
+    <div class="so-field">
+      <label>Email Address</label>
+      <input type="text" value="{{ acc.email }}" disabled/>
+    </div>
+    <div class="so-field">
+      <label>Provider</label>
+      <input type="text" value="{{ acc.get_provider_display }}" disabled/>
+    </div>
+
+    <div class="soee-section-title">Sending Settings</div>
+    <div class="so-field">
+      <label>Daily Sending Limit</label>
+      <input type="number" id="eeaDailyLimit" min="1" step="1" value="{{ acc.daily_limit }}"/>
+    </div>
+
+    <div class="soee-section-title">Warmup Settings</div>
+    {% if acc.warmup %}
+      <div class="so-field">
+        <label>Warmup Status</label>
+        <p class="soee-status-row"><span class="so-badge {{ acc.warmup.status }}">{{ acc.warmup.get_status_display }}</span></p>
+      </div>
+      <div class="so-field">
+        <label>Daily Target</label>
+        <input type="number" id="eeaWarmupDailyTarget" min="1" step="1" value="{{ acc.warmup.daily_target }}"/>
+      </div>
+      <div class="so-field">
+        <label>Ramp-up Days</label>
+        <input type="number" id="eeaWarmupRampDays" min="1" step="1" value="{{ acc.warmup.ramp_up_days }}"/>
+      </div>
+      <div class="so-field">
+        <label>Daily Increment</label>
+        <input type="number" id="eeaWarmupRampIncrement" min="1" step="1" value="{{ acc.warmup.ramp_up_increment }}"/>
+      </div>
+    {% else %}
+      <p class="soee-hint"><i class="fas fa-info-circle"></i> Warmup has not been started yet.</p>
+    {% endif %}
+
+    <p class="aw-err" id="eeaErr" hidden></p>
+    <div class="aw-actions">
+      <a href="{% url 'so_email_accounts' %}" class="aw-btn-back"><i class="fas fa-arrow-left"></i> Cancel</a>
+      <button class="aw-btn-next" id="eeaSaveBtn" onclick="saveEdit()">
+        <i class="fas fa-save"></i> Save Changes
+      </button>
+    </div>
+  </div>
+</div>
+</div>
+<script>
+var CSRF       = '{{ csrf_token }}';
+var ACTION_URL = '{% url "so_email_account_action" %}';
+var LIST_URL   = '{% url "so_email_accounts" %}';
+var ACCOUNT_ID = {{ acc.id }};
+var HAS_WARMUP = {% if acc.warmup %}true{% else %}false{% endif %};
+
+function saveEdit() {
+  var err = document.getElementById('eeaErr');
+  err.hidden = true;
+
+  var payload = {
+    action: 'edit',
+    id: ACCOUNT_ID,
+    display_name: document.getElementById('eeaDisplay').value,
+    daily_limit: document.getElementById('eeaDailyLimit').value,
+  };
+  if (HAS_WARMUP) {
+    payload.warmup = {
+      daily_target:      document.getElementById('eeaWarmupDailyTarget').value,
+      ramp_up_days:       document.getElementById('eeaWarmupRampDays').value,
+      ramp_up_increment: document.getElementById('eeaWarmupRampIncrement').value,
+    };
+  }
+
+  var btn = document.getElementById('eeaSaveBtn');
+  var original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving…';
+
+  fetch(ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(payload),
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    btn.disabled = false; btn.innerHTML = original;
+    if (d.status === 'ok') {
+      WTI.toast('Account updated.', 'success');
+      setTimeout(function () { window.location.href = LIST_URL; }, 600);
+    } else {
+      var msg = d.errors ? Object.values(d.errors).join(' ') : (d.message || 'Error.');
+      err.textContent = msg; err.hidden = false;
+    }
+  }).catch(function () {
+    btn.disabled = false; btn.innerHTML = original;
+    err.textContent = 'Network error.'; err.hidden = false;
+  });
+}
+</script>
+{% endblock %}

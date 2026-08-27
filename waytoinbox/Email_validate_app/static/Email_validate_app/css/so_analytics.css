@@ -1,0 +1,105 @@
+/* ── V2.4.9 Analytics — shared styles for the Campaign Detail Analytics
+   section and the Sales Outreach → Analytics overview page. Builds on
+   so.css's .so-card/.so-table/.so-badge rather than duplicating them. ── */
+
+.soa-section-head {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap;
+  gap: 12px; margin: 28px 0 14px;
+}
+/* [hidden] vs an explicit display value is equal specificity — same class of
+   bug already documented elsewhere in this app; explicit override keeps
+   #soaDateFilterHead (V4.4 — hidden on the Account Analytics Warmup tab)
+   actually hidden instead of rendering as an empty flex box. */
+.soa-section-head[hidden] { display: none; }
+.soa-section-title {
+  font-family: var(--font-head); font-size: 16px; font-weight: 800; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; margin: 0;
+}
+
+/* Filter pills */
+.soa-filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.soa-pill {
+  padding: 6px 14px; border-radius: 100px; border: 1.5px solid var(--border);
+  background: none; color: var(--ink-2); font-size: 12.5px; font-family: var(--font-head);
+  font-weight: 600; cursor: pointer; transition: all .15s;
+}
+.soa-pill:hover { border-color: var(--teal); color: var(--teal); }
+.soa-pill.active { background: var(--teal); border-color: var(--teal); color: #fff; }
+.soa-custom-dates { display: none; align-items: center; gap: 8px; }
+.soa-custom-dates.visible { display: flex; }
+.soa-date-input {
+  border: 1.5px solid var(--border); border-radius: var(--radius-sm); padding: 5px 9px;
+  font-size: 12.5px; color: var(--ink);
+}
+.soa-date-apply {
+  padding: 6px 12px; border-radius: var(--radius-sm); border: none; background: var(--teal);
+  color: #fff; font-size: 12px; font-weight: 700; cursor: pointer;
+}
+
+/* KPI cards */
+.soa-kpi-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px; margin-bottom: 18px;
+}
+/* --card-bg was never defined anywhere in the codebase, so the #fff
+   fallback always won and these cards rendered pure white on the dark
+   page. var(--bg) is the token every other card in the app already uses
+   and is theme-aware in both directions. */
+.soa-kpi-card {
+  background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 14px 16px;
+}
+.soa-kpi-label { font-size: 11.5px; color: var(--ink-3); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.soa-kpi-value { font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--ink); margin-top: 4px; }
+.soa-kpi-sub { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; }
+.soa-kpi-rate { font-size: 12.5px; color: var(--teal); font-weight: 700; margin-top: 3px; }
+.soa-kpi-na { color: var(--ink-3); font-style: italic; font-size: 12px; }
+
+/* Funnel */
+.soa-funnel { display: flex; flex-direction: column; gap: 8px; padding: 6px 0; }
+.soa-funnel-row { display: grid; grid-template-columns: 100px 1fr 90px; align-items: center; gap: 10px; }
+.soa-funnel-label { font-size: 12.5px; color: var(--ink-2); font-weight: 600; text-transform: capitalize; }
+.soa-funnel-bar-wrap { background: var(--bg-2); border-radius: 6px; height: 22px; overflow: hidden; }
+.soa-funnel-bar { height: 100%; background: linear-gradient(90deg, var(--teal), #0EA5E9); border-radius: 6px; transition: width .3s; }
+.soa-funnel-value { font-size: 12.5px; color: var(--ink); text-align: right; font-weight: 700; }
+
+/* Charts */
+.soa-chart-card { height: 280px; position: relative; }
+.soa-chart-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 18px; }
+
+/* Recommendations */
+.soa-rec-list { display: flex; flex-direction: column; gap: 10px; }
+.soa-rec-item { padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-sm); display: flex; gap: 10px; align-items: flex-start; }
+.soa-rec-item.insufficient { opacity: .7; }
+.soa-rec-icon { flex-shrink: 0; width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+.soa-rec-item:not(.insufficient) .soa-rec-icon { background: #e6f9f3; color: #007A5E; }
+.soa-rec-item.insufficient .soa-rec-icon { background: var(--bg-2); color: var(--ink-3); }
+.soa-rec-body { flex: 1; min-width: 0; }
+.soa-rec-msg { font-size: 13px; color: var(--ink); line-height: 1.45; }
+.soa-rec-cat { font-size: 10.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; margin-bottom: 3px; }
+.soa-rec-empty { padding: 24px; text-align: center; color: var(--ink-3); font-size: 13px; }
+
+/* Tables — reuse .so-table, just constrain long tables */
+.soa-table-scroll { max-height: 420px; overflow-y: auto; }
+.soa-sortable { cursor: pointer; user-select: none; }
+.soa-sortable:hover { color: var(--teal); }
+.soa-sortable .fa-sort, .soa-sortable .fa-sort-up, .soa-sortable .fa-sort-down { margin-left: 4px; font-size: 10px; }
+
+.soa-muted { color: var(--ink-3); }
+.soa-loading { text-align: center; padding: 30px; color: var(--ink-3); font-size: 13px; }
+.soa-note { font-size: 11.5px; color: var(--ink-3); margin-top: 6px; line-height: 1.5; }
+
+/* Account-scoped header back-link — deliberately subtle so it never
+   competes with the "Account Analytics" heading below it. Rendered only
+   when ?account=<id> resolves to one of this user's own accounts. */
+.soa-back-link {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; color: var(--ink-3); text-decoration: none;
+  margin-bottom: 6px;
+}
+.soa-back-link:hover { color: var(--teal); }
+.soa-back-link i { font-size: 11px; }
+
+/* Sits inline with the Campaign/Warmup tab pills; shown only on the
+   Warmup tab, where the date pills are intentionally hidden. */
+.soa-warmup-caption { margin-top: 0; margin-left: 4px; }

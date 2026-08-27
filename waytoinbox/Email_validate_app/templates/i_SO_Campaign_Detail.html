@@ -4,6 +4,7 @@
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/so_campaign_detail.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_analytics.css' %}"/>
 {% endblock %}
 {% block content %}
 <div class="so-page">
@@ -27,6 +28,12 @@
       {% if campaign.status == 'scheduled' or campaign.status == 'sending' or campaign.status == 'paused' %}
         <button class="so-btn-secondary" onclick="cancelCampaign()"><i class="fas fa-ban"></i> Cancel</button>
       {% endif %}
+      {% if failed_count %}
+        <button class="so-btn-secondary" onclick="retryCampaign()" title="{{ failed_count }} failed contact{{ failed_count|pluralize }}">
+          <i class="fas fa-rotate-right"></i> Retry
+        </button>
+      {% endif %}
+      <button class="so-btn-secondary" onclick="duplicateCampaign()"><i class="fas fa-copy"></i> Duplicate</button>
     </div>
   </div>
 
@@ -121,6 +128,28 @@
       <div class="socd-stat-pct">{% if stat_pct.failed is not None %}{{ stat_pct.failed }}%{% else %}—{% endif %}</div>
       {% if recipient_count %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_failed recipient_count 100 %}%"></div></div>{% endif %}
     </div>
+  </div>
+
+  <!-- ── Analytics / Performance (V2.4.9) ──────────────────── -->
+  <div class="soa-section-head">
+    <h2 class="soa-section-title"><i class="fas fa-chart-pie"></i> Analytics &amp; Performance</h2>
+    <div class="soa-filter-bar" id="soaFilterBar">
+      <button class="soa-pill" data-preset="today">Today</button>
+      <button class="soa-pill" data-preset="7d">Last 7 Days</button>
+      <button class="soa-pill" data-preset="30d">Last 30 Days</button>
+      <button class="soa-pill active" data-preset="all">All Time</button>
+      <button class="soa-pill" data-preset="custom">Custom</button>
+      <div class="soa-custom-dates" id="soaCustomDates">
+        <input type="date" id="soaDateFrom" class="soa-date-input"/>
+        <span style="color:var(--ink-3);font-size:12px;">to</span>
+        <input type="date" id="soaDateTo" class="soa-date-input"/>
+        <button class="soa-date-apply" id="soaDateApply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="soaRoot">
+    <div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>
   </div>
 
   <!-- ── Recipient Events Table ─────────────────────────── -->
@@ -356,6 +385,25 @@ function resumeCampaign() {
     else{WTI.toast(d.message||'Error.','error');}
   }).catch(()=>WTI.toast('Network error.','error'));
 }
+function duplicateCampaign() {
+  fetch('{% url "so_campaign_action" campaign.id %}',{
+    method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'duplicate'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign duplicated as a new draft.','success');setTimeout(()=>{window.location.href=d.redirect;},500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function retryCampaign() {
+  if(!confirm('Retry failed contacts in this campaign? Successfully sent contacts are not affected.')) return;
+  fetch('{% url "so_campaign_action" campaign.id %}',{
+    method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'retry'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast(d.retried+' contact(s) queued for retry.','success');setTimeout(()=>location.reload(),700);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
 
 (function () {
   var PAGE = 15;
@@ -413,6 +461,348 @@ function resumeCampaign() {
     if (_pag) _pag.refresh();
     PF.setCount(total, {{ recipient_rows|length }});
   });
+})();
+</script>
+
+<!-- ── V2.4.9 Analytics ─────────────────────────────────────────────────── -->
+<script>
+(function () {
+  var ANALYTICS_URL = '{% url "so_campaign_analytics_data" campaign.id %}';
+  var state = { preset: 'all', date_from: '', date_to: '' };
+  var charts = {};
+
+  function fmtNum(n) { return (n === null || n === undefined) ? '—' : Number(n).toLocaleString(); }
+  function fmtPct(n) { return (n === null || n === undefined) ? null : n + '%'; }
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+  function kpiCard(label, value, sub, rate, na) {
+    return '<div class="soa-kpi-card">' +
+      '<div class="soa-kpi-label">' + esc(label) + '</div>' +
+      (na ? '<div class="soa-kpi-na">Tracking disabled</div>' :
+        '<div class="soa-kpi-value">' + fmtNum(value) + '</div>' +
+        (sub ? '<div class="soa-kpi-sub">' + esc(sub) + '</div>' : '') +
+        (rate !== null && rate !== undefined ? '<div class="soa-kpi-rate">' + rate + '%</div>' : '')) +
+      '</div>';
+  }
+
+  function renderKpis(d) {
+    var t = d.overview.totals, r = d.overview.rates, off = !d.overview.tracking_enabled;
+    var html = '<div class="soa-kpi-grid">';
+    html += kpiCard('Sent', t.sent);
+    html += kpiCard('Delivered', t.delivered, null, r.delivery_rate);
+    html += kpiCard('Opened', t.opened, t.opened_total_events != null && t.opened_total_events !== t.opened ? (t.opened_total_events + ' total open events') : null, r.open_rate, off);
+    html += kpiCard('Clicked', t.clicked, t.clicked_total_events != null && t.clicked_total_events !== t.clicked ? (t.clicked_total_events + ' total click events') : null, r.click_rate, off);
+    html += kpiCard('Replied', t.replied, null, r.reply_rate);
+    html += kpiCard('Bounced', t.bounced, null, r.bounce_rate);
+    html += kpiCard('Complained', t.complained, null, r.complaint_rate);
+    html += kpiCard('Unsubscribed', t.unsubscribed, null, r.unsubscribe_rate);
+    html += kpiCard('Failed', t.failed, 'all-time (no per-event timestamp)');
+    html += '</div>';
+    return html;
+  }
+
+  function renderFunnel(d) {
+    var off = !d.overview.tracking_enabled;
+    var rows = d.funnel.map(function (f) {
+      if (f.value === null) {
+        return '<div class="soa-funnel-row"><div class="soa-funnel-label">' + f.stage + '</div>' +
+          '<div class="soa-kpi-na">Tracking disabled</div><div></div></div>';
+      }
+      var pct = f.pct_of_first === null ? 0 : f.pct_of_first;
+      return '<div class="soa-funnel-row">' +
+        '<div class="soa-funnel-label">' + f.stage + '</div>' +
+        '<div class="soa-funnel-bar-wrap"><div class="soa-funnel-bar" style="width:' + pct + '%"></div></div>' +
+        '<div class="soa-funnel-value">' + fmtNum(f.value) + (f.pct_of_first !== null ? ' (' + f.pct_of_first + '%)' : '') + '</div>' +
+        '</div>';
+    }).join('');
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-filter"></i> Funnel (unique contacts)</div>' +
+      '<div style="padding:16px 20px;"><div class="soa-funnel">' + rows + '</div>' +
+      '<p class="soa-note">Unique contacts at each stage — different from the "Sent" KPI above, which counts every sequence-step email.</p></div></div>';
+  }
+
+  function renderTrendCard() {
+    return '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-chart-line"></i> Sending &amp; Engagement Trend</div><canvas id="soaTrendChart"></canvas></div>';
+  }
+
+  function drawTrend(d) {
+    var ctx = document.getElementById('soaTrendChart');
+    if (!ctx) return;
+    if (charts.trend) charts.trend.destroy();
+    var s = d.trend.series;
+    var colors = { sent: '#94a3b8', delivered: '#0EA5E9', opened: '#22c55e', clicked: '#a855f7', replied: '#f59e0b', bounced: '#ef4444' };
+    var datasets = ['sent', 'delivered', 'opened', 'clicked', 'replied', 'bounced'].map(function (k) {
+      return { label: k.charAt(0).toUpperCase() + k.slice(1), data: s[k] || [], borderColor: colors[k], backgroundColor: colors[k], borderWidth: 2, tension: 0.3, pointRadius: 2, fill: false };
+    });
+    charts.trend = new Chart(ctx.getContext('2d'), {
+      type: 'line',
+      data: { labels: d.trend.labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { size: 11 } } } },
+        scales: { x: { grid: { display: false }, ticks: { font: { size: 10 }, maxTicksLimit: 10 } }, y: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } } },
+      },
+    });
+  }
+
+  function rateCell(v) { return v === null || v === undefined ? '<span class="soa-muted">—</span>' : v + '%'; }
+
+  function renderStepTable(d) {
+    var off = !d.overview.tracking_enabled;
+    var rows = d.steps.steps.map(function (s) {
+      var subjects = s.variants.map(function (v) { return v.label + ': ' + esc(v.subject || '(no subject)'); }).join('<br>');
+      return '<tr><td>' + esc(s.label) + '</td><td style="font-size:12px;">' + (subjects || '<span class="soa-muted">—</span>') + '</td>' +
+        '<td>' + fmtNum(s.sent) + '</td><td>' + fmtNum(s.delivered) + '</td>' +
+        '<td>' + (off ? '<span class="soa-muted">n/a</span>' : fmtNum(s.opened)) + '</td>' +
+        '<td>' + (off ? '<span class="soa-muted">n/a</span>' : fmtNum(s.clicked)) + '</td>' +
+        '<td>' + fmtNum(s.replied) + '</td><td>' + fmtNum(s.bounced) + '</td>' +
+        '<td>' + (off ? '<span class="soa-muted">n/a</span>' : rateCell(s.open_rate)) + '</td>' +
+        '<td>' + (off ? '<span class="soa-muted">n/a</span>' : rateCell(s.click_rate)) + '</td>' +
+        '<td>' + rateCell(s.reply_rate) + '</td><td>' + rateCell(s.bounce_rate) + '</td></tr>';
+    }).join('');
+    var note = 'Sent/Delivered are exact per step. Opened/Clicked/Replied/Bounced are attributed to a step via message-ID matching (best-available, not guaranteed exact for a very late open of an old step).';
+    if (d.steps.excluded_branched_contacts) {
+      note += ' ' + d.steps.excluded_branched_contacts + ' contact(s) currently on a subsequence branch are excluded from this table to avoid mixing subsequence and main-sequence step numbers.';
+    }
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-list-ol"></i> Sequence Step Performance</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Step</th><th>Subject(s)</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Bounced</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="12" class="soa-muted" style="text-align:center;padding:18px;">No steps.</td></tr>') + '</tbody></table></div>' +
+      '<p class="soa-note" style="padding:0 20px 14px;">' + note + '</p></div>';
+  }
+
+  function renderVariantTable(d) {
+    var off = !d.overview.tracking_enabled;
+    var blocks = d.variants.map(function (step) {
+      var rows = step.variants.map(function (v) {
+        var isBest = step.best_variant_label === v.label;
+        return '<tr' + (isBest ? ' style="background:#e6f9f3;"' : '') + '><td>' + v.label + (isBest ? ' <i class="fas fa-trophy" style="color:#007A5E;" title="Best performing"></i>' : '') + '</td>' +
+          '<td style="font-size:12px;">' + esc(v.subject || '(no subject)') + '</td>' +
+          '<td>' + fmtNum(v.sent) + '</td><td>' + fmtNum(v.delivered) + '</td>' +
+          '<td>' + (off ? '<span class="soa-muted">n/a</span>' : fmtNum(v.opened)) + '</td>' +
+          '<td>' + (off ? '<span class="soa-muted">n/a</span>' : fmtNum(v.clicked)) + '</td>' +
+          '<td>' + fmtNum(v.replied) + '</td>' +
+          '<td>' + rateCell(v.reply_rate) + (v.sufficient_sample ? '' : ' <span class="soa-muted" style="font-size:10px;">(low n)</span>') + '</td></tr>';
+      }).join('');
+      return '<div style="margin-bottom:14px;"><div style="font-weight:700;font-size:12.5px;color:var(--ink-2);padding:8px 20px 4px;">' + esc(step.step_label) + '</div>' +
+        '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Variant</th><th>Subject</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Reply %</th></tr></thead><tbody>' +
+        (rows || '<tr><td colspan="8" class="soa-muted" style="text-align:center;padding:12px;">No variants.</td></tr>') + '</tbody></table></div></div>';
+    }).join('');
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-vial"></i> A/B Variant Performance</div>' + (blocks || '<p class="soa-rec-empty">No sequence steps.</p>') + '</div>';
+  }
+
+  function renderSenderTable(d) {
+    var rows = d.senders.accounts.map(function (a) {
+      return '<tr><td>' + esc(a.email) + '</td><td>' + fmtNum(a.sent) + '</td><td>' + fmtNum(a.delivered) + '</td>' +
+        '<td>' + rateCell(a.delivery_rate) + '</td><td>' + rateCell(a.open_rate) + '</td><td>' + rateCell(a.click_rate) + '</td>' +
+        '<td>' + rateCell(a.reply_rate) + '</td><td>' + rateCell(a.bounce_rate) + '</td><td>' + rateCell(a.complaint_rate) + '</td><td>' + rateCell(a.unsubscribe_rate) + '</td>' +
+        (a.sufficient_sample ? '' : '<td class="soa-muted" style="font-size:11px;">low n</td>') + '</tr>';
+    }).join('');
+    var unattr = d.senders.unattributed.sent.total;
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-at"></i> Sender Account Performance</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Account</th><th>Sent</th><th>Delivered</th><th>Delivery %</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th><th>Complaint %</th><th>Unsub %</th><th></th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="11" class="soa-muted" style="text-align:center;padding:18px;">No sender data.</td></tr>') + '</tbody></table></div>' +
+      (unattr ? '<p class="soa-note" style="padding:0 20px 14px;">' + unattr + ' send(s) have no recorded sender account (legacy data predating V2.3.1 attribution) and are excluded from this table rather than guessed.</p>' : '') +
+      '</div>';
+  }
+
+  function renderDayHour(d) {
+    var wd = d.day_hour.by_weekday.map(function (w) {
+      return '<tr><td>' + w.weekday + '</td><td>' + fmtNum(w.delivered) + '</td>' +
+        '<td>' + (w.sufficient_sample ? rateCell(w.reply_rate) : '<span class="soa-muted">Insufficient data</span>') + '</td></tr>';
+    }).join('');
+    var best = d.day_hour.by_hour.filter(function (h) { return h.sufficient_sample; }).sort(function (a, b) { return (b.reply_rate || 0) - (a.reply_rate || 0); }).slice(0, 6);
+    var hr = (best.length ? best : d.day_hour.by_hour.filter(function (h) { return h.delivered > 0; }).slice(0, 6)).map(function (h) {
+      return '<tr><td>' + h.label + '</td><td>' + fmtNum(h.delivered) + '</td>' +
+        '<td>' + (h.sufficient_sample ? rateCell(h.reply_rate) : '<span class="soa-muted">Insufficient data</span>') + '</td></tr>';
+    }).join('');
+    return '<div class="socd-bottom-row">' +
+      '<div class="so-card" style="flex:1;min-width:0;"><div class="socd-card-head"><i class="fas fa-calendar-week"></i> Reply Rate by Day of Week</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Day</th><th>Delivered</th><th>Reply %</th></tr></thead><tbody>' + wd + '</tbody></table></div></div>' +
+      '<div class="so-card" style="flex:1;min-width:0;"><div class="socd-card-head"><i class="fas fa-clock"></i> Reply Rate by Time Window (top 6)</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Window</th><th>Delivered</th><th>Reply %</th></tr></thead><tbody>' + (hr || '<tr><td colspan="3" class="soa-muted" style="text-align:center;padding:14px;">No data.</td></tr>') + '</tbody></table></div></div>' +
+      '</div>';
+  }
+
+  // ── Branching Analytics (V4.2) — read-only view over
+  // SOCampaignContact.branch_path via services/so_analytics.py::
+  // compute_branch_analytics. Never writes anything; purely renders
+  // whatever the backend already computed. branch_path is bounded/
+  // truncated storage (see that field's own docstring), so this is
+  // "available/recent branch history", not claimed as a complete log —
+  // the note below says so explicitly rather than implying completeness.
+  function renderBranchingSection(d) {
+    var b = d.branching;
+    if (!b || (!b.has_activity && !b.has_group_activity)) {
+      return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-code-branch"></i> Branch Conditions Performance</div>' +
+        '<div class="socd-empty"><i class="fas fa-code-branch"></i><p>No branching activity yet.</p></div></div>';
+    }
+    if (!b.has_activity) {
+      // Group-only activity, no standalone-condition activity -- the KPI/
+      // chart/table blocks below all read from b.conditions/b.flows/
+      // b.yes_count/etc, so skip straight to the groups table (V4.0) rather
+      // than rendering an empty/zeroed standalone section above it.
+      return groupsTable(b);
+    }
+
+    var kpis = '<div class="soa-kpi-grid">' +
+      kpiCard('Contacts Evaluated', b.total_contacts_evaluated) +
+      kpiCard('Contacts Branched', b.total_contacts_with_branch) +
+      kpiCard('Branch Executions', b.total_branch_executions) +
+      kpiCard('YES Branches', b.yes_count, null, b.yes_pct) +
+      kpiCard('NO Branches', b.no_count, null, b.no_pct) +
+      '</div>';
+
+    var charts = '<div class="soa-chart-grid">' +
+      '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-code-branch"></i> YES vs NO Distribution</div><canvas id="soaBranchYesNoChart"></canvas></div>' +
+      '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-bolt"></i> Most-Used Conditions</div><canvas id="soaBranchCondChart"></canvas></div>' +
+      '</div>';
+
+    var condRows = b.conditions.map(function (c) {
+      var label = c.exists
+        ? (esc(c.trigger_type) + (c.source_step_label ? ' — ' + esc(c.source_step_label) : '') + (c.is_active ? '' : ' <span class="soa-muted">(inactive)</span>'))
+        : '<span class="soa-muted">Condition ' + c.condition_id + ' (deleted)</span>';
+      return '<tr><td>' + label + '</td><td>' + fmtNum(c.total) + '</td>' +
+        '<td>' + fmtNum(c.yes) + ' (' + rateCell(c.yes_pct) + ')</td>' +
+        '<td>' + fmtNum(c.no) + ' (' + rateCell(c.no_pct) + ')</td></tr>';
+    }).join('');
+    var condTable = '<div class="so-card"><div class="socd-card-head"><i class="fas fa-list-ol"></i> Conditions Fired</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Condition</th><th>Total Fires</th><th>YES</th><th>NO</th></tr></thead>' +
+      '<tbody>' + (condRows || '<tr><td colspan="4" class="soa-muted" style="text-align:center;padding:18px;">No conditions fired.</td></tr>') + '</tbody></table></div></div>';
+
+    var flowRows = b.flows.map(function (f) {
+      return '<tr><td>' + esc(f.source_step_label) + '</td><td><i class="fas fa-arrow-right" style="color:var(--ink-3);"></i></td>' +
+        '<td>' + esc(f.target_step_label) + '</td><td>' + fmtNum(f.count) + '</td><td>' + rateCell(f.pct) + '</td></tr>';
+    }).join('');
+    var flowTable = '<div class="so-card"><div class="socd-card-head"><i class="fas fa-route"></i> Source → Destination Flow</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Source Step</th><th></th><th>Destination Step</th><th>Count</th><th>%</th></tr></thead>' +
+      '<tbody>' + (flowRows || '<tr><td colspan="5" class="soa-muted" style="text-align:center;padding:18px;">No flow data.</td></tr>') + '</tbody></table></div>' +
+      '<p class="soa-note" style="padding:0 20px 14px;">Based on each contact\'s recorded branch_path, which is bounded to a fixed length — for a contact with a very long branching history, the earliest hops may no longer be present. This reflects available/recent branch history, not a guaranteed-complete log.</p></div>';
+
+    return kpis + charts + condTable + '<div style="height:14px;"></div>' + flowTable + groupsTable(b);
+  }
+
+  // V4.0 — minimum-viable display of AND/OR group executions, additive
+  // alongside the standalone-condition tables above: which groups fired,
+  // their logic and member trigger types, and their own YES/NO split.
+  // Returns '' (nothing rendered) when the campaign has no group activity
+  // at all, so an ungrouped campaign's branching section looks byte-for-byte
+  // like it did before V4.0.
+  function groupsTable(b) {
+    if (!b.has_group_activity) return '';
+    var rows = b.groups.map(function (g) {
+      var label = g.exists
+        ? ((g.logic === 'and' ? 'AND' : 'OR') + ' — ' + esc((g.member_trigger_types || []).join(' + ')) +
+           (g.source_step_label ? ' — ' + esc(g.source_step_label) : '') +
+           (g.is_active ? '' : ' <span class="soa-muted">(inactive)</span>'))
+        : '<span class="soa-muted">Group ' + g.group_id + ' (deleted)</span>';
+      return '<tr><td>' + label + '</td><td>' + fmtNum(g.total) + '</td>' +
+        '<td>' + fmtNum(g.yes) + ' (' + rateCell(g.yes_pct) + ')</td>' +
+        '<td>' + fmtNum(g.no) + ' (' + rateCell(g.no_pct) + ')</td></tr>';
+    }).join('');
+    return '<div style="height:14px;"></div><div class="so-card"><div class="socd-card-head"><i class="fas fa-object-group"></i> Condition Groups Fired</div>' +
+      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Group</th><th>Total Fires</th><th>YES</th><th>NO</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="4" class="soa-muted" style="text-align:center;padding:18px;">No groups fired.</td></tr>') + '</tbody></table></div></div>';
+  }
+
+  function drawBranchingCharts(d) {
+    var b = d.branching;
+    if (charts.branchYesNo) { charts.branchYesNo.destroy(); charts.branchYesNo = null; }
+    if (charts.branchCond) { charts.branchCond.destroy(); charts.branchCond = null; }
+    if (!b || !b.has_activity) return;
+
+    var yesNoCtx = document.getElementById('soaBranchYesNoChart');
+    if (yesNoCtx) {
+      charts.branchYesNo = new Chart(yesNoCtx.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+          labels: ['YES', 'NO'],
+          datasets: [{ data: [b.yes_count, b.no_count], backgroundColor: ['#22c55e', '#ef4444'] }],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { size: 11 } } } },
+        },
+      });
+    }
+
+    var condCtx = document.getElementById('soaBranchCondChart');
+    if (condCtx) {
+      var top = b.conditions.slice(0, 8);
+      charts.branchCond = new Chart(condCtx.getContext('2d'), {
+        type: 'bar',
+        data: {
+          labels: top.map(function (c) { return c.exists ? (c.trigger_type + (c.source_step_label ? ' (' + c.source_step_label + ')' : '')) : ('Condition ' + c.condition_id); }),
+          datasets: [
+            { label: 'YES', data: top.map(function (c) { return c.yes; }), backgroundColor: '#22c55e' },
+            { label: 'NO', data: top.map(function (c) { return c.no; }), backgroundColor: '#ef4444' },
+          ],
+        },
+        options: {
+          indexAxis: 'y', responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, font: { size: 11 } } } },
+          scales: { x: { beginAtZero: true, ticks: { precision: 0, font: { size: 11 } } }, y: { ticks: { font: { size: 10 } } } },
+        },
+      });
+    }
+  }
+
+  function renderRecommendations(d) {
+    var items = d.recommendations.map(function (r) {
+      return '<div class="soa-rec-item' + (r.sufficient_data ? '' : ' insufficient') + '">' +
+        '<div class="soa-rec-icon"><i class="fas ' + (r.sufficient_data ? 'fa-lightbulb' : 'fa-hourglass-half') + '"></i></div>' +
+        '<div class="soa-rec-body"><div class="soa-rec-cat">' + esc(r.category.replace(/_/g, ' ')) + '</div>' +
+        '<div class="soa-rec-msg">' + esc(r.message) + '</div></div></div>';
+    }).join('');
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-bullseye"></i> Optimization Insights <span style="font-weight:400;color:var(--ink-3);font-size:11.5px;">(advisory only — no automatic changes are made)</span></div>' +
+      '<div style="padding:14px 20px;"><div class="soa-rec-list">' + (items || '<div class="soa-rec-empty">No recommendations yet.</div>') + '</div></div></div>';
+  }
+
+  function render(d) {
+    var root = document.getElementById('soaRoot');
+    root.innerHTML =
+      renderKpis(d) +
+      '<div class="soa-chart-grid">' + renderFunnel(d) + renderTrendCard() + '</div>' +
+      renderStepTable(d) +
+      '<div style="height:14px;"></div>' + renderVariantTable(d) +
+      '<div style="height:14px;"></div>' + renderSenderTable(d) +
+      '<div style="height:14px;"></div>' + renderDayHour(d) +
+      '<div style="height:14px;"></div>' + renderBranchingSection(d) +
+      '<div style="height:14px;"></div>' + renderRecommendations(d);
+    drawTrend(d);
+    drawBranchingCharts(d);
+  }
+
+  function fetchData() {
+    var root = document.getElementById('soaRoot');
+    root.innerHTML = '<div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>';
+    var qs = new URLSearchParams({ preset: state.preset, date_from: state.date_from, date_to: state.date_to });
+    fetch(ANALYTICS_URL + '?' + qs.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.status !== 'ok') { root.innerHTML = '<div class="soa-rec-empty">Could not load analytics.</div>'; return; }
+        render(d);
+      })
+      .catch(function () { root.innerHTML = '<div class="soa-rec-empty">Network error loading analytics.</div>'; });
+  }
+
+  document.getElementById('soaFilterBar').addEventListener('click', function (e) {
+    var btn = e.target.closest('.soa-pill');
+    if (!btn) return;
+    var preset = btn.dataset.preset;
+    document.querySelectorAll('.soa-pill').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('soaCustomDates').classList.toggle('visible', preset === 'custom');
+    if (preset === 'custom') return;
+    state.preset = preset; state.date_from = ''; state.date_to = '';
+    fetchData();
+  });
+  document.getElementById('soaDateApply').addEventListener('click', function () {
+    var from = document.getElementById('soaDateFrom').value, to = document.getElementById('soaDateTo').value;
+    if (!from || !to) return;
+    state.preset = 'custom'; state.date_from = from; state.date_to = to;
+    fetchData();
+  });
+
+  fetchData();
 })();
 </script>
 {% endblock %}

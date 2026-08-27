@@ -46,7 +46,7 @@ def substitute_tags(html: str, prospect_data: dict) -> str:
     return html
 
 
-def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bool = True):
+def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bool = True, step_order=None):
     """
     Substitutes merge tags, then — when enable_tracking is True — injects the
     open-pixel and wraps links for click tracking.
@@ -58,13 +58,31 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
     it breaks the links themselves for whoever opens the email, so callers
     must skip it rather than send broken links.
 
-    Returns (modified_html, list_of_SOTrackedLink_instances_to_bulk_create).
-    The SOTrackedLink instances are unsaved — caller must bulk_create them.
+    step_order (V3.2/V3.6) — the exact step this call is generating tracking
+    for, if the caller has it (send_next_step always does: cc.current_step
+    at the moment it calls this, before _record_success advances it).
+    Stamped onto each SOTrackedLink so a later click can be attributed to
+    this exact step with no join/inference needed.
+
+    V3.6 — the open pixel now uses the SAME per-send-identity approach:
+    a fresh SOOpenPixel row (unsaved, like the SOTrackedLink instances
+    below) carries this call's step_order, and the pixel URL points at
+    ITS token, not cc.tracking_token. cc.tracking_token (still used for
+    the unsubscribe link, unchanged) is one per-CONTACT value reused
+    across every step's email, so it could never carry step-specific
+    identity regardless of what was passed here — that's exactly why a
+    separate per-send artifact was needed instead of reusing it.
+
+    Returns (modified_html, list_of_SOTrackedLink_instances_to_bulk_create,
+    open_pixel_instance_or_None). The SOTrackedLink instances and the
+    open_pixel instance are unsaved — caller must persist them (only once
+    the send itself has actually succeeded, mirroring how SOTrackedLink is
+    already persisted). open_pixel is None whenever enable_tracking is
+    False, exactly like tracked_links is an empty list in that case.
     """
-    from Email_validate_app.models import SOTrackedLink
+    from Email_validate_app.models import SOTrackedLink, SOOpenPixel
 
     unsub_url  = f'{site_url}/so/unsubscribe/{cc.tracking_token}/'
-    open_url   = f'{site_url}/so/track/open/{cc.tracking_token}/'
     track_prefix = f'{site_url}/so/track/'
 
     prospect_data = {
@@ -79,7 +97,7 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
     html = substitute_tags(html, prospect_data)
 
     if not enable_tracking:
-        return html, []
+        return html, [], None
 
     tracked_links = []
 
@@ -87,11 +105,17 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
         original = match.group(1)
         if original.startswith(track_prefix) or '/so/unsubscribe/' in original:
             return match.group(0)
-        link = SOTrackedLink(campaign_contact=cc, destination_url=original)
+        link = SOTrackedLink(campaign_contact=cc, destination_url=original, step_order=step_order)
         tracked_links.append(link)
         return f'href="{site_url}/so/track/click/{link.token}/"'
 
     html = _HREF_RE.sub(_replace_href, html)
+
+    # V3.6 — the field's own default (uuid.uuid4) already populates
+    # open_pixel.token on construction, before it's ever saved, exactly
+    # like SOTrackedLink's token is already usable above before bulk_create.
+    open_pixel = SOOpenPixel(campaign_contact=cc, step_order=step_order)
+    open_url = f'{site_url}/so/track/pixel/{open_pixel.token}/'
 
     footer = (
         f'<div style="text-align:center;padding:16px 0 8px;font-size:12px;color:#999;">'
@@ -106,7 +130,7 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
     else:
         html += footer + pixel
 
-    return html, tracked_links
+    return html, tracked_links, open_pixel
 
 
 def build_message(from_name: str, from_email: str, to_email: str,

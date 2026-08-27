@@ -1332,6 +1332,13 @@ class SOCampaign(models.Model):
     send_weekdays   = models.CharField(max_length=27, default='mon,tue,wed,thu,fri,sat,sun')
     send_hour_start = models.TimeField(default=time(0, 0, 0))
     send_hour_end   = models.TimeField(default=time(23, 59, 59))
+    # Per-campaign override of the global ENABLE_EMAIL_TRACKING setting —
+    # AND'd together at send time (services/so_drip.py::send_next_step), so
+    # this can only ever narrow tracking further, never re-enable it when
+    # the account-wide flag is off. default=True preserves today's effective
+    # behavior for every existing campaign (previously the only gate was the
+    # global flag, i.e. every campaign behaved as if this were True).
+    tracking_enabled = models.BooleanField(default=True)
     total_sent         = models.PositiveIntegerField(default=0)
     total_delivered    = models.PositiveIntegerField(default=0)
     total_opened       = models.PositiveIntegerField(default=0)
@@ -1397,6 +1404,162 @@ class SOSequenceVariant(models.Model):
 
     def __str__(self):
         return f'{self.step_id}{self.label}'
+
+
+class SOSequenceCondition(models.Model):
+    """V3.1 branching foundation — a single YES/NO fork evaluated at a specific
+    main-sequence step.
+
+    trigger_type='no_event_after_days' extends (does not replace) the
+    existing SOSubsequence "no reply after N days" mechanism, and reuses its
+    exact eligibility shape: status must still be 'active'/'completed' — a
+    reply/bounce/complaint/unsubscribe has already moved anything else to
+    'stopped' via so_drip.stop(), on a wholly separate code path, before this
+    is ever evaluated — and enough time must have elapsed since the
+    contact's last successful send. See
+    services/so_subsequence.py::eligible_condition_branch.
+
+    Scoped to the MAIN sequence only — source_step/yes_target_step/
+    no_target_step are all SOSequenceStep, never SOSubsequenceStep — so this
+    stays free of the step-number ambiguity that already exists between the
+    main sequence and subsequence tracks (current_step is reused/reset by
+    both, see SOCampaignContact.active_subsequence below).
+
+    'no_event_after_days' (V3.1), 'clicked' (V3.3), 'opened' (V3.6 Phase 2),
+    and 'replied' (V3.7) are implemented. 'clicked'/'opened'/'replied' use a
+    DIFFERENT matching semantic than 'no_event_after_days' — see
+    services/so_subsequence.py::eligible_condition_branch for why (in
+    short: 'no_event_after_days' preemptively reroutes a contact before
+    source_step would otherwise be sent, so it's only ever found while
+    current_step == source_step.order; 'clicked'/'opened'/'replied' check
+    engagement with a step that has ALREADY been sent, so they must remain
+    findable even once current_step has moved well past source_step —
+    guarded against re-firing on every later dispatcher tick via
+    last_condition_id).
+    'opened' relies on SOOpenPixel (V3.6 Phase 1) for exact per-step
+    attribution — the legacy contact-scoped open pixel (still served
+    unmodified by views/so_tracking.py::so_track_open) always produces
+    step_order=NULL events, which can never match this trigger type's
+    exact-step filter, so a legacy open can never satisfy it.
+    'replied' relies on services/so_imap.py::_record_once computing a
+    precise step_order for 'replied' SOEvent rows from the reply's own
+    threading headers (matched against the exact per-step 'sent' SOEvent
+    history), falling back to the pre-V3.7 heuristic only when no precise
+    match is possible — see that function's docstring. Never satisfied by
+    an out-of-office auto-reply (SOEvent.metadata['oof']), and never
+    ignores event_count_threshold's absence the way clicked/opened can use
+    it — one genuine reply is always sufficient, so this trigger type never
+    reads event_count_threshold at all.
+    bounced/complained/unsubscribed/event_count_gte remain deferred to
+    later V3 phases — TRIGGER_CHOICES is kept extensible for them, but
+    nothing here evaluates them yet.
+    """
+    TRIGGER_CHOICES = (
+        ('no_event_after_days', 'No event after N days'),
+        ('clicked',             'Clicked'),
+        ('opened',               'Opened'),
+        ('replied',              'Replied'),
+    )
+
+    campaign = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, related_name='conditions')
+    # Which step this condition evaluates after. Nullable at the field level,
+    # but a condition with no source_step is never evaluated — see
+    # eligible_condition_branch, which matches this against the contact's
+    # current position before doing anything else.
+    source_step = models.ForeignKey(SOSequenceStep, on_delete=models.CASCADE, null=True, blank=True,
+                                    related_name='conditions_as_source')
+    trigger_type = models.CharField(max_length=30, choices=TRIGGER_CHOICES, default='no_event_after_days')
+    wait_days    = models.PositiveIntegerField(default=0)
+    # Reserved for a later V3 trigger type (e.g. "open count >= N");
+    # unused by 'no_event_after_days'.
+    event_count_threshold = models.PositiveIntegerField(null=True, blank=True)
+    yes_target_step = models.ForeignKey(SOSequenceStep, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name='conditions_as_yes_target')
+    no_target_step  = models.ForeignKey(SOSequenceStep, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name='conditions_as_no_target')
+    is_active  = models.BooleanField(default=True)
+    # V4.0 — optional membership in a SOConditionGroup. NULL (the default,
+    # and every row that existed before V4.0) behaves exactly as today: this
+    # condition is evaluated standalone by eligible_condition_branch, with
+    # its OWN yes_target_step/no_target_step/wait_days. Once set, this
+    # condition's yes_target_step/no_target_step/wait_days are ignored —
+    # the group is the sole owner of the branch decision and its targets
+    # (see SOConditionGroup below) — eligible_condition_branch's own query
+    # excludes group__isnull=False rows so a grouped condition is never
+    # independently evaluated on top of its group. SET_NULL (not CASCADE):
+    # deleting a group must detach its member conditions, never delete them.
+    group = models.ForeignKey('SOConditionGroup', on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='conditions')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_sequence_conditions'
+        indexes  = [models.Index(fields=['campaign', 'source_step'], name='so_seqcond_camp_step_idx')]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+
+        errors = {}
+        if self.source_step_id and self.source_step.campaign_id != self.campaign_id:
+            errors['source_step'] = 'Source step must belong to the same campaign as this condition.'
+        if self.yes_target_step_id and self.yes_target_step.campaign_id != self.campaign_id:
+            errors['yes_target_step'] = 'Yes-target step must belong to the same campaign as this condition.'
+        if self.no_target_step_id and self.no_target_step.campaign_id != self.campaign_id:
+            errors['no_target_step'] = 'No-target step must belong to the same campaign as this condition.'
+        if errors:
+            raise ValidationError(errors)
+
+    def __str__(self):
+        return f'Condition {self.id} ({self.trigger_type}, campaign={self.campaign_id})'
+
+
+class SOConditionGroup(models.Model):
+    """V4.0 — combine 2+ existing SOSequenceCondition rows (source_step
+    unchanged, still a single YES/NO fork) with AND/OR logic, without
+    altering how a standalone (group=NULL) condition works at all.
+
+    Deliberately owns the target steps and wait_days itself, rather than
+    reusing a member condition's own fields — a member's own
+    yes_target_step/no_target_step/wait_days are simply never read once it
+    has a group (see SOSequenceCondition.group's own comment), so there is
+    exactly one place a reader looks to find "what does this branch do."
+
+    V4.0 scope, enforced at the views/so_sender.py write path (not here —
+    same layering as SOSequenceCondition, whose own clean() is likewise
+    never the sole enforcement point): every member condition must share
+    this group's exact source_step (one shared sent_at reference point for
+    wait_days — see services/so_subsequence.py::_eval_group), a group needs
+    2+ members, a condition belongs to at most one group, no nested groups
+    (this model has no FK to another group), and member trigger_type is
+    restricted to 'clicked'/'opened'/'replied' — 'no_event_after_days' has
+    no independent "is this true right now" predicate to AND/OR combine
+    (it is a pure timeout), so it is never a valid group member.
+    """
+    LOGIC_CHOICES = (
+        ('and', 'AND — every condition must be true'),
+        ('or',  'OR — any condition may be true'),
+    )
+
+    campaign = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, related_name='groups')
+    source_step = models.ForeignKey(SOSequenceStep, on_delete=models.CASCADE, null=True, blank=True,
+                                    related_name='condition_groups_as_source')
+    logic = models.CharField(max_length=3, choices=LOGIC_CHOICES, default='and')
+    wait_days = models.PositiveIntegerField(default=0)
+    yes_target_step = models.ForeignKey(SOSequenceStep, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name='condition_groups_as_yes_target')
+    no_target_step  = models.ForeignKey(SOSequenceStep, on_delete=models.SET_NULL, null=True, blank=True,
+                                        related_name='condition_groups_as_no_target')
+    is_active  = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'so_condition_groups'
+        indexes  = [models.Index(fields=['campaign', 'source_step'], name='so_condgrp_camp_step_idx')]
+
+    def __str__(self):
+        return f'Group {self.id} ({self.logic}, campaign={self.campaign_id})'
 
 
 class SOEmailAccountRotation(models.Model):
@@ -1477,6 +1640,26 @@ class SOCampaignContact(models.Model):
     active_subsequence = models.ForeignKey('SOSubsequence', on_delete=models.SET_NULL, null=True, blank=True,
                                            related_name='subsequence_contacts')
 
+    # ── V3.1 branching foundation ───────────────────────────────────────────
+    # Append-only audit/debug breadcrumb of how this contact reached its
+    # current position, e.g. "main:0>cond:12:yes>main:3" — never read by the
+    # dispatcher or send path (current_step/active_subsequence remain the
+    # only fields that actually drive sending). See
+    # services/so_subsequence.py::branch_via_condition.
+    branch_path = models.CharField(max_length=500, blank=True, default='')
+    # Deliberately NOT a FK — purely a "what last routed this contact"
+    # reference for analytics/debugging, the same not-a-FK rationale as
+    # SOEvent.message_id above (a hard FK to SOSequenceCondition would force
+    # this column null on delete and lose the audit trail; a plain id never
+    # does).
+    last_condition_id = models.PositiveIntegerField(null=True, blank=True, default=None)
+    # V4.0 — the group-branching mirror of last_condition_id above, kept as
+    # a SEPARATE field rather than overloading last_condition_id with two
+    # different id-namespaces (a SOSequenceCondition.id vs a
+    # SOConditionGroup.id) — see services/so_subsequence.py::branch_via_group.
+    # Same not-a-FK rationale as last_condition_id.
+    last_condition_group_id = models.PositiveIntegerField(null=True, blank=True, default=None)
+
     class Meta:
         db_table        = 'so_campaign_contacts'
         unique_together = [('campaign', 'email')]
@@ -1490,10 +1673,61 @@ class SOTrackedLink(models.Model):
     campaign_contact = models.ForeignKey(SOCampaignContact, on_delete=models.CASCADE, related_name='tracked_links')
     token           = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
     destination_url = models.TextField()
+    # V3.2 — exact step attribution. Unlike the open pixel (one per-CONTACT
+    # tracking_token, reused unchanged across every step's email), a
+    # SOTrackedLink row is created fresh per send, per link
+    # (services/so_smtp.py::inject_tracking), so it can record exactly which
+    # step generated it — no join/inference needed later. NULL on every row
+    # created before this field existed (never backfilled — see
+    # services/so_smtp.py::inject_tracking's step_order parameter for how
+    # new rows get it).
+    step_order = models.PositiveSmallIntegerField(null=True, blank=True, default=None)
     created_at      = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         db_table = 'so_tracked_links'
+
+
+class SOOpenPixel(models.Model):
+    """V3.6 — exact step attribution for opens.
+
+    The legacy open pixel (still served unmodified by views/so_tracking.py::
+    so_track_open) embeds cc.tracking_token, ONE per-CONTACT token reused
+    unchanged across every step's email — so an open of that pixel can never
+    identify which step's email produced it. SOTrackedLink can't be reused
+    for this either: it's created only when the body actually contains a
+    link, its destination_url/redirect semantics are specific to clicks, and
+    conflating "static pixel request" with "click redirect target" inside
+    one model/view would risk the working, already-tested click-tracking
+    path this phase is required to leave untouched.
+
+    So this is a deliberately separate, minimal model, created fresh per
+    send (services/so_smtp.py::inject_tracking) exactly like SOTrackedLink
+    already is — one row per tracking-enabled step-send, never more. A
+    click on step 0's link still carries step_order=0 no matter how many
+    later steps have since been sent; the same is now true for opens.
+    NULL step_order is never produced by this model (inject_tracking only
+    ever builds one when it has a real step_order in hand) — NULL opens
+    only ever come from the legacy cc.tracking_token pixel, which this
+    model has no relationship to at all.
+    """
+    campaign_contact = models.ForeignKey(SOCampaignContact, on_delete=models.CASCADE, related_name='open_pixels')
+    token      = models.UUIDField(default=uuid.uuid4, unique=True, db_index=True)
+    step_order = models.PositiveSmallIntegerField(null=True, blank=True, default=None)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'so_open_pixels'
+        # No unique_together on (campaign_contact, step_order): current_step
+        # resets to 0 when a contact branches into a subsequence
+        # (services/so_subsequence.py::branch_contact), so the SAME
+        # step_order value legitimately recurs across a contact's different
+        # tracks/sends over their lifetime -- discovered via a real send
+        # failure (IntegrityError) in V3.6 Phase 1 testing, not a guess.
+        # Attribution never relied on this pair being unique anyway: each
+        # row's own random `token` is what a later open resolves against,
+        # exactly like SOTrackedLink (which has no such constraint either,
+        # for the same reason).
 
 
 class SOEvent(models.Model):
@@ -1511,9 +1745,39 @@ class SOEvent(models.Model):
     campaign   = models.ForeignKey(SOCampaign,  on_delete=models.CASCADE,  related_name='events')
     prospect   = models.ForeignKey(SOProspect,  on_delete=models.SET_NULL, null=True, blank=True,
                                     related_name='so_events')
+    # The sender account that actually sent the campaign email this event is
+    # about — always copied from an already-correctly-scoped source
+    # (SOCampaignContact.account, or the `account` a send already has in
+    # hand), never independently looked up or guessed from the email
+    # address. SET_NULL so deleting an account doesn't destroy event history,
+    # it just loses that one attribution.
+    account    = models.ForeignKey('SOEmailAccount', on_delete=models.SET_NULL, null=True, blank=True,
+                                    related_name='events')
+    # Identifies which outbound message (SOCampaignContact.message_id /
+    # SOMessage.message_id) this event is about. A plain identifier rather
+    # than a real FK to SOMessage on purpose: at 'sent'/'delivered' creation
+    # time (services/so_drip.py::_record_success) the SOMessage row for this
+    # send doesn't exist yet — it's written a few lines later by
+    # _record_conversation_send — so a hard FK would either be null at
+    # creation (defeating the point) or force reordering tested V1 send
+    # logic. The identifier is always known up front (it's generated before
+    # either row is written) and lets any reader join to SOMessage via
+    # (account, message_id) whenever that row does exist.
+    message_id = models.CharField(max_length=255, blank=True, default='', db_index=True)
     email      = models.CharField(max_length=255)
     event_type = models.CharField(max_length=20, choices=EVENT_CHOICES)
     metadata   = models.JSONField(default=dict, blank=True)
+    # V3.2 — a typed, exact step number, populated only where the writer
+    # already has reliable step context at write time (see
+    # services/so_drip.py::_record_success for sent/delivered,
+    # services/so_imap.py::_record_once for replied/bounced/complained, and
+    # views/so_tracking.py::so_track_click via SOTrackedLink.step_order).
+    # Deliberately left NULL wherever no reliable source exists — most
+    # notably 'opened' events, since the open pixel uses one per-contact
+    # tracking_token reused across every step, so no artifact reachable from
+    # so_track_open identifies which step's email produced a given open.
+    # Never backfilled on historical rows.
+    step_order = models.PositiveSmallIntegerField(null=True, blank=True, default=None)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -1521,6 +1785,7 @@ class SOEvent(models.Model):
         indexes  = [
             models.Index(fields=['campaign', 'email', 'event_type']),
             models.Index(fields=['campaign', 'event_type']),
+            models.Index(fields=['campaign', 'step_order', 'event_type'], name='so_event_camp_step_type_idx'),
         ]
 
 
@@ -1642,6 +1907,14 @@ class SOMessage(models.Model):
     # treat repeated '' as duplicates but allow unlimited NULLs, and this field
     # is now part of a real dedup constraint (see unique_together below).
     message_id  = models.CharField(max_length=255, blank=True, null=True, default=None)
+    # Fallback dedup key for a message that had NO Message-ID header — a SHA-256
+    # fingerprint of (account, direction, from, to, normalized subject,
+    # normalized body, exact parsed sent_at), computed and populated only when
+    # message_id is None (see services/so_inbox.py::_headerless_fingerprint).
+    # Same NULL-not-'' reasoning as message_id above: for a message that DOES
+    # have a Message-ID, this stays NULL so it never collides with anything
+    # under the second unique_together entry below.
+    headerless_fingerprint = models.CharField(max_length=64, blank=True, null=True, default=None)
     in_reply_to = models.CharField(max_length=255, blank=True, default='')
 
     has_attachments = models.BooleanField(default=False)
@@ -1655,7 +1928,10 @@ class SOMessage(models.Model):
             models.Index(fields=['conversation', 'created_at']),
             models.Index(fields=['message_id']),
         ]
-        unique_together = [('account', 'message_id')]
+        unique_together = [
+            ('account', 'message_id'),
+            ('account', 'headerless_fingerprint'),
+        ]
 
     def __str__(self):
         return f'{self.direction} message({self.conversation_id})'

@@ -197,14 +197,14 @@
         <div class="uc-req-title"><i class="fas fa-info-circle sold-icon-mr-5"></i>Columns in your file</div>
         <div class="uc-req-tags">
           <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> email</span>
+          <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> status</span>
           <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> first_name</span>
           <span class="uc-req-tag req"><i class="fas fa-asterisk"></i> last_name</span>
-          <span class="uc-req-tag opt">status</span>
           <span class="uc-req-tag opt">company</span>
           <span class="uc-req-tag opt">phone</span>
         </div>
-        <div class="uc-req-note sold-req-note-tight">Email is required; at least one name column (first_name or last_name) is required.</div>
-        <div class="uc-req-note">Status values: <code>subscribed</code> &nbsp;·&nbsp; <code>unsubscribed</code> &nbsp;·&nbsp; <code>never_subscribed</code>. Omit the column and everyone imports as <code>subscribed</code>.</div>
+        <div class="uc-req-note sold-req-note-tight">Email and status are required; at least one name column (first_name or last_name) is required.</div>
+        <div class="uc-req-note">Status values: <code>subscribed</code> &nbsp;·&nbsp; <code>unsubscribed</code> &nbsp;·&nbsp; <code>never_subscribed</code>.</div>
         <button type="button" id="uc-download-example" class="uc-example-btn">
           <i class="fas fa-download"></i> Download example file
         </button>
@@ -222,7 +222,7 @@
     <!-- Step 2 -->
     <div id="wizPanel2" hidden>
       <h3 class="sold-h3-tight"><i class="fas fa-table sold-icon-success-mr"></i>Map Columns</h3>
-      <p class="sold-map-hint">Match your file columns to system fields. <strong>Email</strong> and at least one <strong>Name</strong> field are required.</p>
+      <p class="sold-map-hint">Match your file columns to system fields. <strong>Email</strong>, <strong>Status</strong>, and at least one <strong>Name</strong> field are required.</p>
       <div class="sold-scroll-x">
         <table class="sold-map-table" id="uc-map-table">
           <thead>
@@ -662,10 +662,10 @@ var SOTable = (function () {
   }
 
   document.getElementById('uc-download-example').addEventListener('click', function() {
-    var csv = 'email,first_name,last_name,company,phone,status\r\n' +
-              'john.doe@example.com,John,Doe,Acme Inc,+1 555 000 0001,subscribed\r\n' +
-              'jane.smith@example.com,Jane,Smith,Globex,+1 555 000 0002,unsubscribed\r\n' +
-              'bob.jones@example.com,Bob,Jones,Initech,,subscribed\r\n';
+    var csv = 'email,status,first_name,last_name,company,phone\r\n' +
+              'john.doe@example.com,subscribed,John,Doe,Acme Inc,+1 555 000 0001\r\n' +
+              'jane.smith@example.com,unsubscribed,Jane,Smith,Globex,+1 555 000 0002\r\n' +
+              'bob.jones@example.com,subscribed,Bob,Jones,Initech,\r\n';
     var blob = new Blob([csv], { type: 'text/csv' });
     var a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -734,6 +734,7 @@ var SOTable = (function () {
       var colsNorm = data.columns.map(function(c) { return c.toLowerCase().replace(/[\s_\-]/g, ''); });
       var missing = [];
       if (!colsNorm.some(function(lc) { return EMAIL_ALIASES.includes(lc); })) missing.push('email');
+      if (!colsNorm.some(function(lc) { return STATUS_ALIASES.includes(lc); })) missing.push('status');
       var hasFirst = colsNorm.some(function(lc) { return FIRST_ALIASES.includes(lc); });
       var hasLast  = colsNorm.some(function(lc) { return LAST_ALIASES.includes(lc); });
       if (!hasFirst && !hasLast) missing.push('first_name or last_name');
@@ -760,7 +761,7 @@ var SOTable = (function () {
     { value: 'last_name',  label: 'Last Name' },
     { value: 'company',    label: 'Company' },
     { value: 'phone',      label: 'Phone' },
-    { value: 'status',     label: 'Status' },
+    { value: 'status',     label: 'Status *' },
   ];
 
   function buildMapTable(cols) {
@@ -887,13 +888,15 @@ var SOTable = (function () {
 
   importBtn.addEventListener('click', function() {
     hideErr(err2);
-    var hasEmail = false, hasName = false;
+    var hasEmail = false, hasStatus = false, hasName = false;
     mapBody.querySelectorAll('select.uc-map-select').forEach(function(sel) {
       if (sel.value === 'email') hasEmail = true;
+      if (sel.value === 'status') hasStatus = true;
       if (sel.value === 'first_name' || sel.value === 'last_name') hasName = true;
     });
-    if (!hasEmail) { showErr(err2, 'You must map a column to Email.'); return; }
-    if (!hasName)  { showErr(err2, 'You must map at least one column to First Name or Last Name.'); return; }
+    if (!hasEmail)  { showErr(err2, 'You must map a column to Email.'); return; }
+    if (!hasStatus) { showErr(err2, 'You must map a column to Status.'); return; }
+    if (!hasName)   { showErr(err2, 'You must map at least one column to First Name or Last Name.'); return; }
     doImport(buildFd(), err2, importBtn, '<i class="fas fa-file-import"></i> Import Prospects');
   });
 

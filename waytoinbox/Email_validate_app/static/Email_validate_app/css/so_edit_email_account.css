@@ -1,0 +1,24 @@
+/*
+ * so_edit_email_account.css — standalone Edit Email Account page.
+ * Reuses the shared tokens and the Add Email Account page's own .aw-*/
+ * .so-field shell it already links (so_add_email_account.css) — no new
+ * :root here, same convention as every other SO page's CSS.
+ * Class prefix: soee- (SO Edit Email Account).
+ */
+
+.soee-email-sub { font-family: monospace; }
+
+/* Section dividers between Account Details / Sending Settings / Warmup
+   Settings — same look as the former in-page Edit modal's own section
+   titles, just under this page's own class prefix. */
+.soee-section-title {
+  font-family: var(--font-head); font-size: 12.5px; font-weight: 800; color: var(--ink);
+  text-transform: uppercase; letter-spacing: .04em;
+  padding-top: 18px; margin: 18px 0 12px; border-top: 1px solid var(--border);
+}
+.soee-section-title:first-of-type { border-top: none; padding-top: 0; margin-top: 4px; }
+
+.soee-status-row { margin: 0 0 12px; }
+.soee-hint { display: flex; align-items: center; gap: 5px; font-size: 12px; color: var(--ink-3); margin: 0 0 14px; }
+
+.so-field input:disabled { background: var(--bg-2); color: var(--ink-3); cursor: not-allowed; }

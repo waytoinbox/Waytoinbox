@@ -514,15 +514,21 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'simple',
         },
+        # ConcurrentRotatingFileHandler (not stdlib RotatingFileHandler) — the
+        # dev server's autoreload parent+child and the Celery worker/beat
+        # processes all write to these same files. Plain RotatingFileHandler
+        # rolls over by renaming the file, which Windows refuses if any other
+        # process still has it open ([WinError 32]); this handler uses proper
+        # cross-process locking around rotation so it's safe on Windows too.
         'app_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'concurrent_log_handler.ConcurrentRotatingFileHandler',
             'filename': LOGS_DIR / 'app.log',
             'maxBytes': 10 * 1024 * 1024,
             'backupCount': 5,
             'formatter': 'verbose',
         },
         'error_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'concurrent_log_handler.ConcurrentRotatingFileHandler',
             'filename': LOGS_DIR / 'errors.log',
             'maxBytes': 10 * 1024 * 1024,
             'backupCount': 5,
@@ -530,7 +536,7 @@ LOGGING = {
             'formatter': 'verbose',
         },
         'task_file': {
-            'class': 'logging.handlers.RotatingFileHandler',
+            'class': 'concurrent_log_handler.ConcurrentRotatingFileHandler',
             'filename': LOGS_DIR / 'tasks.log',
             'maxBytes': 10 * 1024 * 1024,
             'backupCount': 3,

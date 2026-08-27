@@ -111,6 +111,14 @@
                     <i class="fas fa-ban"></i> Cancel
                   </button>
                 {% endif %}
+                {% if c.failed_count %}
+                  <button class="so-icon-btn" onclick="retryCampaign({{ c.id }})" title="{{ c.failed_count }} failed contact{{ c.failed_count|pluralize }}">
+                    <i class="fas fa-rotate-right"></i> Retry
+                  </button>
+                {% endif %}
+                <button class="so-icon-btn" onclick="duplicateCampaign({{ c.id }})">
+                  <i class="fas fa-copy"></i> Duplicate
+                </button>
                 {% if c.status == 'draft' or c.status == 'failed' or c.status == 'cancelled' %}
                   <button class="so-icon-btn danger" onclick="deleteCampaign({{ c.id }}, this.closest('tr'))">
                     <i class="fas fa-trash"></i>
@@ -202,6 +210,23 @@ function resumeCampaign(id) {
     body:JSON.stringify({action:'resume'})
   }).then(r=>r.json()).then(d=>{
     if(d.status==='ok'){WTI.toast('Campaign resumed.','success');setTimeout(()=>location.reload(),500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function duplicateCampaign(id) {
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'duplicate'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast('Campaign duplicated as a new draft.','success');setTimeout(()=>{window.location.href=d.redirect;},500);}
+    else{WTI.toast(d.message||'Error.','error');}
+  }).catch(()=>WTI.toast('Network error.','error'));
+}
+function retryCampaign(id) {
+  if(!confirm('Retry failed contacts in this campaign? Successfully sent contacts are not affected.')) return;
+  fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
+    body:JSON.stringify({action:'retry'})
+  }).then(r=>r.json()).then(d=>{
+    if(d.status==='ok'){WTI.toast(d.retried+' contact(s) queued for retry.','success');setTimeout(()=>location.reload(),500);}
     else{WTI.toast(d.message||'Error.','error');}
   }).catch(()=>WTI.toast('Network error.','error'));
 }

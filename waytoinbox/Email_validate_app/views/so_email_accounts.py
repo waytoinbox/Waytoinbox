@@ -2,7 +2,10 @@ import json
 import smtplib
 import ssl
 
+from datetime import timedelta
+
 from django.core import signing
+from django.db.models import Count
 from django.http import JsonResponse
 from django.shortcuts import render, redirect
 from django.urls import reverse
@@ -20,11 +23,15 @@ def so_email_accounts(request):
     r = _auth(request)
     if r:
         return r
-    from Email_validate_app.models import SOEmailAccount, SOEmailAccountDailyUsage
+    from Email_validate_app.models import (
+        SOEmailAccount, SOEmailAccountDailyUsage, SOEmailAccountRotation,
+        SOCampaignContact, SOEvent,
+    )
     user_id  = get_user_id(request)
     accounts = list(SOEmailAccount.objects.filter(
         user_id=user_id, deleted_at__isnull=True,
     ).select_related('warmup'))
+    account_ids = [a.id for a in accounts]
 
     # Today's sent count against each account's daily_limit (e.g. "35/50") —
     # same UTC-day counter services/so_drip.py reserves against before a send,
@@ -32,9 +39,40 @@ def so_email_accounts(request):
     today = now().date()
     usage_map = dict(
         SOEmailAccountDailyUsage.objects.filter(
-            account_id__in=[a.id for a in accounts], date=today,
+            account_id__in=account_ids, date=today,
         ).values_list('account_id', 'sent_count')
     )
+
+    # Campaigns count — distinct non-deleted campaigns this account is
+    # configured as a sender for (SOEmailAccountRotation is written whenever
+    # an account is selected in the wizard's Sender Accounts step, regardless
+    # of whether any contact has actually been sent to yet).
+    campaigns_map = dict(
+        SOEmailAccountRotation.objects.filter(
+            account_id__in=account_ids, campaign__deleted_at__isnull=True,
+        ).values('account_id').annotate(n=Count('campaign_id', distinct=True))
+        .values_list('account_id', 'n')
+    )
+
+    # Reply / prospects counts for the last 7 days — the numerator/denominator
+    # of a per-account reply rate. Prospects = distinct recipients this
+    # account actually sent to (SOCampaignContact.account is the sticky
+    # per-contact sender assignment, sent_at marks an actual send); replies =
+    # distinct recipients with a 'replied' SOEvent attributed to this account.
+    cutoff_7d = now() - timedelta(days=7)
+    prospects_map = dict(
+        SOCampaignContact.objects.filter(
+            account_id__in=account_ids, sent_at__gte=cutoff_7d,
+        ).values('account_id').annotate(n=Count('email', distinct=True))
+        .values_list('account_id', 'n')
+    )
+    replies_map = dict(
+        SOEvent.objects.filter(
+            account_id__in=account_ids, event_type='replied', created_at__gte=cutoff_7d,
+        ).values('account_id').annotate(n=Count('email', distinct=True))
+        .values_list('account_id', 'n')
+    )
+
     for acc in accounts:
         acc.today_sent = usage_map.get(acc.id, 0)
         pct = round(acc.today_sent / acc.daily_limit * 100) if acc.daily_limit else 0
@@ -45,6 +83,9 @@ def so_email_accounts(request):
             acc.limit_level = 'warn'
         else:
             acc.limit_level = 'healthy'
+        acc.campaigns_count = campaigns_map.get(acc.id, 0)
+        acc.replies_7d      = replies_map.get(acc.id, 0)
+        acc.prospects_7d    = prospects_map.get(acc.id, 0)
 
     return render(request, 'i_SO_Email_Accounts.html', {'accounts': accounts})
 
@@ -54,6 +95,25 @@ def so_add_email_account(request):
     if r:
         return r
     return render(request, 'i_SO_Add_Email_Account.html')
+
+
+def so_edit_email_account(request, id):
+    """Standalone Edit Email Account page (V4.8) — replaces the former
+    in-page Edit modal. Renders the account's current details for editing;
+    Save Changes posts to the existing so_email_account_action's `edit`
+    action (unchanged), so no backend edit logic was duplicated here."""
+    r = _auth(request)
+    if r:
+        return r
+    from Email_validate_app.models import SOEmailAccount
+    user_id = get_user_id(request)
+    try:
+        acc = SOEmailAccount.objects.select_related('warmup').get(
+            id=id, user_id=user_id, deleted_at__isnull=True,
+        )
+    except SOEmailAccount.DoesNotExist:
+        return redirect(reverse('so_email_accounts'))
+    return render(request, 'i_SO_Edit_Email_Account.html', {'acc': acc})
 
 
 def so_email_account_action(request):
@@ -145,5 +205,82 @@ def so_email_account_action(request):
         acc_id = data.get('id')
         SOEmailAccount.objects.filter(id=acc_id, user_id=user_id).update(deleted_at=now())
         return JsonResponse({'status': 'ok'})
+
+    # ── Edit (V4.5 — account details / sending / warmup settings) ─────────────
+    # Deliberately allowlists exactly display_name/daily_limit/warmup.* —
+    # connection identity fields (email, provider, smtp/imap host+port,
+    # username, password) are never read from this payload at all, so
+    # there is no field to accidentally overwrite even if a caller sent one.
+    if action == 'edit':
+        acc_id = data.get('id')
+        try:
+            acc = SOEmailAccount.objects.get(id=acc_id, user_id=user_id, deleted_at__isnull=True)
+        except SOEmailAccount.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': 'Account not found.'})
+
+        errors = {}
+
+        display_name = data.get('display_name')
+        if display_name is not None:
+            display_name = display_name.strip()
+
+        daily_limit = None
+        try:
+            daily_limit = int(data.get('daily_limit'))
+            if daily_limit <= 0:
+                errors['daily_limit'] = 'Daily sending limit must be greater than 0.'
+        except (TypeError, ValueError):
+            errors['daily_limit'] = 'Daily sending limit must be a whole number.'
+
+        # warmup settings are entirely optional in the payload — the
+        # frontend only sends them when this account actually has a
+        # warmup row (see so_email_account_action's caller); still
+        # validated defensively here regardless.
+        warmup_payload = data.get('warmup') or {}
+        warmup_updates = {}
+        for key, label in (
+            ('daily_target', 'Daily target'),
+            ('ramp_up_days', 'Ramp-up days'),
+            ('ramp_up_increment', 'Daily increment'),
+        ):
+            if key not in warmup_payload:
+                continue
+            try:
+                val = int(warmup_payload.get(key))
+                if val <= 0:
+                    errors[key] = f'{label} must be greater than 0.'
+                else:
+                    warmup_updates[key] = val
+            except (TypeError, ValueError):
+                errors[key] = f'{label} must be a whole number.'
+
+        if errors:
+            return JsonResponse({'status': 'error', 'errors': errors})
+
+        update_fields = ['daily_limit', 'updated_at']
+        acc.daily_limit = daily_limit
+        if display_name is not None:
+            acc.display_name = display_name
+            update_fields.append('display_name')
+        acc.save(update_fields=update_fields)
+
+        warmup_result = None
+        if warmup_updates:
+            from Email_validate_app.services.warmup import update_warmup_settings
+            warmup_obj = update_warmup_settings(acc, **warmup_updates)
+            if warmup_obj:
+                warmup_result = {
+                    'daily_target':      warmup_obj.daily_target,
+                    'ramp_up_days':      warmup_obj.ramp_up_days,
+                    'ramp_up_increment': warmup_obj.ramp_up_increment,
+                    'status':            warmup_obj.status,
+                    'status_display':    warmup_obj.get_status_display(),
+                }
+
+        return JsonResponse({
+            'status': 'ok',
+            'account': {'id': acc.id, 'display_name': acc.display_name, 'daily_limit': acc.daily_limit},
+            'warmup': warmup_result,
+        })
 
     return JsonResponse({'status': 'error', 'message': 'Unknown action.'})

@@ -1,6 +1,7 @@
 import csv
 import io
 import json
+import re
 from datetime import datetime
 
 from django.core.paginator import Paginator
@@ -159,41 +160,303 @@ def so_prospects_action(request):
     return JsonResponse({'status': 'error', 'message': 'Unknown action.'})
 
 
-def so_prospects_import(request):
+_NO_HEADER_MSG = (
+    'No header row detected. The first row must contain column names '
+    '(e.g. "email", "first_name"). Please add a header row and try again.'
+)
+_EMAIL_RE = re.compile(r'^[^\s@]+@[^\s@]+\.[^\s@]+$')
+
+
+def _read_upload_rows(uploaded):
+    """Parse an uploaded CSV/TXT/XLSX into a list of dicts keyed by column
+    name. Same shape as services/so_lists.py::_read_rows (not imported
+    directly — file-parsing boilerplate is duplicated per-view elsewhere in
+    this codebase too, e.g. contacts.py vs so_lists.py, rather than shared
+    across view modules)."""
+    fname = uploaded.name.lower()
+    rows = []
+    if fname.endswith('.csv') or fname.endswith('.txt'):
+        text = uploaded.read().decode('utf-8-sig', errors='replace')
+        try:
+            dialect = csv.Sniffer().sniff(text[:2048], delimiters=',\t;|')
+        except csv.Error:
+            dialect = csv.excel
+        rows = list(csv.DictReader(io.StringIO(text), dialect=dialect))
+    elif fname.endswith('.xlsx'):
+        import openpyxl
+        wb = openpyxl.load_workbook(uploaded, read_only=True, data_only=True)
+        ws = wb.active
+        header = None
+        for i, row in enumerate(ws.iter_rows(values_only=True)):
+            if i == 0:
+                header = [str(c).strip() if c is not None else f'col{j}' for j, c in enumerate(row)]
+            else:
+                rows.append({
+                    header[j]: (str(v).strip() if v is not None else '')
+                    for j, v in enumerate(row) if j < len(header)
+                })
+        wb.close()
+    return rows
+
+
+def so_prospects_parse_file(request):
+    """Upload wizard step 1 — read the uploaded file and return its column names."""
     r = _auth(request)
     if r:
         return r
     if request.method != 'POST':
         return JsonResponse({'status': 'error', 'message': 'POST required'}, status=405)
 
-    from Email_validate_app.models import SOProspect
-    user_id = get_user_id(request)
-    f = request.FILES.get('file')
-    if not f:
-        return JsonResponse({'status': 'error', 'message': 'No file uploaded.'})
+    uploaded = request.FILES.get('file')
+    if not uploaded:
+        return JsonResponse({'status': 'error', 'message': 'No file uploaded.'}, status=400)
 
-    text     = f.read().decode('utf-8-sig', errors='replace')
-    reader   = csv.DictReader(io.StringIO(text))
-    created = updated = skipped = 0
-
-    for row in reader:
-        email = (row.get('email') or row.get('Email') or '').strip().lower()
-        if not email or '@' not in email:
-            skipped += 1
-            continue
-        _, was_created = SOProspect.objects.update_or_create(
-            user_id=user_id, email=email,
-            defaults={
-                'first_name': (row.get('first_name') or row.get('First Name') or '').strip(),
-                'last_name':  (row.get('last_name')  or row.get('Last Name')  or '').strip(),
-                'company':    (row.get('company')    or row.get('Company')    or '').strip(),
-                'phone':      (row.get('phone')      or row.get('Phone')      or '').strip(),
-                'deleted_at': None,
-            },
-        )
-        if was_created:
-            created += 1
+    fname = uploaded.name.lower()
+    try:
+        if fname.endswith('.csv') or fname.endswith('.txt'):
+            text = uploaded.read().decode('utf-8-sig', errors='replace')
+            if not text.strip():
+                return JsonResponse({'status': 'error', 'message': 'The file is empty.'}, status=400)
+            try:
+                dialect = csv.Sniffer().sniff(text[:2048], delimiters=',\t;|')
+            except csv.Error:
+                dialect = csv.excel
+            reader  = csv.DictReader(io.StringIO(text), dialect=dialect)
+            columns = [c.strip() for c in (reader.fieldnames or []) if c and c.strip()]
+        elif fname.endswith('.xlsx'):
+            import openpyxl
+            wb = openpyxl.load_workbook(uploaded, read_only=True, data_only=True)
+            ws = wb.active
+            header_row = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), [])
+            wb.close()
+            columns = [str(c).strip() for c in header_row if c is not None and str(c).strip()]
         else:
-            updated += 1
+            return JsonResponse({'status': 'error', 'message': 'Only CSV, XLSX, and TXT files are accepted.'}, status=400)
 
-    return JsonResponse({'status': 'ok', 'created': created, 'updated': updated, 'skipped': skipped})
+        if not columns:
+            return JsonResponse({'status': 'error', 'message': 'No columns detected. Check the file format.'}, status=400)
+
+        data_like = sum(
+            1 for c in columns
+            if _EMAIL_RE.match(c) or c.lstrip('-').replace('.', '', 1).isdigit()
+        )
+        if data_like > 0 and data_like >= len(columns) / 2:
+            return JsonResponse({'status': 'error', 'message': _NO_HEADER_MSG}, status=400)
+
+        return JsonResponse({'status': 'ok', 'columns': columns})
+    except Exception as exc:
+        return JsonResponse({'status': 'error', 'message': f'Could not read file: {exc}'}, status=400)
+
+
+def so_prospects_import(request):
+    """Upload wizard step 2 — import the file using the column mapping.
+
+    Mirrors views/so_lists.py::so_list_import_prospects's wizard shape and
+    validation exactly (mapping validation, email/name sanity checks,
+    conflict pre-flight, per-row skip reasons) — _normalize_status and
+    _resolve_status are imported from there directly rather than
+    re-implemented, since the consent-protection matrix (an unsubscribed
+    prospect can never be silently re-subscribed by a re-upload) must never
+    drift between the two import paths. The one genuine behavioral
+    difference: this page has no list context, so an already-existing
+    prospect is updated in place rather than skipped as "already in list"
+    (matching this endpoint's pre-existing upsert-by-email semantics)."""
+    r = _auth(request)
+    if r:
+        return r
+    if request.method != 'POST':
+        return JsonResponse({'status': 'error', 'message': 'POST required'}, status=405)
+
+    from Email_validate_app.models import SOProspect, SOEvent
+    from Email_validate_app.views.so_lists import _normalize_status, _resolve_status
+
+    user_id = get_user_id(request)
+    uploaded = request.FILES.get('file')
+    if not uploaded:
+        return JsonResponse({'status': 'error', 'message': 'No file uploaded.'}, status=400)
+
+    try:
+        mapping = json.loads(request.POST.get('mapping', '{}'))  # {file_col: system_field}
+    except Exception:
+        return JsonResponse({'status': 'error', 'message': 'Invalid mapping data.'}, status=400)
+
+    if 'email' not in mapping.values():
+        return JsonResponse({'status': 'error', 'message': 'Email field must be mapped.'}, status=400)
+    if 'first_name' not in mapping.values() and 'last_name' not in mapping.values():
+        return JsonResponse({
+            'status': 'error',
+            'message': 'At least one name field (first_name or last_name) must be mapped.',
+        }, status=400)
+
+    email_col      = next(c for c, s in mapping.items() if s == 'email')
+    status_col     = next((c for c, s in mapping.items() if s == 'status'),     None)
+    first_name_col = next((c for c, s in mapping.items() if s == 'first_name'), None)
+    last_name_col  = next((c for c, s in mapping.items() if s == 'last_name'),  None)
+    company_col    = next((c for c, s in mapping.items() if s == 'company'),    None)
+    phone_col      = next((c for c, s in mapping.items() if s == 'phone'),      None)
+    mapped_cols    = set(mapping.keys())
+
+    try:
+        rows = _read_upload_rows(uploaded)
+    except Exception as exc:
+        return JsonResponse({'status': 'error', 'message': f'Could not read file: {exc}'}, status=400)
+
+    # ── Sanity-check the mapping against a sample of real rows ────────────────
+    sample = [r for r in rows if (r.get(email_col) or '').strip()][:10]
+    if sample:
+        hits = sum(1 for r in sample if _EMAIL_RE.match((r.get(email_col) or '').strip().lower()))
+        if hits < max(1, len(sample) * 0.6):
+            return JsonResponse({
+                'status': 'error',
+                'message': (
+                    f'The column mapped to Email ("{email_col}") does not appear to contain email '
+                    f'addresses (checked {len(sample)} rows, only {hits} looked valid). '
+                    f'Please check your column mapping.'
+                ),
+            }, status=400)
+        for label, col in [('First Name', first_name_col), ('Last Name', last_name_col)]:
+            if not col:
+                continue
+            email_like = sum(1 for r in sample if _EMAIL_RE.match((r.get(col) or '').strip().lower()))
+            if email_like >= len(sample) * 0.3:
+                return JsonResponse({
+                    'status': 'error',
+                    'message': (
+                        f'The column mapped to {label} ("{col}") appears to contain email addresses '
+                        f'rather than names. Please check your column mapping.'
+                    ),
+                }, status=400)
+
+    # ── Existing state ──────────────────────────────────────────────────────
+    existing_prospects = {
+        p['email']: p for p in SOProspect.objects.filter(user_id=user_id)
+        .values('id', 'email', 'status', 'deleted_at')
+    }
+    # Tracked unsubscribes always win and can never be re-subscribed.
+    hard_unsub = set(
+        SOEvent.objects.filter(campaign__user_id=user_id, event_type='unsubscribed')
+        .values_list('email', flat=True)
+    )
+
+    def existing_status(email):
+        # Deliberately ignores deleted_at — an unsubscribe is a consent
+        # signal that survives a soft-delete of the prospect record.
+        if email in hard_unsub:
+            return 'unsubscribed'
+        p = existing_prospects.get(email)
+        return p['status'] if p else None
+
+    # ── Pre-flight: rows whose status will be overridden by existing state ────
+    if not request.POST.get('confirmed'):
+        conflicts = []
+        for i, row in enumerate(rows):
+            email = (row.get(email_col) or '').strip().lower()
+            if not email or not _EMAIL_RE.match(email):
+                continue
+            uploaded_status = _normalize_status(row.get(status_col)) if status_col else 'subscribed'
+            if uploaded_status is None:
+                continue
+            existing = existing_status(email)
+            if existing is None:
+                continue
+            final = _resolve_status(uploaded_status, existing)
+            if final != uploaded_status:
+                conflicts.append({
+                    'row':      i + 2,
+                    'email':    email,
+                    'uploaded': uploaded_status,
+                    'existing': existing,
+                    'final':    final,
+                })
+        if conflicts:
+            return JsonResponse({
+                'status':          'conflicts',
+                'conflicts':       conflicts[:100],
+                'total_conflicts': len(conflicts),
+            })
+
+    # ── Import ──────────────────────────────────────────────────────────────
+    total        = len(rows)
+    seen         = set()
+    skipped_rows = []
+    to_create    = []
+    to_update    = []
+    by_status    = {'subscribed': 0, 'unsubscribed': 0, 'never_subscribed': 0}
+
+    for i, row in enumerate(rows):
+        raw_email  = (row.get(email_col) or '').strip().lower()
+        raw_status = (row.get(status_col) or '').strip() if status_col else ''
+
+        if not raw_email:
+            skipped_rows.append({'row': i + 2, 'email': '(empty)', 'uploaded_status': raw_status, 'reason': 'Missing email'})
+            continue
+        if not _EMAIL_RE.match(raw_email):
+            skipped_rows.append({'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status, 'reason': 'Invalid email format'})
+            continue
+        if raw_email in seen:
+            skipped_rows.append({'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status, 'reason': 'Duplicate row in file'})
+            continue
+
+        if status_col:
+            uploaded_status = _normalize_status(raw_status)
+            if uploaded_status is None:
+                skipped_rows.append({
+                    'row': i + 2, 'email': raw_email, 'uploaded_status': raw_status,
+                    'reason': f'Invalid status value "{raw_status}"',
+                })
+                continue
+        else:
+            uploaded_status = 'subscribed'
+
+        seen.add(raw_email)
+        final_status = _resolve_status(uploaded_status, existing_status(raw_email))
+        by_status[final_status] = by_status.get(final_status, 0) + 1
+
+        first = (row.get(first_name_col) or '').strip() if first_name_col else ''
+        last  = (row.get(last_name_col)  or '').strip() if last_name_col  else ''
+        comp  = (row.get(company_col)    or '').strip() if company_col    else ''
+        phone = (row.get(phone_col)      or '').strip() if phone_col      else ''
+        extra = {
+            col: (row.get(col) or '').strip()
+            for col in row if col not in mapped_cols and (row.get(col) or '').strip()
+        }
+
+        known = existing_prospects.get(raw_email)
+        if known:
+            to_update.append((known['id'], first, last, comp, phone, final_status, extra))
+        else:
+            to_create.append(SOProspect(
+                user_id=user_id, email=raw_email, first_name=first, last_name=last,
+                company=comp, phone=phone, status=final_status, extra_data=extra,
+            ))
+
+    if to_create:
+        SOProspect.objects.bulk_create(to_create, ignore_conflicts=True)
+
+    for pid, first, last, comp, phone, final_status, extra in to_update:
+        p = SOProspect.objects.filter(id=pid).first()
+        if not p:
+            continue
+        p.first_name = first or p.first_name
+        p.last_name  = last  or p.last_name
+        p.company    = comp  or p.company
+        p.phone      = phone or p.phone
+        p.status     = final_status
+        p.deleted_at = None
+        if extra:
+            merged = dict(p.extra_data or {})
+            merged.update(extra)
+            p.extra_data = merged
+        p.save()
+
+    imported = len(seen)
+    return JsonResponse({
+        'status': 'ok',
+        'summary': {
+            'total':        total,
+            'imported':     imported,
+            'by_status':    by_status,
+            'skipped':      len(skipped_rows),
+            'skipped_rows': skipped_rows[:500],
+        },
+    })

@@ -103,8 +103,53 @@
 .sop-page-current { font-size: 12.5px; color: var(--ink-3); min-width: 110px; text-align: center; }
 
 .sop-modal-medium { max-width: 480px; }
-.sop-modal-small { max-width: 440px; }
 .sop-form-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
 .sop-field-tight { margin-bottom: 0; }
 .sop-required { color: #C94A1D; }
-.sop-file-input { margin-bottom: 14px; font-size: 13px; }
+
+/* ── Upload Prospects wizard — same shape as Upload Contacts (Email
+   Marketing) and the List Detail page's own identical wizard. The wizard's
+   structural classes (.wiz-*, .uc-*, .cc-modal*, .badge-sub) come from the
+   shared campaign_contacts.css already linked above; these are only the
+   small spacing/color utility classes so this page doesn't need to touch
+   that shared file, matching the sold- (SO List Detail) precedent this is
+   copied from 1:1, just renamed to this page's own sop- prefix. */
+.sop-icon-success-mr { color: #00C6A2; margin-right: 8px; }
+.sop-icon-warn-mr    { color: #9A6800; margin-right: 8px; }
+.sop-icon-danger-mr  { color: #C94A1D; margin-right: 8px; }
+.sop-icon-mr-5 { margin-right: 5px; }
+.sop-clr-success { color: var(--teal-dk); }
+.sop-clr-danger  { color: #C94A1D; }
+.sop-text-muted  { color: var(--ink-3); }
+
+.sop-modal-wide { max-width: 560px; }
+.sop-h3-spaced { margin-bottom: 14px; }
+.sop-h3-spaced-lg { margin-bottom: 16px; }
+.sop-h3-tight { margin-bottom: 4px; }
+.sop-h3-flush { margin: 0; }
+.sop-upload-hint { margin: 8px 0 4px; }
+.sop-upload-sub { font-size: 12px; color: var(--ink-3); }
+.sop-file-input { display: none; }
+.sop-file-name { font-size: 13px; color: #007A5E; margin-top: 8px; font-weight: 600; }
+.sop-req-note-tight { margin-bottom: 4px; }
+.sop-error-spaced { margin-top: 8px; }
+.sop-actions-spaced { margin-top: 16px; }
+.sop-actions-spaced-lg { margin-top: 20px; }
+.sop-map-hint { font-size: 13px; color: var(--ink-3); margin-bottom: 14px; }
+.sop-scroll-x { overflow-x: auto; }
+.sop-scroll-y-280 { overflow-x: auto; max-height: 280px; overflow-y: auto; }
+.sop-scroll-y-320 { overflow-x: auto; max-height: 320px; overflow-y: auto; }
+.sop-map-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.sop-map-th { text-align: left; padding: 8px 12px; background: var(--bg-2); border-bottom: 1px solid var(--border); color: var(--ink-3); font-family: var(--font-head); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }
+.sop-map-td { padding: 8px 12px; border-bottom: 1px solid var(--border); color: var(--ink-2); }
+.sop-map-td-select { padding: 8px 12px; border-bottom: 1px solid var(--border); }
+.sop-conflict-summary { font-size: 13px; color: var(--ink-3); margin-bottom: 12px; }
+.sop-summary-wrap { display: flex; flex-direction: column; gap: 8px; }
+.sop-row-between { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.sop-row-between-pad { display: flex; justify-content: space-between; align-items: center; padding: 0 12px; }
+.sop-td-center { text-align: center; }
+.sop-mono-sm { font-size: 11px; }
+
+/* Wizard step panels (wizPanel1/2/2b/3/4) carry no class of their own, so
+   the native [hidden]{display:none} UA rule applies with nothing to
+   override — same already-proven pattern used throughout this app. */

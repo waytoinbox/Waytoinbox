@@ -62,13 +62,13 @@
       <table class="so-table">
         <thead>
           <tr>
-            <th>#</th>
-            <th>Email Address</th>
-            <th>Daily Limit</th>
-            <th>Status</th>
-            <th>Warmup</th>
-            <th>Added</th>
-            <th>Actions</th>
+            <th>Email Account</th>
+            <th class="soea-col-connection">Connection</th>
+            <th class="soea-col-usage">Daily Usage</th>
+            <th class="soea-col-warmup">Warmup</th>
+            <th class="soea-col-reply">Reply</th>
+            <th class="soea-col-campaigns">Campaigns</th>
+            <th class="soea-col-actions">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -78,8 +78,8 @@
               data-provider="{{ acc.provider }}"
               data-status="{% if acc.status == 'connected' %}connected{% elif acc.status == 'failed' %}failed{% else %}unchecked{% endif %}"
               data-date="{{ acc.created_at|date:'Y-m-d' }}">
-            <td class="soea-muted">{{ forloop.counter }}</td>
             <td class="mono">
+              <span class="soea-email-inner">
               {% if acc.provider == 'google' %}
               <svg class="soea-provider-icon" viewBox="0 0 48 48" title="{{ acc.get_provider_display }}" aria-hidden="true">
                 <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
@@ -90,48 +90,92 @@
               {% else %}
               <i class="fab fa-microsoft soea-provider-icon microsoft" title="{{ acc.get_provider_display }}"></i>
               {% endif %}
-              {{ acc.email }}
-            </td>
-            <td class="soea-limit-cell">
-              <span class="soea-limit-icon soea-limit-icon--{{ acc.limit_level }}" title="{{ acc.limit_pct }}% of daily limit used"><i class="fas fa-tachometer-alt"></i></span>
-              <span class="soea-limit-count soea-limit-count--{{ acc.limit_level }}">{{ acc.today_sent }}/{{ acc.daily_limit }}</span>
+              <span class="soea-email-text">{{ acc.email }}</span>
+              </span>
             </td>
             <td class="soea-status-cell">
               {% if acc.status == 'connected' %}
                 <span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>
               {% elif acc.status == 'failed' %}
-                <button type="button" class="so-badge-btn so-badge failed" onclick="openUpdatePwd({{ acc.id }}, '{{ acc.email }}')"><i class="fas fa-times-circle"></i> Failed</button>
+                <span class="so-badge failed"><i class="fas fa-times-circle"></i> Failed</span>
               {% else %}
-                <button type="button" class="so-badge-btn so-badge unchecked" onclick="checkAccount({{ acc.id }}, this)"><i class="fas fa-plug-circle-xmark"></i> Inactive</button>
+                <span class="so-badge unchecked"><i class="fas fa-plug-circle-xmark"></i> Inactive</span>
               {% endif %}
+            </td>
+            <td class="soea-limit-cell">
+              <span class="soea-limit-inner" title="{{ acc.limit_pct }}% of daily limit used">
+                <span class="soea-limit-count soea-limit-count--{{ acc.limit_level }}">{{ acc.today_sent }}/{{ acc.daily_limit }}</span>
+                <span class="soea-limit-bar-track">
+                  <span class="soea-limit-bar-fill soea-limit-bar-fill--{{ acc.limit_level }}" style="width:{{ acc.limit_pct }}%;"></span>
+                </span>
+              </span>
             </td>
             <td class="soea-warmup-cell">
-              {% if acc.warmup %}
-                <span class="soea-warmup-icon soea-warmup-icon--{{ acc.warmup.status }}" title="{{ acc.warmup.get_status_display }}"><i class="fas fa-fire"></i></span>
-                <span class="soea-warmup-count soea-warmup-count--{{ acc.warmup.status }}">{{ acc.warmup.daily_current }}/{{ acc.warmup.daily_target }}</span>
-              {% else %}
-                <span class="soea-muted">Not enrolled</span>
-              {% endif %}
-            </td>
-            <td class="soea-date-cell">{{ acc.created_at|date:"M d, Y" }}</td>
-            <td>
-              <div class="so-row-actions">
-                {% if acc.warmup and acc.warmup.status == 'active' %}
-                  <button class="so-icon-btn" onclick="warmupAction('pause', {{ acc.id }})"><i class="fas fa-fire"></i> Pause Warmup</button>
-                  <button class="so-icon-btn danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
-                {% elif acc.warmup and acc.warmup.status == 'paused' %}
-                  <button class="so-icon-btn" onclick="warmupAction('resume', {{ acc.id }})"><i class="fas fa-fire"></i> Resume Warmup</button>
-                  <button class="so-icon-btn danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
+              <span class="soea-warmup-inner">
+                {% if acc.warmup %}
+                  <span class="soea-warmup-icon soea-warmup-icon--{{ acc.warmup.status }}"><i class="fas fa-fire"></i></span>
+                  <span class="soea-warmup-text">
+                    <span class="soea-warmup-label soea-warmup-label--{{ acc.warmup.status }}">{{ acc.warmup.get_status_display }}</span>
+                    {% if acc.warmup.status == 'active' or acc.warmup.status == 'paused' %}
+                      <span class="soea-warmup-count soea-warmup-count--{{ acc.warmup.status }}">{{ acc.warmup.daily_current }}/{{ acc.warmup.daily_target }}</span>
+                    {% endif %}
+                  </span>
                 {% else %}
-                  <button class="so-icon-btn" onclick="openStartWarmup({{ acc.id }}, '{{ acc.email|escapejs }}')"><i class="fas fa-fire"></i> Start Warmup</button>
+                  <span class="soea-warmup-icon soea-warmup-icon--none"><i class="fas fa-minus"></i></span>
+                  <span class="soea-warmup-text">
+                    <span class="soea-warmup-label soea-warmup-label--none">Not Started</span>
+                  </span>
                 {% endif %}
-                <button class="so-icon-btn danger" onclick="openDelModal('{{ acc.email }}', {{ acc.id }}, this.closest('tr'))">
-                  <i class="fas fa-trash"></i>
-                </button>
+              </span>
+            </td>
+            <td class="soea-reply-cell">
+              <span class="soea-reply-inner" title="{{ acc.replies_7d }} repl{{ acc.replies_7d|pluralize:'y,ies' }} out of {{ acc.prospects_7d }} prospect{{ acc.prospects_7d|pluralize }} contacted in the last 7 days">
+                <i class="fas fa-reply soea-reply-icon"></i>
+                <span class="soea-reply-text">
+                  <span class="soea-reply-count">{{ acc.replies_7d }}/{{ acc.prospects_7d }}</span>
+                  <span class="soea-reply-window">7d</span>
+                </span>
+              </span>
+            </td>
+            <td class="soea-campaigns-cell">
+              <span class="soea-campaigns-inner" title="Used as sender in {{ acc.campaigns_count }} campaign{{ acc.campaigns_count|pluralize }}">
+                <i class="fas fa-bullhorn soea-campaigns-icon"></i>
+                <span class="soea-campaigns-count">{{ acc.campaigns_count }}</span>
+              </span>
+            </td>
+            <td class="soea-actions-cell">
+              <div class="soea-actions-inner">
+                <a class="so-icon-btn" href="{% url 'so_analytics_overview' %}?account={{ acc.id }}" title="View Analytics"><i class="fas fa-chart-line"></i></a>
+                {% if acc.status == 'failed' %}
+                  <button type="button" class="so-icon-btn soea-reconnect-btn" title="Reconnect" onclick="openUpdatePwd({{ acc.id }}, '{{ acc.email|escapejs }}')"><i class="fas fa-rotate"></i></button>
+                {% elif acc.status == 'unchecked' %}
+                  <button type="button" class="so-icon-btn soea-reconnect-btn" title="Reconnect" onclick="checkAccount({{ acc.id }}, this)"><i class="fas fa-rotate"></i></button>
+                {% endif %}
+                <div class="soea-row-menu-wrap">
+                  <button type="button" class="so-icon-btn soea-row-menu-trigger" title="More actions"><i class="fas fa-ellipsis-v"></i></button>
+                  <div class="soea-row-menu" hidden>
+                    <a href="{% url 'so_edit_email_account' acc.id %}" hidden><i class="fas fa-pen"></i> Edit Account</a>
+                    <hr hidden/>
+                    {% if acc.warmup and acc.warmup.status == 'active' %}
+                      <button type="button" onclick="warmupAction('pause', {{ acc.id }})"><i class="fas fa-pause"></i> Pause Warmup</button>
+                      <button type="button" class="soea-menu-danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
+                    {% elif acc.warmup and acc.warmup.status == 'paused' %}
+                      <button type="button" onclick="warmupAction('resume', {{ acc.id }})"><i class="fas fa-play"></i> Resume Warmup</button>
+                      <button type="button" class="soea-menu-danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
+                    {% else %}
+                      <button type="button" onclick="openStartWarmup({{ acc.id }}, '{{ acc.email|escapejs }}')"><i class="fas fa-fire"></i> Start Warmup</button>
+                    {% endif %}
+                    <hr/>
+                    <button type="button" class="soea-menu-danger" onclick="openDelModal('{{ acc.email }}', {{ acc.id }}, this.closest('tr'))"><i class="fas fa-trash"></i> Remove Account</button>
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
           {% endfor %}
+          <tr id="soeaEmptyRow" style="display:none;">
+            <td colspan="7" class="soea-empty-filter-row">No accounts match your filters</td>
+          </tr>
         </tbody>
       </table>
     </div>
@@ -181,7 +225,7 @@
       <i class="fas fa-info-circle"></i> Spaces are removed automatically.
     </p>
     <div class="so-modal-actions">
-      <button class="so-modal-cancel" id="cancelUpdatePwd">Cancel</button>
+      <button class="so-modal-cancel" id="cancelUpdatePwd"><i class="fas fa-xmark"></i> Cancel</button>
       <button class="so-modal-confirm soea-btn-blue" id="confirmUpdatePwd">
         <i class="fas fa-save"></i> Save Password
       </button>
@@ -227,7 +271,7 @@
       <p>Volume ramps by the daily increment each day until it reaches the daily target, then continues indefinitely at that volume.</p>
     </div>
     <div class="so-modal-actions">
-      <button class="so-modal-cancel" id="cancelStartWarmup">Cancel</button>
+      <button class="so-modal-cancel" id="cancelStartWarmup"><i class="fas fa-xmark"></i> Cancel</button>
       <button class="so-modal-confirm soea-btn-fire" id="confirmStartWarmup"><i class="fas fa-fire"></i> Start Warmup</button>
     </div>
   </div>
@@ -240,8 +284,8 @@
     <p>Type <strong id="delTarget"></strong> to confirm removal.</p>
     <input class="so-modal-input" type="text" id="delInput" placeholder="Type email to confirm" autocomplete="off"/>
     <div class="so-modal-actions">
-      <button class="so-modal-cancel" id="cancelDel">Cancel</button>
-      <button class="so-modal-confirm danger" id="confirmDel" disabled>Remove</button>
+      <button class="so-modal-cancel" id="cancelDel"><i class="fas fa-xmark"></i> Cancel</button>
+      <button class="so-modal-confirm danger" id="confirmDel" disabled><i class="fas fa-trash"></i> Remove</button>
     </div>
   </div>
 </div>
@@ -253,6 +297,41 @@ var ACTION_URL = '{% url "so_email_account_action" %}';
 var WARMUP_ACTION_URL = '{% url "warmup_sender_action" %}';
 var _editId = null, _delEmail = null, _delId = null, _delRow = null;
 var _warmupStartId = null;
+
+/* ── Row action menu (kebab) — one trigger+menu pair per row, only one
+   open at a time, closes on any outside click, scroll, or once an action
+   inside it is chosen. position:fixed means the menu's top/left have to be
+   computed from the trigger's own bounding rect (see so_email_accounts.css
+   for why position:fixed is required here), clamped so it never renders
+   past the right edge of the viewport. */
+function positionRowMenu(btn, menu) {
+  var rect = btn.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + 'px';
+  var left = rect.right - menu.offsetWidth;
+  left = Math.max(8, left);
+  menu.style.left = left + 'px';
+}
+document.querySelectorAll('.soea-row-menu-trigger').forEach(function (btn) {
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var menu = btn.nextElementSibling;
+    var wasHidden = menu.hidden;
+    document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+    if (wasHidden) { menu.hidden = false; positionRowMenu(btn, menu); }
+  });
+});
+document.querySelectorAll('.soea-row-menu').forEach(function (menu) {
+  menu.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (e.target.closest('button')) menu.hidden = true;
+  });
+});
+document.addEventListener('click', function () {
+  document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+});
+window.addEventListener('scroll', function () {
+  document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+}, true);
 
 /* ── Warmup controls ─────────────────────────────────── */
 function warmupAction(action, id) {
@@ -303,7 +382,7 @@ function soeaMatchingRows() {
   var from     = document.getElementById('soeaDateFrom')       ? document.getElementById('soeaDateFrom').value : '';
   var to       = document.getElementById('soeaDateTo')         ? document.getElementById('soeaDateTo').value   : '';
   var tbody = document.querySelector('.so-table tbody');
-  var all = tbody ? Array.prototype.slice.call(tbody.querySelectorAll('tr')) : [];
+  var all = tbody ? Array.prototype.slice.call(tbody.querySelectorAll('tr:not(#soeaEmptyRow)')) : [];
   var matching = all.filter(function (tr) {
     return PF.matchesSearch(tr.dataset.search || tr.textContent, q)
         && PF.matchesStatus(tr.dataset.provider || '', provider)
@@ -327,6 +406,9 @@ function soeaRender() {
 
   m.all.forEach(function (tr) { tr.style.display = 'none'; });
   m.matching.forEach(function (tr, i) { tr.style.display = (i >= start && i < end) ? '' : 'none'; });
+
+  var emptyRow = document.getElementById('soeaEmptyRow');
+  if (emptyRow) emptyRow.style.display = (m.all.length > 0 && total === 0) ? '' : 'none';
 
   var clearBtn = document.getElementById('soeaClearFilter');
   if (clearBtn) clearBtn.style.display = m.hasFilters ? '' : 'none';
@@ -404,11 +486,15 @@ function soeaRender() {
 
 /* ── Check ─────────────────────────────────────────── */
 function checkAccount(id, btn) {
-  var statusTd = btn.closest('.soea-status-cell');
-  var email = btn.closest('tr').dataset.search;
+  // btn is the icon-only Reconnect button, which now lives in the Actions
+  // cell (not inside .soea-status-cell) — locate the status cell via the
+  // row instead of via ancestor lookup.
+  var row = btn.closest('tr');
+  var statusTd = row.querySelector('.soea-status-cell');
+  var email = row.dataset.search;
   var original = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Checking…';
+  btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
   fetch(ACTION_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
@@ -423,11 +509,17 @@ function checkAccount(id, btn) {
     if (d.result === 'connected') {
       statusTd.innerHTML = '<span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>';
       WTI.toast('Connection successful!', 'success');
+      // Active accounts never show a Reconnect button.
+      btn.remove();
     } else {
-      // Failed badge opens Update Password directly (the almost-always cause
-      // of a failed SMTP test), rather than re-running the same check.
-      statusTd.innerHTML = '<button type="button" class="so-badge-btn so-badge failed" onclick="openUpdatePwd(' + id + ', \'' + email + '\')"><i class="fas fa-times-circle"></i> Failed</button>';
+      statusTd.innerHTML = '<span class="so-badge failed"><i class="fas fa-times-circle"></i> Failed</span>';
       WTI.toast(d.error_msg || 'Connection failed.', 'error');
+      // Stays a Reconnect button, but now opens Update Password directly
+      // (the almost-always cause of a failed SMTP test) instead of
+      // re-running the same test.
+      btn.disabled = false;
+      btn.innerHTML = original;
+      btn.onclick = function () { openUpdatePwd(id, email); };
     }
   }).catch(() => {
     btn.disabled = false;

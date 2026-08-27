@@ -55,7 +55,7 @@ def _discover_sent_folder(imap, account):
     return folder
 
 
-def _record_once(cc, event_type, counter_field, metadata=None):
+def _record_once(cc, event_type, counter_field, metadata=None, ref_ids=None):
     """Record an SOEvent for a campaign contact at most once.
 
     The inbox is re-scanned every 15 minutes with day-granularity IMAP SEARCH,
@@ -70,9 +70,55 @@ def _record_once(cc, event_type, counter_field, metadata=None):
     ).exists()
     if exists:
         return False
+    # V3.2 step attribution — cc.current_step is always "the step still owed"
+    # (see SOCampaignContact's own docstring), and _record_success always
+    # writes current_step and message_id together, so cc.message_id (whatever
+    # this reply/bounce/complaint was matched against, directly or via the
+    # most-recent-send fallback in sync_account_inbox) always corresponds to
+    # step current_step - 1, the step most recently sent to this contact.
+    # Not a new lookup — cc is already resolved by the time this runs, this
+    # just reads state the caller already has correctly. Guarded at 0 for a
+    # row somehow reached with nothing ever sent, which should not happen
+    # given every caller here already requires sent_at.
+    step_order = cc.current_step - 1 if cc.current_step > 0 else None
+    # V3.7 — 'replied' ONLY: refine step_order with a precise lookup against
+    # this contact's own per-step 'sent' SOEvent history (written by
+    # so_drip.py::_record_success, one row per step with its own message_id
+    # and step_order) whenever the reply's own In-Reply-To/References
+    # headers (ref_ids, collected by the caller) actually reference one of
+    # those message-ids — this is what lets a LATE reply (arriving after
+    # later steps have already been sent, so cc.current_step - 1 would
+    # otherwise point at the wrong, more-recent step) still resolve to the
+    # step it was actually replying to. Picks the LATEST (highest
+    # step_order) referenced step when a thread spans several — the
+    # prospect is almost always replying to the newest message they saw,
+    # not an older one further back in the same thread. Falls back to the
+    # heuristic above whenever no precise match is possible (no ref_ids, or
+    # none of them match a known 'sent' event — e.g. the from-address-only
+    # fallback path has no headers to match against at all). Deliberately
+    # scoped to event_type == 'replied' only — bounced/complained keep the
+    # exact same heuristic they always have, unchanged.
+    if event_type == 'replied' and ref_ids:
+        precise_step_order = (
+            SOEvent.objects.filter(
+                campaign_id=cc.campaign_id, email=cc.email, event_type='sent',
+                message_id__in=ref_ids, step_order__isnull=False,
+            )
+            .order_by('-step_order')
+            .values_list('step_order', flat=True)
+            .first()
+        )
+        if precise_step_order is not None:
+            step_order = precise_step_order
     SOEvent.objects.create(
-        campaign=cc.campaign, prospect=cc.prospect, email=cc.email,
-        event_type=event_type, metadata=metadata or {},
+        campaign=cc.campaign, prospect=cc.prospect,
+        # The outbound campaign send this reply/bounce/complaint is about —
+        # cc.account/cc.message_id, not the account whose inbox happened to
+        # be doing the IMAP sync (usually the same account in this system,
+        # but not guaranteed, and not what "sender account" means here).
+        account_id=cc.account_id, message_id=cc.message_id,
+        email=cc.email, event_type=event_type, metadata=metadata or {},
+        step_order=step_order,
     )
     SOCampaign.objects.filter(id=cc.campaign_id).update(
         **{counter_field: F(counter_field) + 1}
@@ -244,12 +290,19 @@ def sync_account_inbox(account):
         logger.error('so_imap: IMAP connect/login failed for account %s: %s', account.id, exc)
         return
 
-    def _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to):
+    def _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=None):
         """Shared by the ref-matched path and the no-headers-at-all fallback
         path — fetches the full body ONCE (header-only fetch stays cheap for
         every message; this second targeted fetch only runs for confirmed
         reply candidates) and records the reply into both the analytics
-        counters (SOEvent, unchanged) and the Inbox's content store."""
+        counters (SOEvent, unchanged) and the Inbox's content store.
+
+        `ref_ids` (V3.7) is the full In-Reply-To/References message-id set
+        the caller already computed for thread matching — passed through
+        unchanged to _record_once for precise 'replied' step attribution
+        only; None/empty from the no-headers-at-all fallback path, where no
+        precise attribution is possible and the existing heuristic applies.
+        """
         if not cc_qs:
             # Not a campaign reply — still real mail in this mailbox. Record it
             # under the general (non-campaign) conversation path instead of
@@ -273,11 +326,42 @@ def sync_account_inbox(account):
         from_addr       = _extract_email_address(msg.get('From', ''))
 
         for cc in cc_qs:
-            _record_once(cc, 'replied', 'total_replied', {'oof': is_oof})
+            _record_once(cc, 'replied', 'total_replied', {'oof': is_oof}, ref_ids=ref_ids)
             # An out-of-office is not a genuine reply — don't stop a
-            # sequence over an auto-responder.
+            # sequence over an auto-responder, and never let it feed
+            # reply-based branching either (see services/so_subsequence.py
+            # ::_eval_replied, which independently excludes metadata['oof']
+            # rows as a second, structural guard against the same thing).
             if not is_oof:
-                _stop_sequence(cc, 'replied')
+                # V3.7 — a campaign with an ACTIVE 'replied' branching
+                # condition gets to decide what a reply means instead of
+                # the sequence being unconditionally stopped: leave the
+                # contact exactly as-is (still 'active', unchanged
+                # next_action_at) so the existing, unmodified condition
+                # dispatcher (tasks/so_subsequence.py, already polls every
+                # 15 minutes with no next_action_at gate) picks it up on
+                # its own next tick via eligible_condition_branch/
+                # _eval_replied — no new dispatch mechanism, no change to
+                # branch_via_condition or the CAS logic. A campaign with NO
+                # active 'replied' condition takes exactly the same
+                # stop() path it always has — zero behavior change.
+                #
+                # V3.9 — also requires cc.active_subsequence_id is None: a
+                # main-sequence 'replied' condition can never apply to a
+                # contact already on a subsequence track (
+                # eligible_condition_branch's own active_subsequence_id
+                # gate rejects them unconditionally), so skipping stop()
+                # for one bought nothing but an un-stopped contact who
+                # genuinely replied — see the V3.6-V3.8 audit's Medium
+                # finding. A subsequence contact now always stops on a
+                # genuine reply, exactly as every campaign already behaved
+                # before V3.7 existed.
+                has_reply_condition = (
+                    cc.active_subsequence_id is None
+                    and cc.campaign.conditions.filter(trigger_type='replied', is_active=True).exists()
+                )
+                if not has_reply_condition:
+                    _stop_sequence(cc, 'replied')
             _record_conversation_reply(
                 cc, subject_display, own_msg_id, in_reply_to, from_addr,
                 account, sent_at, html, text, has_attachment, is_oof,
@@ -319,7 +403,7 @@ def sync_account_inbox(account):
                                 email__iexact=from_addr, campaign__user_id=account.user_id, sent_at__isnull=False,
                             ).select_related('prospect', 'campaign').order_by('-sent_at').first()
                             cc_qs = [fallback_cc] if fallback_cc else []
-                    _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to)
+                    _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=ref_ids)
 
                 # Bounce detection (only if not already handled as reply)
                 elif (any(b in from_hdr for b in _BOUNCE_FROM) or

@@ -1,0 +1,324 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_analytics.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="so-page">
+
+  <div class="so-header">
+    <div>
+      {% if account %}<a href="{% url 'so_email_accounts' %}" class="soa-back-link"><i class="fas fa-arrow-left"></i> Back to Email Accounts</a>{% endif %}
+      <h1>{% if account %}Account Analytics{% else %}Sales Outreach Analytics{% endif %}</h1>
+      {% if account %}<p class="soa-muted" style="margin:4px 0 0;">{{ account.email }}</p>{% endif %}
+    </div>
+  </div>
+
+  {% if account %}
+  <div class="soa-filter-bar" id="soaAccountTabs" style="margin-bottom:14px;">
+    <button class="soa-pill active" data-tab="campaign">Campaign</button>
+    <button class="soa-pill" data-tab="warmup">Warmup</button>
+    <span class="soa-note soa-warmup-caption" id="soaWarmupCaption" hidden>Warmup metrics are not date-filtered.</span>
+  </div>
+  {% endif %}
+
+  <div class="soa-section-head" style="margin-top:0;" id="soaDateFilterHead">
+    <span></span>
+    <div class="soa-filter-bar" id="soaFilterBar">
+      <button class="soa-pill" data-preset="today">Today</button>
+      <button class="soa-pill" data-preset="7d">Last 7 Days</button>
+      <button class="soa-pill active" data-preset="30d">Last 30 Days</button>
+      <button class="soa-pill" data-preset="all">All Time</button>
+      <button class="soa-pill" data-preset="custom">Custom</button>
+      <div class="soa-custom-dates" id="soaCustomDates">
+        <input type="date" id="soaDateFrom" class="soa-date-input"/>
+        <span style="color:var(--ink-3);font-size:12px;">to</span>
+        <input type="date" id="soaDateTo" class="soa-date-input"/>
+        <button class="soa-date-apply" id="soaDateApply">Apply</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="soaRoot">
+    <div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var DATA_URL = '{% url "so_analytics_overview_data" %}';
+  var state = {
+    preset: '30d', date_from: '', date_to: '',
+    account: new URLSearchParams(window.location.search).get('account') || '',
+    tab: 'campaign', // only meaningful when state.account is set
+  };
+  var sortState = { campaigns: { key: 'sent', dir: -1 } };
+  var lastData = null;
+
+  function fmtNum(n) { return (n === null || n === undefined) ? '—' : Number(n).toLocaleString(); }
+  function esc(s) { var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function rateCell(v) { return v === null || v === undefined ? '<span class="soa-muted">—</span>' : v + '%'; }
+
+  function renderTotals(d) {
+    return '<div class="soa-kpi-grid">' +
+      '<div class="soa-kpi-card"><div class="soa-kpi-label">Campaigns</div><div class="soa-kpi-value">' + fmtNum(d.totals.campaigns) + '</div></div>' +
+      '<div class="soa-kpi-card"><div class="soa-kpi-label">Sent</div><div class="soa-kpi-value">' + fmtNum(d.totals.sent) + '</div></div>' +
+      '<div class="soa-kpi-card"><div class="soa-kpi-label">Delivered</div><div class="soa-kpi-value">' + fmtNum(d.totals.delivered) + '</div></div>' +
+      '</div>';
+  }
+
+  /* Account-scoped KPI grid (?account=<id>) — reuses the same per-account
+     row compute_sender_account_analytics already produces for the general
+     Sender Account Performance table, just laid out as KPI cards instead
+     of a table row since there's exactly one account to show here. */
+  var ACCOUNT_KPI_FIELDS = [
+    ['sent', 'Sent', false], ['delivered', 'Delivered', false], ['delivery_rate', 'Delivery %', true],
+    ['opened', 'Opens', false], ['open_rate', 'Open %', true],
+    ['clicked', 'Clicks', false], ['click_rate', 'Click %', true],
+    ['replied', 'Replies', false], ['reply_rate', 'Reply %', true],
+    ['bounced', 'Bounces', false], ['bounce_rate', 'Bounce %', true],
+    ['complained', 'Complaints', false], ['unsubscribed', 'Unsubscribes', false],
+  ];
+  /* The KPI grid is ALWAYS rendered for a valid account, even when the
+     selected window has no activity — an empty window then shows real
+     zeros (never fabricated values) plus a subtle note, instead of the
+     whole grid vanishing and the layout jumping between date presets.
+     `a` is null only when compute_sender_account_analytics returned no
+     row at all for this account in this window; the zero object below
+     mirrors that row's shape exactly rather than inventing numbers. */
+  var EMPTY_ACCOUNT_ROW = {
+    sent: 0, delivered: 0, opened: 0, clicked: 0, replied: 0,
+    bounced: 0, complained: 0, unsubscribed: 0,
+    delivery_rate: null, open_rate: null, click_rate: null,
+    reply_rate: null, bounce_rate: null,
+  };
+  function renderAccountKpis(d) {
+    var a = (d.senders.accounts && d.senders.accounts[0]) || null;
+    var isEmpty = !a;
+    if (isEmpty) a = EMPTY_ACCOUNT_ROW;
+    var cards = ACCOUNT_KPI_FIELDS.map(function (f) {
+      var val = f[2] ? rateCell(a[f[0]]) : fmtNum(a[f[0]]);
+      return '<div class="soa-kpi-card"><div class="soa-kpi-label">' + f[1] + '</div><div class="soa-kpi-value">' + val + '</div></div>';
+    }).join('');
+    return (isEmpty ? '<p class="soa-note" style="margin:0 0 12px;">No activity for this account in this window.</p>' : '') +
+      '<div class="soa-kpi-grid">' + cards + '</div>';
+  }
+
+  /* Account-scoped Warmup tab — reuses the exact same terminology/metrics
+     as the /Warmup/ dashboard (Sent/Inbox/Spam/Rescued/Other/Not Found/
+     Read/Failed/Placement %), just scoped to one account instead of every
+     account the user owns, and the same .so-badge status classes that
+     dashboard's Sender Account Performance table already uses. Not
+     date-filtered (warmup has no date-preset concept, same as that
+     dashboard), so it renders whatever the last fetch returned. */
+  /* Optional third element = a muted sub-line under the value (reuses the
+     pre-existing .soa-kpi-sub class), used where a second related number
+     would otherwise have to be crammed into the value as a misleading
+     "7 / 2"-style ratio. */
+  function kpiCard(label, value, sub) {
+    return '<div class="soa-kpi-card"><div class="soa-kpi-label">' + label + '</div>' +
+      '<div class="soa-kpi-value">' + value + '</div>' +
+      (sub ? '<div class="soa-kpi-sub">' + sub + '</div>' : '') + '</div>';
+  }
+  function kpiGrid(cards) {
+    return '<div class="soa-kpi-grid">' + cards.map(function (c) { return kpiCard(c[0], c[1], c[2]); }).join('') + '</div>';
+  }
+  function sectionLabel(text) {
+    return '<div class="soa-kpi-label" style="margin:18px 0 8px;">' + text + '</div>';
+  }
+  function renderAccountWarmup(d) {
+    var w = d.warmup;
+    if (!w) {
+      return '<div class="so-card"><div class="soa-rec-empty">' +
+        '<i class="fas fa-fire" style="opacity:.35;display:block;font-size:22px;margin-bottom:8px;"></i>' +
+        'This account has not started warmup yet.</div></div>';
+    }
+    var statusCard = '<div class="so-card" style="padding:16px 20px;">' +
+      '<div class="soa-kpi-label" style="margin-bottom:8px;">Warmup Status</div>' +
+      '<span class="so-badge ' + esc(w.status) + '">' + esc(w.status_display) + '</span></div>';
+    var todayGrid = kpiGrid([
+      // Sent and today's computed ramp target are two independent numbers
+      // (sent can legitimately exceed target after a config/ramp change),
+      // so they're never shown as a "7 / 2" ratio — see the audit finding.
+      ['Today Sent', fmtNum(w.today.sent), 'Target: ' + fmtNum(w.todays_target)],
+      ['Today Inbox', fmtNum(w.today.inbox)],
+      ['Today Spam', fmtNum(w.today.spam)],
+      ['Today Rescued → Inbox', fmtNum(w.today.rescued)],
+      ['Today Other', fmtNum(w.today.other)],
+    ]);
+    var totalGrid = kpiGrid([
+      ['Total Sent', fmtNum(w.total.sent)],
+      ['Total Inbox', fmtNum(w.total.inbox)],
+      ['Total Spam', fmtNum(w.total.spam)],
+      ['Rescued → Inbox', fmtNum(w.total.rescued)],
+      ['Other', fmtNum(w.total.other)],
+      ['Not Found', fmtNum(w.total.not_found)],
+      ['Failed', fmtNum(w.failed)],
+      ['Read', fmtNum(w.total.read)],
+    ]);
+    var placementGrid = kpiGrid([
+      ['Inbox Placement %', rateCell(w.placement_pct.inbox)],
+      ['Spam Placement %', rateCell(w.placement_pct.spam)],
+    ]);
+    return statusCard + sectionLabel('Today') + todayGrid +
+      sectionLabel('All-Time') + totalGrid +
+      sectionLabel('Placement (of checked messages)') + placementGrid;
+  }
+
+  var CAMPAIGN_COLS = [
+    { key: 'name', label: 'Campaign' }, { key: 'sent', label: 'Sent' }, { key: 'delivered', label: 'Delivered' },
+    { key: 'delivery_rate', label: 'Delivery %' }, { key: 'open_rate', label: 'Open %' }, { key: 'click_rate', label: 'Click %' },
+    { key: 'reply_rate', label: 'Reply %' }, { key: 'bounce_rate', label: 'Bounce %' }, { key: 'unsubscribe_rate', label: 'Unsub %' },
+  ];
+
+  function sortRows(rows, key, dir) {
+    return rows.slice().sort(function (a, b) {
+      var av = a[key], bv = b[key];
+      if (av === null || av === undefined) av = -Infinity;
+      if (bv === null || bv === undefined) bv = -Infinity;
+      if (typeof av === 'string') return dir * av.localeCompare(bv);
+      return dir * (av - bv);
+    });
+  }
+
+  function renderCampaignTable(d) {
+    var s = sortState.campaigns;
+    var rows = sortRows(d.campaigns, s.key, s.dir);
+    var head = CAMPAIGN_COLS.map(function (c) {
+      var icon = s.key === c.key ? (s.dir === -1 ? 'fa-sort-down' : 'fa-sort-up') : 'fa-sort';
+      return '<th class="soa-sortable" data-key="' + c.key + '">' + c.label + ' <i class="fas ' + icon + '"></i></th>';
+    }).join('');
+    var body = rows.map(function (c) {
+      var name = '<a href="/Sales-Outreach/sender/' + c.campaign_id + '/">' + esc(c.name) + '</a>';
+      return '<tr><td>' + name + '</td><td>' + fmtNum(c.sent) + '</td><td>' + fmtNum(c.delivered) + '</td>' +
+        '<td>' + rateCell(c.delivery_rate) + '</td>' +
+        '<td>' + (c.tracking_enabled ? rateCell(c.open_rate) : '<span class="soa-muted">n/a</span>') + '</td>' +
+        '<td>' + (c.tracking_enabled ? rateCell(c.click_rate) : '<span class="soa-muted">n/a</span>') + '</td>' +
+        '<td>' + rateCell(c.reply_rate) + '</td><td>' + rateCell(c.bounce_rate) + '</td><td>' + rateCell(c.unsubscribe_rate) + '</td></tr>';
+    }).join('');
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-trophy"></i> Campaign Comparison</div>' +
+      '<div class="so-table-wrap soa-table-scroll"><table class="so-table"><thead><tr>' + head + '</tr></thead>' +
+      '<tbody id="soaCampaignBody">' + (body || '<tr><td colspan="9" class="soa-muted" style="text-align:center;padding:18px;">No campaigns in this window.</td></tr>') + '</tbody></table></div></div>';
+  }
+
+  function renderSenderTable(d) {
+    var rows = d.senders.accounts.map(function (a) {
+      return '<tr><td>' + esc(a.email) + '</td><td>' + fmtNum(a.sent) + '</td><td>' + fmtNum(a.delivered) + '</td>' +
+        '<td>' + rateCell(a.delivery_rate) + '</td><td>' + rateCell(a.open_rate) + '</td><td>' + rateCell(a.click_rate) + '</td>' +
+        '<td>' + rateCell(a.reply_rate) + '</td><td>' + rateCell(a.bounce_rate) + '</td><td>' + rateCell(a.complaint_rate) + '</td><td>' + rateCell(a.unsubscribe_rate) + '</td></tr>';
+    }).join('');
+    var unattr = d.senders.unattributed.sent.total;
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-at"></i> Sender Account Performance (all campaigns)</div>' +
+      '<div class="so-table-wrap soa-table-scroll"><table class="so-table"><thead><tr><th>Account</th><th>Sent</th><th>Delivered</th><th>Delivery %</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th><th>Complaint %</th><th>Unsub %</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="10" class="soa-muted" style="text-align:center;padding:18px;">No sender data.</td></tr>') + '</tbody></table></div>' +
+      (unattr ? '<p class="soa-note" style="padding:0 20px 14px;">' + unattr + ' send(s) have no recorded sender account and are excluded from this table.</p>' : '') +
+      '</div>';
+  }
+
+  function renderRecommendations(d) {
+    var items = d.recommendations.map(function (r) {
+      return '<div class="soa-rec-item' + (r.sufficient_data ? '' : ' insufficient') + '">' +
+        '<div class="soa-rec-icon"><i class="fas ' + (r.sufficient_data ? 'fa-lightbulb' : 'fa-hourglass-half') + '"></i></div>' +
+        '<div class="soa-rec-body"><div class="soa-rec-cat">' + esc(r.category.replace(/_/g, ' ')) + '</div>' +
+        '<div class="soa-rec-msg">' + esc(r.message) + '</div></div></div>';
+    }).join('');
+    return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-bullseye"></i> Optimization Insights <span style="font-weight:400;color:var(--ink-3);font-size:11.5px;">(advisory only — no automatic changes are made)</span></div>' +
+      '<div style="padding:14px 20px;"><div class="soa-rec-list">' + (items || '<div class="soa-rec-empty">No recommendations yet.</div>') + '</div></div></div>';
+  }
+
+  function render(d) {
+    lastData = d;
+    var root = document.getElementById('soaRoot');
+    if (d.account) {
+      if (state.tab === 'warmup') {
+        root.innerHTML = renderAccountWarmup(d);
+      } else {
+        // Account-scoped (?account=<id>) Campaign tab: KPI cards for just
+        // this account + its own campaign-wise breakdown. The general
+        // Sender Account Performance table and cross-account
+        // Recommendations block are skipped here — both are
+        // redundant/meaningless once already narrowed to a single account.
+        root.innerHTML = renderAccountKpis(d) + '<div style="height:14px;"></div>' + renderCampaignTable(d);
+      }
+    } else {
+      root.innerHTML = renderTotals(d) + renderCampaignTable(d) + '<div style="height:14px;"></div>' + renderSenderTable(d) + '<div style="height:14px;"></div>' + renderRecommendations(d);
+    }
+    var body = document.querySelector('.so-page');
+    body.querySelectorAll('.soa-sortable').forEach(function (th) {
+      th.addEventListener('click', function () {
+        var key = th.dataset.key;
+        var s = sortState.campaigns;
+        s.dir = (s.key === key) ? -s.dir : -1;
+        s.key = key;
+        render(lastData);
+      });
+    });
+  }
+
+  function fetchData() {
+    var root = document.getElementById('soaRoot');
+    root.innerHTML = '<div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>';
+    var params = { preset: state.preset, date_from: state.date_from, date_to: state.date_to };
+    if (state.account) params.account = state.account;
+    var qs = new URLSearchParams(params);
+    fetch(DATA_URL + '?' + qs.toString())
+      .then(function (r) { return r.json(); })
+      .then(function (d) {
+        if (d.status !== 'ok') { root.innerHTML = '<div class="soa-rec-empty">Could not load analytics.</div>'; return; }
+        render(d);
+      })
+      .catch(function () { root.innerHTML = '<div class="soa-rec-empty">Network error loading analytics.</div>'; });
+  }
+
+  document.getElementById('soaFilterBar').addEventListener('click', function (e) {
+    var btn = e.target.closest('.soa-pill');
+    if (!btn) return;
+    var preset = btn.dataset.preset;
+    // Scoped to this bar only — .soa-pill is now also used by the
+    // Campaign/Warmup tab bar (#soaAccountTabs), which must keep its own
+    // active state independent of the date-preset pills.
+    document.querySelectorAll('#soaFilterBar .soa-pill').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.getElementById('soaCustomDates').classList.toggle('visible', preset === 'custom');
+    if (preset === 'custom') return;
+    state.preset = preset; state.date_from = ''; state.date_to = '';
+    fetchData();
+  });
+  document.getElementById('soaDateApply').addEventListener('click', function () {
+    var from = document.getElementById('soaDateFrom').value, to = document.getElementById('soaDateTo').value;
+    if (!from || !to) return;
+    state.preset = 'custom'; state.date_from = from; state.date_to = to;
+    fetchData();
+  });
+
+  /* Campaign/Warmup tab bar — only present when ?account=<id> is set.
+     Both tabs' data already arrived in the same fetch (campaigns/senders
+     AND warmup are all in one payload), so switching tabs just re-renders
+     from lastData — no extra request, no lost account/date state. The
+     date-preset bar is hidden on the Warmup tab since warmup metrics
+     aren't date-filtered (matching the /Warmup/ dashboard's own design),
+     but state.preset/date_from/date_to stay untouched so Campaign shows
+     the right range again when switched back to. */
+  var accountTabs = document.getElementById('soaAccountTabs');
+  if (accountTabs) {
+    accountTabs.addEventListener('click', function (e) {
+      var btn = e.target.closest('.soa-pill');
+      if (!btn) return;
+      accountTabs.querySelectorAll('.soa-pill').forEach(function (b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      state.tab = btn.dataset.tab;
+      document.getElementById('soaDateFilterHead').hidden = (state.tab === 'warmup');
+      // Explains why the date pills disappear on the Warmup tab (warmup
+      // metrics have no date-range concept — same as the /Warmup/ dashboard).
+      var cap = document.getElementById('soaWarmupCaption');
+      if (cap) cap.hidden = (state.tab !== 'warmup');
+      if (lastData) render(lastData);
+    });
+  }
+
+  fetchData();
+})();
+</script>
+{% endblock %}

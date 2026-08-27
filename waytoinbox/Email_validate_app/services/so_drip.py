@@ -31,27 +31,89 @@ RETRY_DELAY   = timedelta(minutes=15)
 WEEKDAY_ABBR  = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']  # Python .weekday() order
 
 
-def pick_variant_label(campaign_id, email, variants):
-    """Deterministic per-recipient A/B pick over a list of active variants.
+def pick_variant_label(campaign_id, email, step_id, variants):
+    """Deterministic per-recipient, PER-STEP A/B pick over one step's active
+    variants, weighted by their configured Weight (validated server-side to
+    sum to exactly 100 across active variants — see
+    views/so_sender.py::_validate_step_list — so these weights are already
+    real percentages by the time this function ever sees them).
 
-    Hash-based rather than random so re-running enrollment (e.g. a retried task)
-    assigns the same recipient the same variant instead of re-rolling it.
+    Hash-based rather than random so re-running/retrying a send assigns the
+    same recipient the same variant instead of re-rolling it — same
+    technique as pick_weighted_account below, now also salted with the
+    step's own stable id (not its order, which can change on reorder) so
+    EVERY step is resolved independently: campaign_id + email + step_id
+    together are the sole selection key, per step. Revisiting the same step
+    later (e.g. after a branch) recomputes to the exact same variant, since
+    nothing here depends on when it's called, only on these three inputs.
+
+    Weight 0 means excluded, not "rare" — unlike the historical
+    max(1, v.weight) floor this replaces, a variant with weight 0 is
+    filtered out of the draw entirely, exactly mirroring
+    pick_weighted_account's own "0 means configured but disabled" rule
+    below (that function's docstring used to call this an intentional
+    difference between the two; it no longer is one).
     """
-    active = [v for v in variants if v.is_active] or list(variants)
-    if not active:
-        return 'A'
-    if len(active) == 1:
-        return active[0].label
-    h = int(hashlib.sha256(f'{campaign_id}:{email}'.encode()).hexdigest()[:8], 16)
-    weights = [max(1, v.weight) for v in active]
+    eligible = [v for v in variants if v.is_active and v.weight > 0]
+    if not eligible:
+        # Defensive fallback for legacy/malformed data only — write-path
+        # validation now requires at least one active variant with weight
+        # > 0 (summing to exactly 100), so this should not be reachable for
+        # any campaign saved under the current validation rules.
+        active = [v for v in variants if v.is_active]
+        pool = active or list(variants)
+        return pool[0].label if pool else 'A'
+    if len(eligible) == 1:
+        return eligible[0].label
+    h = int(hashlib.sha256(f'{campaign_id}:{email}:step{step_id}'.encode()).hexdigest()[:8], 16)
+    weights = [v.weight for v in eligible]
     total   = sum(weights)
     target  = h % total
     acc = 0
-    for v, w in zip(active, weights):
+    for v, w in zip(eligible, weights):
         acc += w
         if target < acc:
             return v.label
-    return active[-1].label
+    return eligible[-1].label
+
+
+def pick_weighted_account(campaign_id, email, rotations):
+    """Deterministic per-recipient weighted pick over a campaign's selected
+    sender accounts (V2.4.8). Same hash-based technique as pick_variant_label
+    above, for the same reason — re-running enrollment (e.g. a retried task)
+    assigns the same recipient the same account instead of re-rolling it,
+    and sticky assignment (SOCampaignContact.account) then keeps every
+    subsequent step on that same account. The hash input includes a distinct
+    ':account' suffix so which account a contact gets is decorrelated from
+    which A/B variant it gets — two independent draws, not the same one
+    reused twice.
+
+    A weight of 0 is never selected here — an explicitly zero-weighted
+    account must never be picked (that's the whole point of allowing 0:
+    "configured but effectively disabled"), same rule pick_variant_label
+    above now applies to variants too. `rotations` must already be
+    pre-filtered to only
+    connected, non-deleted accounts by the caller — this function has no
+    opinion on account eligibility, only on weighting among what it's given.
+    Returns None if nothing is eligible (every rotation has weight 0, or the
+    list is empty) — the caller already knows how to handle "no account"
+    (see send_next_step's own no-valid-account bounded retry).
+    """
+    eligible = [r for r in rotations if r.weight > 0]
+    if not eligible:
+        return None
+    if len(eligible) == 1:
+        return eligible[0].account
+    h = int(hashlib.sha256(f'{campaign_id}:{email}:account'.encode()).hexdigest()[:8], 16)
+    weights = [r.weight for r in eligible]
+    total   = sum(weights)
+    target  = h % total
+    acc = 0
+    for r, w in zip(eligible, weights):
+        acc += w
+        if target < acc:
+            return r.account
+    return eligible[-1].account
 
 
 def stop(cc, reason):
@@ -109,7 +171,28 @@ def _resolve_step_and_variant(campaign, cc):
     if step is None:
         return None, None
     variants = list(step.variants.all())
-    variant = next((v for v in variants if v.is_active and v.label == cc.variant_label), None)
+
+    # V4.x variation-weight fix — cc.variant_label doubles as a permanent,
+    # enrollment-time sentinel of WHICH generation of selection logic this
+    # contact belongs to, decided once and never overwritten afterward (not
+    # by branching, not by retries, not by any later send):
+    #   - non-empty (every contact enrolled before this fix, and every
+    #     legacy row already has a real label) -> the ORIGINAL sticky
+    #     lookup, byte-for-byte unchanged, so an already-enrolled contact's
+    #     remaining steps are never retroactively reassigned to a different
+    #     variant than what earlier steps in the SAME sequence already sent.
+    #   - empty (tasks/so_send_campaign.py now enrolls new contacts with
+    #     variant_label='' instead of pre-picking a step-0 label) -> a
+    #     fresh, independent, per-step deterministic weighted pick via
+    #     pick_variant_label, keyed on this exact step's own id — so
+    #     different steps can and do resolve to different variants for the
+    #     same recipient, each honoring THAT step's own configured weights.
+    if cc.variant_label:
+        variant = next((v for v in variants if v.is_active and v.label == cc.variant_label), None)
+    else:
+        label = pick_variant_label(campaign.id, cc.email, step.id, variants)
+        variant = next((v for v in variants if v.is_active and v.label == label), None)
+
     if variant is None:
         active = [v for v in variants if v.is_active]
         variant = (active or variants or [None])[0]
@@ -141,9 +224,14 @@ def _get_contact_account(cc):
     if not rotations:
         return None
 
-    # Deterministic by contact id, so re-healing the same row twice (e.g. a
-    # retried task) always lands on the same account rather than re-rolling it.
-    account = rotations[cc.id % len(rotations)].account
+    # Weighted pick (V2.4.8), same deterministic technique used at real
+    # enrollment (tasks/so_send_campaign.py) — this is only a self-heal path
+    # for legacy rows that somehow reached send-time with no account
+    # assigned yet, so it must use the exact same selection logic rather
+    # than a second, different mechanism.
+    account = pick_weighted_account(cc.campaign_id, cc.email, rotations)
+    if account is None:
+        return None
     SOCampaignContact.objects.filter(id=cc.id, account__isnull=True).update(account=account)
     cc.account = account
     return account
@@ -248,7 +336,7 @@ def _next_window_start(campaign):
 def send_next_step(cc):
     """Send whatever step `cc` currently owes. Caller must already hold the claim
     (cc.status == 'sending'). Returns True on a successful send."""
-    from Email_validate_app.models import SOProspect, SOCampaignContact, SOCampaign
+    from Email_validate_app.models import SOProspect, SOCampaignContact, SOCampaign, SOEvent
     from Email_validate_app.services.so_smtp import inject_tracking, build_message, open_smtp
 
     campaign = cc.campaign
@@ -266,6 +354,30 @@ def send_next_step(cc):
         ).exists()
     if not still_subscribed:
         stop(cc, 'not_subscribed')
+        return False
+
+    # V3.11.1 — a bounce/complaint on a DIFFERENT campaign of this same user
+    # only stops rows that were status__in=('active','sending') at that exact
+    # moment (see stop_all_for_email) and never touches SOProspect — so a
+    # contact already 'completed' elsewhere, with a still-pending clicked/
+    # opened/replied condition, can later be branched back to 'active' by
+    # that wholly unrelated condition and reach this point with
+    # still_subscribed still True (bounce/complaint never flips it). This is
+    # the final, universal choke point every send goes through regardless of
+    # how the contact got here, so checking here — once — closes that gap
+    # for every path (normal progression, subsequence branch, condition
+    # branch) without touching any of them. Scoped identically to
+    # stop_all_for_email/so_send_campaign_task's own enrollment-suppression
+    # check (campaign__user_id, never cross-tenant). Reuses the exact
+    # 'bounced'/'complained' reason strings already used at detection time —
+    # no new vocabulary. Unsubscribe is untouched: it already works via
+    # SOProspect.status, caught above by still_subscribed.
+    suppressing_event_type = SOEvent.objects.filter(
+        campaign__user_id=campaign.user_id, email=cc.email,
+        event_type__in=('bounced', 'complained'),
+    ).values_list('event_type', flat=True).first()
+    if suppressing_event_type:
+        stop(cc, suppressing_event_type)
         return False
 
     step, variant = _resolve_step_and_variant(campaign, cc)
@@ -330,9 +442,13 @@ def send_next_step(cc):
     site_url = _site_url()
     try:
         from django.conf import settings
-        enable_tracking = settings.ENABLE_EMAIL_TRACKING
-        personalized_html, tracked_links = inject_tracking(
+        # The account-wide flag can only ever be narrowed by the per-campaign
+        # setting, never re-widened — if tracking is off globally, no
+        # campaign-level value can turn it back on.
+        enable_tracking = settings.ENABLE_EMAIL_TRACKING and campaign.tracking_enabled
+        personalized_html, tracked_links, open_pixel = inject_tracking(
             variant.html_body, cc, site_url, enable_tracking=enable_tracking,
+            step_order=cc.current_step,
         )
         msg_id  = f'<{uuid.uuid4()}@{account.smtp_host}>'
         from_nm = campaign.from_name or account.display_name or account.email
@@ -356,6 +472,12 @@ def send_next_step(cc):
         if tracked_links:
             from Email_validate_app.models import SOTrackedLink
             SOTrackedLink.objects.bulk_create(tracked_links, ignore_conflicts=True)
+        # V3.6 — persisted only once the send has actually succeeded, same
+        # timing as tracked_links above; open_pixel is None whenever
+        # enable_tracking was False, so nothing is created for a
+        # tracking-disabled send.
+        if open_pixel is not None:
+            open_pixel.save()
 
     except Exception as exc:
         logger.warning('so_drip: send failed for contact %s (%s) step %s: %s',
@@ -412,15 +534,21 @@ def _record_success(cc, campaign, step, variant, msg_id, account, personalized_h
         )
 
     SOCampaignContact.objects.filter(id=cc.id, status='sending').update(**fields)
-    # account_id is kept for per-message traceability/reporting — not needed for
-    # quota enforcement, which is done atomically via SOEmailAccountDailyUsage.
+    # account/message_id give these rows real, typed attribution (not just an
+    # untyped metadata key) — account is the exact sender account this send
+    # used; message_id is the Message-ID generated for this send, joinable to
+    # the SOMessage that _record_conversation_send writes just below.
     SOEvent.objects.create(
-        campaign_id=campaign.id, prospect_id=cc.prospect_id, email=cc.email,
+        campaign_id=campaign.id, prospect_id=cc.prospect_id, account_id=account.id,
+        message_id=msg_id, email=cc.email,
         event_type='sent', metadata={'step': cc.current_step, 'account_id': account.id},
+        step_order=cc.current_step,
     )
     SOEvent.objects.create(
-        campaign_id=campaign.id, prospect_id=cc.prospect_id, email=cc.email,
+        campaign_id=campaign.id, prospect_id=cc.prospect_id, account_id=account.id,
+        message_id=msg_id, email=cc.email,
         event_type='delivered', metadata={'step': cc.current_step, 'account_id': account.id},
+        step_order=cc.current_step,
     )
     SOCampaign.objects.filter(id=campaign.id).update(
         total_sent=F('total_sent') + 1, total_delivered=F('total_delivered') + 1,
