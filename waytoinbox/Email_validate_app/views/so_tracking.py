@@ -1,3 +1,5 @@
+import logging
+
 from django.db.models import F
 from django.http import HttpResponse, HttpResponseRedirect
 from django.shortcuts import render
@@ -5,6 +7,8 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 
 from Email_validate_app.services.so_smtp import TRANSPARENT_GIF, SITE_URL
+
+logger = logging.getLogger('Email_validate_app.views')
 
 
 @never_cache
@@ -40,7 +44,10 @@ def so_track_open(request, token):
         )
         SOCampaign.objects.filter(id=cc.campaign_id).update(total_opened=F('total_opened') + 1)
     except Exception:
-        pass
+        # Never surface an error to the recipient's mail client — this must
+        # always fall through to a normal GIF response — but a real DB/
+        # lookup failure here is otherwise completely invisible, so log it.
+        logger.exception('so_track_open: failed to record open for token=%s', token)
     return HttpResponse(
         TRANSPARENT_GIF,
         content_type='image/gif',
@@ -88,7 +95,10 @@ def so_track_pixel(request, token):
         )
         SOCampaign.objects.filter(id=cc.campaign_id).update(total_opened=F('total_opened') + 1)
     except Exception:
-        pass
+        # Same rule as so_track_open above — always fall through to a
+        # normal GIF response, but log the real failure since it would
+        # otherwise be silently invisible.
+        logger.exception('so_track_pixel: failed to record open for token=%s', token)
     return HttpResponse(
         TRANSPARENT_GIF,
         content_type='image/gif',
@@ -127,6 +137,13 @@ def so_track_click(request, token):
         SOCampaign.objects.filter(id=cc.campaign_id).update(total_clicked=F('total_clicked') + 1)
         return HttpResponseRedirect(link.destination_url)
     except Exception:
+        # Never surface an error to whoever clicked — always fall through to
+        # the SITE_URL fallback redirect — but log the real failure since it
+        # would otherwise be silently invisible. Deliberately no destination
+        # URL in the log here: on a lookup failure `link` may not be bound,
+        # and even when it is, the URL itself isn't needed to diagnose why
+        # the lookup/record step failed.
+        logger.exception('so_track_click: failed to record click for token=%s', token)
         return HttpResponseRedirect(SITE_URL)
 
 

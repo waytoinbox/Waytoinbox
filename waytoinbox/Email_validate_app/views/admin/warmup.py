@@ -107,7 +107,15 @@ def admin_warmup_receiver_oauth_start(request):
         access_type='offline', prompt='consent', include_granted_scopes='true',
     )
 
-    request.session['warmup_oauth_state'] = state
+    # PKCE — authorization_url() auto-generates flow.code_verifier (default
+    # autogenerate_code_verifier=True) and sends a code_challenge derived
+    # from it to Google. The callback builds an entirely separate Flow
+    # instance, so that verifier must be persisted here and threaded back
+    # in there (fetch_token() sends whatever flow.code_verifier holds,
+    # defaulting to None) — otherwise Google's token endpoint rejects the
+    # exchange with invalid_grant: "Missing code verifier".
+    request.session['warmup_oauth_state']         = state
+    request.session['warmup_oauth_code_verifier']  = flow.code_verifier
     return redirect(auth_url)
 
 
@@ -124,6 +132,23 @@ def admin_warmup_receiver_oauth_callback(request):
     if not state or request.GET.get('state') != state:
         return redirect(reverse('admin_warmup_receivers') + '?error=oauth_state_mismatch')
 
+    # PKCE — must be the exact same verifier generated in the start view
+    # (see the comment there); a fresh Flow here would otherwise generate
+    # its own new one, which Google's server has no record of. Checked
+    # explicitly, with its own error code, rather than letting a None
+    # verifier fall through into fetch_token() and surface as the generic
+    # oauth_failed — this is a distinct, diagnosable condition (e.g. an
+    # expired/cleared session between the redirect and the callback), not
+    # a Google-side failure.
+    code_verifier = request.session.get('warmup_oauth_code_verifier')
+    if not code_verifier:
+        logger.error(
+            "Google Warmup OAuth callback: no PKCE code_verifier in session "
+            "(state=%s) — session likely expired or was cleared between the "
+            "authorization redirect and this callback.", state,
+        )
+        return redirect(reverse('admin_warmup_receivers') + '?error=oauth_missing_verifier')
+
     client_id, client_secret, redirect_uri = oauth_client_config()
     if not client_id:
         return redirect(reverse('admin_warmup_receivers') + '?error=oauth_not_configured')
@@ -131,10 +156,16 @@ def admin_warmup_receiver_oauth_callback(request):
     flow = Flow.from_client_config(
         _flow_client_config(client_id, client_secret, redirect_uri),
         scopes=SCOPES, redirect_uri=redirect_uri, state=state,
+        code_verifier=code_verifier,
     )
     try:
         flow.fetch_token(authorization_response=request.build_absolute_uri())
     except Exception:
+        # Never log client_secret/code/tokens/verifier — logger.exception's
+        # traceback is oauthlib's own error object, which carries the error
+        # code/description only (e.g. "Missing code verifier"), not any
+        # secret material passed into fetch_token().
+        logger.exception("Google Warmup OAuth token exchange failed")
         return redirect(reverse('admin_warmup_receivers') + '?error=oauth_failed')
 
     credentials = flow.credentials
@@ -163,6 +194,7 @@ def admin_warmup_receiver_oauth_callback(request):
           target_type='warmup_receiver', target_id=receiver.id, target_repr=receiver.email)
 
     request.session.pop('warmup_oauth_state', None)
+    request.session.pop('warmup_oauth_code_verifier', None)
     return redirect(reverse('admin_warmup_receivers') + '?connected=1')
 
 

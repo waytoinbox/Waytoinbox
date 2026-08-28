@@ -440,6 +440,14 @@ def send_next_step(cc):
         return False
 
     site_url = _site_url()
+    # Set the instant server.sendmail() actually returns successfully — see
+    # the except block below. Everything from that point on (persisting
+    # tracked_links/open_pixel) must never be able to make an already-
+    # delivered email look like a failed send: the recipient already has
+    # it, so releasing the quota slot or scheduling a retry here would
+    # either under-count today's real usage or send them the same step
+    # again.
+    sent_ok = False
     try:
         from django.conf import settings
         # The account-wide flag can only ever be narrowed by the per-campaign
@@ -469,6 +477,10 @@ def send_next_step(cc):
             except Exception:
                 pass
 
+        # The email is now genuinely in the recipient's mailbox. Nothing
+        # from here on may be treated as a send failure.
+        sent_ok = True
+
         if tracked_links:
             from Email_validate_app.models import SOTrackedLink
             SOTrackedLink.objects.bulk_create(tracked_links, ignore_conflicts=True)
@@ -480,11 +492,29 @@ def send_next_step(cc):
             open_pixel.save()
 
     except Exception as exc:
-        logger.warning('so_drip: send failed for contact %s (%s) step %s: %s',
-                       cc.id, cc.email, cc.current_step, exc)
-        _release_quota_slot(account)   # reservation must not survive a failed send
-        _record_failure(cc, exc)
-        return False
+        if sent_ok:
+            # Persisting the tracking rows failed AFTER a successful SMTP
+            # delivery. Never route this through _record_failure — that
+            # would release the quota slot the successful send legitimately
+            # consumed and, worse, leave current_step unadvanced so the
+            # dispatcher sends this same step again on the next pass,
+            # duplicating a real email a prospect already received. Logged
+            # loudly since this is otherwise invisible: tracking for this
+            # one send may be incomplete, but the send itself proceeds
+            # through the normal success path exactly as if nothing failed.
+            logger.exception(
+                'so_drip: campaign %s contact %s step %s — tracking '
+                'persistence failed AFTER successful SMTP delivery; '
+                'proceeding as a successful send (tracking data for this '
+                'send may be incomplete): %s',
+                campaign.id, cc.id, cc.current_step, exc,
+            )
+        else:
+            logger.warning('so_drip: send failed for contact %s (%s) step %s: %s',
+                           cc.id, cc.email, cc.current_step, exc)
+            _release_quota_slot(account)   # reservation must not survive a failed send
+            _record_failure(cc, exc)
+            return False
 
     _record_success(cc, campaign, step, variant, msg_id, account, personalized_html)
     return True
