@@ -1069,7 +1069,9 @@
           .then(d => {
             if (label) { label.innerHTML = origHTML; label.style.pointerEvents = ''; }
             if (d.status === 'ok') {
-              block.src = d.url;
+              // Absolute URL — a relative src is dead once the email leaves
+              // the app (same fix already applied to Quill's imageHandler).
+              block.src = new URL(d.url, window.location.origin).href;
               this._refreshBlock(block.id);
               this._snapshot();
               this._renderProps();

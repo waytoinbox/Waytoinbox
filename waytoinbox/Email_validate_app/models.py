@@ -67,6 +67,11 @@ class UserTable(AbstractBaseUser, PermissionsMixin):
     USERNAME_FIELD = 'user_email'
     REQUIRED_FIELDS = ['user_name']
 
+    def save(self, *args, **kwargs):
+        if self.is_admin or self.is_superuser:
+            self.is_staff = True
+        super().save(*args, **kwargs)
+
     class Meta:
         db_table = 'user_table'
 

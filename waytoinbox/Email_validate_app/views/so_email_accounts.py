@@ -55,21 +55,28 @@ def so_email_accounts(request):
     )
 
     # Reply / prospects counts for the last 7 days — the numerator/denominator
-    # of a per-account reply rate. Prospects = distinct recipients this
+    # of a per-account reply rate. Prospects = total campaign contacts this
     # account actually sent to (SOCampaignContact.account is the sticky
-    # per-contact sender assignment, sent_at marks an actual send); replies =
-    # distinct recipients with a 'replied' SOEvent attributed to this account.
+    # per-contact sender assignment, sent_at marks an actual send — one row
+    # per (campaign, contact), so this is a per-campaign count, not a
+    # per-person one); replies = total 'replied' SOEvents attributed to this
+    # account (SOEvent's own (campaign_id, email, event_type) dedupe already
+    # guarantees at most one 'replied' row per contact per campaign — see
+    # services/so_imap.py::_record_once — so this counts "how many of this
+    # account's campaign sends got a reply", not distinct people). Deliberately
+    # NOT distinct-by-email: the same prospect enrolled in 3 campaigns who
+    # replied to all 3 must show as 3 replies / 3 prospects, not 1/1.
     cutoff_7d = now() - timedelta(days=7)
     prospects_map = dict(
         SOCampaignContact.objects.filter(
             account_id__in=account_ids, sent_at__gte=cutoff_7d,
-        ).values('account_id').annotate(n=Count('email', distinct=True))
+        ).values('account_id').annotate(n=Count('id'))
         .values_list('account_id', 'n')
     )
     replies_map = dict(
         SOEvent.objects.filter(
             account_id__in=account_ids, event_type='replied', created_at__gte=cutoff_7d,
-        ).values('account_id').annotate(n=Count('email', distinct=True))
+        ).values('account_id').annotate(n=Count('id'))
         .values_list('account_id', 'n')
     )
 
