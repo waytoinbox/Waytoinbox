@@ -917,6 +917,13 @@ var SOCampaignPage = (function () {
         }).observe(picker, { attributes: true, attributeFilter: ['class'] });
       });
     }
+
+    setupImageResize({
+      getQuill: function () { return subQuill; },
+      editorSelector: '#socSubQuillEditor',
+      popId: 'socSubImgResizePop', widthId: 'socSubImgWidth', heightId: 'socSubImgHeight',
+      lockId: 'socSubImgLockRatio', resetId: 'socSubImgResetSize',
+    });
   }
 
   function wireSubEditor() {
@@ -1145,7 +1152,7 @@ var SOCampaignPage = (function () {
 
   /* Quill's table module emits a bare <table>; email clients need explicit attrs. */
   function emailSafeHtml(html) {
-    if (html.indexOf('<table') === -1) return html;
+    if (html.indexOf('<table') === -1 && html.indexOf('<img') === -1) return html;
     var box = document.createElement('div');
     box.innerHTML = html;
     box.querySelectorAll('table').forEach(function (t) {
@@ -1159,6 +1166,47 @@ var SOCampaignPage = (function () {
         if (!c.style.border)  c.style.border = '1px solid #dddddd';
         if (!c.style.padding) c.style.padding = '8px';
       });
+    });
+    // A resized image carries plain width/height attributes (set via
+    // quill.formatText -- see setupImageResize above) rather than inline
+    // CSS, since those are what Quill's built-in image blot actually
+    // recognises as formats and preserves across the editor's own
+    // clipboard.convert() round-trip. The width attribute alone is enough
+    // for old clients that ignore CSS (classic Outlook), but responsive
+    // clients need the matching inline style too -- added here, once, at
+    // save time, exactly like the <table> attributes above, rather than
+    // trying to keep a live style in sync inside the editor itself.
+    box.querySelectorAll('img[width]').forEach(function (img) {
+      if (!img.style.width) {
+        img.style.width = img.getAttribute('width') + 'px';
+        img.style.height = 'auto';
+        img.style.maxWidth = '100%';
+      }
+    });
+    // Alignment (quill.formatLine's {align} -- see setupImageResize above)
+    // is stored as text-align on the image's containing <p>, which only
+    // affects an INLINE child -- several real webmail clients (Gmail's own
+    // reset among them) apply their own `img { display: block }` the same
+    // way this app's tokens-reset-utilities.css does, which would silently
+    // defeat text-align alone for some recipients exactly like it did in
+    // this editor before that CSS fix. Belt-and-suspenders: also apply the
+    // equivalent margin-based centering directly on the image, which works
+    // correctly for a block-level image regardless of what the recipient's
+    // client does with display -- redundant with the parent's text-align
+    // (harmless either way), not a replacement for it.
+    box.querySelectorAll('p[style*="text-align"] > img').forEach(function (img) {
+      var align = img.parentElement.style.textAlign;
+      img.style.display = 'block';
+      if (align === 'center')      img.style.margin = '0 auto';
+      else if (align === 'right')  img.style.margin = '0 0 0 auto';
+      else                         img.style.margin = '0';
+    });
+    // soc-img-selected is a pure editor-UI marker (the resize outline) —
+    // it lands in quill.root.innerHTML whenever a save happens while an
+    // image is still selected, and must never leak into saved/sent HTML.
+    box.querySelectorAll('img.soc-img-selected').forEach(function (img) {
+      img.classList.remove('soc-img-selected');
+      if (!img.getAttribute('class')) img.removeAttribute('class');
     });
     return box.innerHTML;
   }
@@ -1919,6 +1967,13 @@ var SOCampaignPage = (function () {
         }).observe(picker, { attributes: true, attributeFilter: ['class'] });
       });
     }
+
+    setupImageResize({
+      getQuill: function () { return quill; },
+      editorSelector: '#socQuillEditor',
+      popId: 'socImgResizePop', widthId: 'socImgWidth', heightId: 'socImgHeight',
+      lockId: 'socImgLockRatio', resetId: 'socImgResetSize',
+    });
   }
 
   function imageHandler() {
@@ -1944,6 +1999,213 @@ var SOCampaignPage = (function () {
         .catch(function () { toast('Upload failed.', 'error'); });
     };
     input.click();
+  }
+
+  /* ── image resize (shared by both editors — a generic operation on
+     whichever quill instance/popover it's given, same sharing rationale as
+     positionPop/closePops/EMOJI below, unlike the editor-specific business
+     logic elsewhere in this file which is deliberately duplicated) ──────
+     Quill 2.0.3's built-in image blot already recognises width/height as
+     real attribute-backed formats (confirmed against the vendored
+     quill.min.js: const C=["alt","height","width"]), so resizing goes
+     through quill.formatText() like any other format — no custom blot
+     needed. That's also what makes it survive the clipboard.convert()
+     round-trip loadEditor()/toggleSource() already do on every step
+     switch: format()-applied attributes are what that round-trip actually
+     preserves, whereas a plain el.style mutation on the live DOM node
+     would just be silently dropped the next time the editor re-parses
+     saved HTML back into a Delta. */
+  function setupImageResize(cfg) {
+    var pop         = $(cfg.popId);
+    var widthInput  = $(cfg.widthId);
+    var heightInput = $(cfg.heightId);
+    var lockInput   = $(cfg.lockId);
+    var resetBtn    = $(cfg.resetId);
+    var alignBtns   = pop.querySelectorAll('.soc-img-align-btn');
+    var editorEl    = document.querySelector(cfg.editorSelector);
+    if (!editorEl) return;
+
+    // Corner-pin the popover to the editor container itself rather than
+    // the image (see the CSS comment on .soc-img-resize-pop) -- moves it
+    // out from wherever the template originally placed it, once, so plain
+    // top/right in CSS is all that's needed from here on.
+    if (pop.parentElement !== editorEl) editorEl.appendChild(pop);
+
+    var selected = null;   // the currently-selected <img> DOM node
+    var handle   = null;   // drag-to-resize handle, appended to <body>
+    var ratio    = 1;      // naturalWidth / naturalHeight of `selected`
+    var dragging = false;
+
+    function currentSize(img) {
+      var w = parseInt(img.getAttribute('width'), 10);
+      var h = parseInt(img.getAttribute('height'), 10);
+      if (!w || !h) {
+        var r = img.getBoundingClientRect();
+        w = w || Math.round(r.width);
+        h = h || Math.round(r.height);
+      }
+      return { w: w, h: h };
+    }
+
+    function positionHandle() {
+      if (!handle || !selected) return;
+      var r = selected.getBoundingClientRect();
+      handle.style.left = (r.right + window.scrollX - 6) + 'px';
+      handle.style.top  = (r.bottom + window.scrollY - 6) + 'px';
+    }
+
+    function syncAlignButtons() {
+      var quill = cfg.getQuill();
+      var current = '';
+      if (quill && selected) {
+        var blot = Quill.find(selected);
+        if (blot) {
+          var fmt = quill.getFormat(quill.getIndex(blot), 1);
+          current = fmt.align || '';
+        }
+      }
+      alignBtns.forEach(function (btn) {
+        btn.classList.toggle('active', btn.dataset.align === current);
+      });
+    }
+
+    function select(img) {
+      if (selected === img) return;
+      clearSelection();
+      // Mutually exclusive with the toolbar's own emoji/table/tag popovers
+      // -- both editors share the exact same closePops()/closeSubPops()
+      // used by their own toolbar buttons.
+      if (typeof closePops === 'function') closePops();
+      if (typeof closeSubPops === 'function') closeSubPops();
+      selected = img;
+      selected.classList.add('soc-img-selected');
+      ratio = (img.naturalWidth && img.naturalHeight) ? (img.naturalWidth / img.naturalHeight) : 1;
+
+      var size = currentSize(img);
+      widthInput.value  = size.w;
+      heightInput.value = size.h;
+      syncAlignButtons();
+
+      if (!handle) {
+        handle = document.createElement('div');
+        handle.className = 'soc-img-resize-handle';
+        document.body.appendChild(handle);
+        handle.addEventListener('mousedown', onHandleMouseDown);
+      }
+      handle.style.display = '';
+      positionHandle();
+      pop.classList.add('open');
+      window.addEventListener('scroll', positionHandle, true);
+      window.addEventListener('resize', positionHandle);
+    }
+
+    function clearSelection() {
+      if (selected) selected.classList.remove('soc-img-selected');
+      selected = null;
+      pop.classList.remove('open');
+      if (handle) handle.style.display = 'none';
+      window.removeEventListener('scroll', positionHandle, true);
+      window.removeEventListener('resize', positionHandle);
+    }
+
+    function applySize(w, h) {
+      var quill = cfg.getQuill();
+      if (!quill || !selected || !w || !h) return;
+      var blot = Quill.find(selected);
+      if (!blot) return;
+      var idx = quill.getIndex(blot);
+      quill.formatText(idx, 1, { width: String(w), height: String(h) }, 'user');
+      // formatText() re-renders the blot -- the DOM node is replaced, so
+      // the resize handle/outline must move to the new node at the same spot.
+      var leaf = quill.getLeaf(idx);
+      var newNode = leaf && leaf[0] && leaf[0].domNode;
+      if (newNode && newNode.tagName === 'IMG') {
+        selected.classList.remove('soc-img-selected');
+        selected = newNode;
+        selected.classList.add('soc-img-selected');
+      }
+      positionHandle();
+      markDirty();
+    }
+
+    function applyAlign(value) {
+      var quill = cfg.getQuill();
+      if (!quill || !selected) return;
+      var blot = Quill.find(selected);
+      if (!blot) return;
+      var idx = quill.getIndex(blot);
+      // Block-level format (Quill.import('attributors/style/align'), already
+      // registered in initQuill/initSubQuill for the toolbar's own text-align
+      // button) applied to the image's own line -- an email-safe technique
+      // since it becomes a plain text-align inline style on the containing
+      // <p>, which every mail client honours, rather than floating the
+      // image itself (unreliable across clients, and would need its own
+      // clearfix handling that plain text-align never does).
+      quill.formatLine(idx, 1, { align: value || false }, 'user');
+      syncAlignButtons();
+      markDirty();
+    }
+
+    function onHandleMouseDown(e) {
+      e.preventDefault();
+      dragging = true;
+      var startX = e.clientX;
+      var start = currentSize(selected);
+      function onMove(me) {
+        if (!dragging) return;
+        var newW = Math.max(20, start.w + (me.clientX - startX));
+        var newH = lockInput.checked ? Math.round(newW / ratio) : start.h;
+        widthInput.value = newW;
+        heightInput.value = newH;
+        applySize(newW, newH);
+      }
+      function onUp() {
+        dragging = false;
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      }
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    }
+
+    editorEl.addEventListener('click', function (e) {
+      if (e.target.closest('.soc-img-resize-pop')) return;
+      var img = e.target.closest ? e.target.closest('img') : null;
+      if (img && editorEl.contains(img)) { select(img); }
+      else if (selected) { clearSelection(); }
+    });
+
+    widthInput.addEventListener('input', function () {
+      var w = parseInt(widthInput.value, 10);
+      if (!w) return;
+      var h = lockInput.checked ? Math.round(w / ratio) : parseInt(heightInput.value, 10);
+      if (lockInput.checked) heightInput.value = h;
+      applySize(w, h);
+    });
+    heightInput.addEventListener('input', function () {
+      var h = parseInt(heightInput.value, 10);
+      if (!h) return;
+      var w = lockInput.checked ? Math.round(h * ratio) : parseInt(widthInput.value, 10);
+      if (lockInput.checked) widthInput.value = w;
+      applySize(w, h);
+    });
+    alignBtns.forEach(function (btn) {
+      btn.addEventListener('click', function () { applyAlign(btn.dataset.align); });
+    });
+    resetBtn.addEventListener('click', function () {
+      var quill = cfg.getQuill();
+      if (!quill || !selected) return;
+      var blot = Quill.find(selected);
+      if (!blot) return;
+      var idx = quill.getIndex(blot);
+      quill.formatText(idx, 1, { width: false, height: false }, 'user');
+      clearSelection();
+      markDirty();
+    });
+
+    document.addEventListener('click', function (e) {
+      if (selected && !e.target.closest('img') && !e.target.closest('.soc-img-resize-pop')) clearSelection();
+    });
   }
 
   /* ── popovers ────────────────────────────────────────────────────────── */

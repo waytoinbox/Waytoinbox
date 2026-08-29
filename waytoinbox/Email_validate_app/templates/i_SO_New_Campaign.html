@@ -643,10 +643,53 @@
   <div class="soc-tblgrid-lbl" id="socTableLbl">0 × 0</div>
 </div>
 
+<!-- Image resize/align popover — opens when an inserted image is clicked.
+     Moved to a child of #socQuillEditor at runtime (see setupImageResize in
+     so_campaign.js) and corner-pinned there via CSS, rather than positioned
+     against the image itself -- keeps it inside the visible editor
+     regardless of where the image sits in the (independently scrolling)
+     content. -->
+<div class="soc-pop soc-img-resize-pop" id="socImgResizePop">
+  <div class="soc-img-resize-row">
+    <input type="number" id="socImgWidth" min="1" step="1" title="Width (px)" placeholder="W">
+    <span class="soc-img-resize-x">×</span>
+    <input type="number" id="socImgHeight" min="1" step="1" title="Height (px)" placeholder="H">
+    <label class="soc-img-lock-toggle" title="Lock aspect ratio">
+      <input type="checkbox" id="socImgLockRatio" checked><i class="fas fa-lock"></i>
+    </label>
+  </div>
+  <div class="soc-img-resize-row soc-img-align-row">
+    <button type="button" class="soc-img-align-btn" data-align="" title="Align left"><i class="fas fa-align-left"></i></button>
+    <button type="button" class="soc-img-align-btn" data-align="center" title="Align center"><i class="fas fa-align-center"></i></button>
+    <button type="button" class="soc-img-align-btn" data-align="right" title="Align right"><i class="fas fa-align-right"></i></button>
+    <button type="button" class="soc-img-reset-btn" id="socImgResetSize" title="Reset to original size"><i class="fas fa-undo"></i></button>
+  </div>
+</div>
+
 <!-- Subsequence editor's own Emoji/Table popovers -- socSubMergeMenu (the
      merge-tag equivalent) already exists separately above as its own
      simpler inline-menu pattern, not a popover, so there's no socSubTagPop
      here to match. -->
+
+<!-- Subsequence editor's own image resize/align popover -- same shape as
+     socImgResizePop above, separate ids so both editors' resize state
+     never cross-talk. -->
+<div class="soc-pop soc-img-resize-pop" id="socSubImgResizePop">
+  <div class="soc-img-resize-row">
+    <input type="number" id="socSubImgWidth" min="1" step="1" title="Width (px)" placeholder="W">
+    <span class="soc-img-resize-x">×</span>
+    <input type="number" id="socSubImgHeight" min="1" step="1" title="Height (px)" placeholder="H">
+    <label class="soc-img-lock-toggle" title="Lock aspect ratio">
+      <input type="checkbox" id="socSubImgLockRatio" checked><i class="fas fa-lock"></i>
+    </label>
+  </div>
+  <div class="soc-img-resize-row soc-img-align-row">
+    <button type="button" class="soc-img-align-btn" data-align="" title="Align left"><i class="fas fa-align-left"></i></button>
+    <button type="button" class="soc-img-align-btn" data-align="center" title="Align center"><i class="fas fa-align-center"></i></button>
+    <button type="button" class="soc-img-align-btn" data-align="right" title="Align right"><i class="fas fa-align-right"></i></button>
+    <button type="button" class="soc-img-reset-btn" id="socSubImgResetSize" title="Reset to original size"><i class="fas fa-undo"></i></button>
+  </div>
+</div>
 <div class="soc-pop" id="socSubEmojiPop"><div class="soc-emoji-grid" id="socSubEmojiGrid"></div></div>
 <div class="soc-pop" id="socSubTablePop">
   <div class="soc-tblgrid" id="socSubTableGrid"></div>

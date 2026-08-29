@@ -83,10 +83,19 @@ def get_gmail_service(receiver):
 def find_warmup_message(service, identifier: str) -> dict | None:
     """Searches for the warmup email by its unique identifier (embedded in
     the subject) and returns {'id': ..., 'labelIds': [...]}, or None if no
-    match yet. format='metadata' — no need to fetch the full body."""
+    match yet. format='metadata' — no need to fetch the full body.
+
+    includeSpamTrash=True is required here — Gmail's messages().list
+    excludes SPAM and TRASH from search results by default, which would
+    make a spam-foldered warmup email indistinguishable from one that
+    never arrived at all (both return no match here, falling through to
+    the caller's not-found/retry path). classify_landing() below already
+    correctly branches on the SPAM label once a message IS found; this is
+    what makes that message actually reachable to search for in the first
+    place."""
     try:
         result = service.users().messages().list(
-            userId='me', q=f'subject:"{identifier}"', maxResults=5,
+            userId='me', q=f'subject:"{identifier}"', maxResults=5, includeSpamTrash=True,
         ).execute()
     except HttpError as exc:
         if exc.resp is not None and exc.resp.status in (401, 403):

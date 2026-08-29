@@ -14,12 +14,15 @@ Actual SMTP sending lives in warmup_sender.py; Gmail API verification lives
 in warmup_receiver.py. This module never touches either directly.
 """
 
+import logging
 import random
 import uuid
 from datetime import timedelta, datetime, time as dt_time, timezone as dt_timezone
 
 from django.db.models import F
 from django.utils.timezone import now
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_DAILY_TARGET      = 40
 DEFAULT_RAMP_UP_DAYS      = 30
@@ -184,6 +187,16 @@ def create_pending_messages_for_sender(warmup) -> int:
         status='connected', deleted_at__isnull=True,
     ).order_by(F('last_assigned_at').asc(nulls_first=True)))
     if not receivers:
+        # Silent no-op otherwise — this is the dispatcher's only per-tick
+        # entry point (warmup_dispatch_sends, every 5 minutes via Beat), so
+        # logging here is naturally already rate-limited to once per active
+        # warmup per tick, not a hot loop.
+        logger.warning(
+            'warmup: dispatcher skipped for account %s (%s) — no connected '
+            'receiver accounts in the pool. Connect at least one via '
+            '/wti-admin/warmup-receivers/ before warmup can send anything.',
+            account.id, account.email,
+        )
         return 0
 
     window_end     = _next_utc_midnight()

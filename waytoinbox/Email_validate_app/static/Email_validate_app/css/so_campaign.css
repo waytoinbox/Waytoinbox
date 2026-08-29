@@ -558,6 +558,65 @@
    height. */
 #socSubQuillEditor.ql-container.ql-snow { border: none; font-size: 14px; }
 #socSubQuillEditor .ql-editor { min-height: 200px; max-height: 200px; overflow-y: auto; }
+
+/* tokens-reset-utilities.css sets a global `img { display: block; ... }`
+   reset (every image app-wide, unrelated to this editor — not touched).
+   That silently defeats the image alignment feature below: formatLine's
+   {align} format sets text-align on the image's containing <p>, but
+   text-align has no effect on a block-level child at all (a fundamental
+   CSS rule, not a Quill bug) — confirmed by direct DOM inspection, the
+   image's computed display was "block" and it never visibly moved on
+   Left/Center/Right. Reverting to inline-block here, scoped to just this
+   editor's own images (higher specificity than the bare `img` rule, so
+   the rest of the app's reset is untouched), restores the same inline
+   layout Quill itself expects for text-align-based alignment to work,
+   without touching the global reset other pages rely on. Width/height
+   attributes are still honoured either way -- <img> is a replaced
+   element, so explicit width/height apply regardless of display type.
+   Doesn't override margin-right/border-radius from that same reset --
+   the drag-resize outline/handle used dimensions/position, not those. */
+#socQuillEditor .ql-editor img,
+#socSubQuillEditor .ql-editor img {
+  display: inline-block;
+  /* That same reset's margin-right:7px would otherwise skew Center/Right
+     alignment asymmetrically (an unaffected extra gap on one side) --
+     zeroed here for the same reason display is overridden above. */
+  margin: 0;
+}
+
+/* Editor scrollbar — same thin teal-on-hover treatment as SO Inbox's
+   composer (so_inbox.css's #soiComposeEditor.ql-container.ql-snow rules),
+   applied to the actual scrolling element (.ql-editor itself has
+   overflow-y:auto per Quill's own CSS, not .ql-container). */
+#socQuillEditor .ql-editor::-webkit-scrollbar,
+#socSubQuillEditor .ql-editor::-webkit-scrollbar {
+  width: 8px;
+}
+#socQuillEditor .ql-editor::-webkit-scrollbar-track,
+#socSubQuillEditor .ql-editor::-webkit-scrollbar-track {
+  background: transparent;
+}
+#socQuillEditor .ql-editor::-webkit-scrollbar-thumb,
+#socSubQuillEditor .ql-editor::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 20px;
+}
+#socQuillEditor .ql-editor::-webkit-scrollbar-thumb:hover,
+#socSubQuillEditor .ql-editor::-webkit-scrollbar-thumb:hover {
+  background: var(--teal);
+}
+/* Just the bar -- no up/down step-arrow buttons at the track ends
+   (Windows Chrome/Edge render these by default unless explicitly hidden). */
+#socQuillEditor .ql-editor::-webkit-scrollbar-button,
+#socSubQuillEditor .ql-editor::-webkit-scrollbar-button {
+  display: none;
+}
+/* Firefox */
+#socQuillEditor .ql-editor,
+#socSubQuillEditor .ql-editor {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
 .soc-tb-sep { display: inline-block; width: 1px; height: 20px; background: var(--border); margin: 0 8px; vertical-align: middle; }
 
 /* Sequence step's Quill toolbar — same single-row + teal-themed treatment as
@@ -743,6 +802,69 @@
 .soc-tblgrid span { width: 20px; height: 20px; border: 1px solid var(--border); border-radius: 2px; cursor: pointer; }
 .soc-tblgrid span.on { background: var(--teal); border-color: var(--teal); }
 .soc-tblgrid-lbl { text-align: center; font-size: 11.5px; color: var(--ink-3); margin-top: 7px; }
+
+/* Image resize/align popover — a small floating toolbar corner-pinned to
+   the editor container itself (#socQuillEditor/#socSubQuillEditor, i.e.
+   Quill's own .ql-container, which already has position:relative from
+   Quill's bundled CSS and no overflow clipping), NOT positioned against
+   the selected image the way the emoji/table pickers above are against
+   their toolbar buttons. so_campaign.js moves this element to be a direct
+   child of the editor container at init time specifically so plain
+   top/right here is enough — no JS position math needed, and it can never
+   be pushed below the visible area by an image sitting further down the
+   editor's own independently-scrolling content. Overrides .soc-pop's own
+   position/padding for this corner-pinned, compact variant. */
+.soc-img-resize-pop {
+  position: absolute; top: 6px; right: 6px; z-index: 20;
+  min-width: 0; padding: 6px; box-shadow: 0 4px 14px rgba(0,0,0,.16);
+}
+.soc-img-resize-row { display: flex; align-items: center; gap: 4px; }
+.soc-img-resize-row + .soc-img-resize-row { margin-top: 4px; }
+.soc-img-resize-row input[type="number"] {
+  width: 40px; padding: 3px 4px; border: 1px solid var(--border); border-radius: 5px;
+  font-family: var(--font-body); font-size: 11.5px; color: var(--ink); text-align: center;
+}
+.soc-img-resize-x { font-size: 10px; color: var(--ink-3); }
+
+/* Lock-ratio toggle — a real checkbox (so_campaign.js reads #socImgLockRatio
+   .checked exactly as before) visually replaced by its adjacent icon via
+   the :checked sibling selector, so it reads as a compact icon toggle
+   rather than a checkbox+label row. */
+.soc-img-lock-toggle {
+  display: flex; align-items: center; justify-content: center; width: 22px; height: 22px;
+  border-radius: 5px; cursor: pointer; flex-shrink: 0;
+}
+.soc-img-lock-toggle:hover { background: var(--bg-2); }
+.soc-img-lock-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.soc-img-lock-toggle i { font-size: 11px; color: var(--ink-3); }
+.soc-img-lock-toggle input:checked ~ i { color: var(--teal); }
+
+.soc-img-align-row { justify-content: space-between; }
+.soc-img-align-btn, .soc-img-reset-btn {
+  width: 22px; height: 22px; border: none; background: none; border-radius: 5px;
+  color: var(--ink-3); font-size: 11px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; flex-shrink: 0;
+}
+.soc-img-align-btn:hover, .soc-img-reset-btn:hover { background: var(--bg-2); color: var(--teal); }
+.soc-img-align-btn.active { background: rgba(0,122,94,.16); color: var(--teal); }
+.soc-img-reset-btn { margin-left: 4px; border-left: 1px solid var(--border); border-radius: 0 5px 5px 0; padding-left: 4px; }
+
+/* Selected-image outline + drag-to-resize handle. The handle stays
+   position:absolute against document.body (unchanged from before — its
+   left/top are computed in JS as getBoundingClientRect() + window.scrollX/
+   scrollY, i.e. page-absolute coordinates, which is exactly what
+   position:absolute against the body's initial containing block expects)
+   tracking the image's own on-screen position, unlike the popover above,
+   which is now pinned to a fixed editor corner regardless of where the
+   image is — the handle's whole job is to sit exactly on the image's own
+   corner, wherever that is, including while the editor's content scrolls
+   underneath it. */
+.ql-editor img.soc-img-selected { outline: 2px solid var(--teal); outline-offset: 1px; }
+.soc-img-resize-handle {
+  position: absolute; width: 12px; height: 12px;
+  background: var(--teal); border: 2px solid var(--bg); border-radius: 50%;
+  cursor: nwse-resize; z-index: 10;
+}
 
 /* Score-details modal rows */
 .soc-reason { display: flex; gap: 9px; align-items: flex-start; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--ink-2); }
