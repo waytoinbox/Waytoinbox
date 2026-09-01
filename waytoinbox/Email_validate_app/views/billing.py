@@ -43,15 +43,19 @@ def _drop_win_table(table_name: str) -> None:
     with connection.cursor() as cur:
         cur.execute('DROP TABLE IF EXISTS `%s`' % table_name)  # nosec: pattern-validated above
 
+# Names used by this module, plus the ones other view modules re-import from
+# here (views/subscription.py takes get_ac_current_credit and the three
+# insert_*_credits; several take get_current_credit / calculate_price /
+# generate_receipt_id). Phase 6 commit 8 dropped seven imports that were dead
+# both locally and as re-exports: get_vc_current_credit, get_ip_current_credit,
+# update_or_insert_current_credit, insert_ip_credits, and the three
+# deduct_vc/ac/cc_credits. The functions themselves are deliberately kept in
+# credit_manager.
 from Email_validate_app.services.credit_manager import (
     generate_receipt_id,
-    get_current_credit, get_vc_current_credit,
-    get_ip_current_credit, get_ac_current_credit,
-    update_or_insert_current_credit,
+    get_current_credit, get_ac_current_credit,
     insert_credits, insert_vc_credits,
-    insert_ip_credits, insert_ac_credits,
-    insert_cc_credits,
-    deduct_vc_credits, deduct_ac_credits, deduct_cc_credits,
+    insert_ac_credits, insert_cc_credits,
     calculate_price, manage_credits,
 )
 
