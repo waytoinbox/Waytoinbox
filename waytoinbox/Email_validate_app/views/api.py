@@ -28,6 +28,7 @@ from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.credit_manager import (
     get_vc_current_credit, deduct_ac_credits, get_effective_balance,
+    deduct_service_credits, InsufficientCredits,
 )
 from Email_validate_app.views import get_current_credit, core_validate_email, check_spf, check_dmarc, check_dkim
 from Email_validate_app.tasks.verify_emails import (
@@ -443,8 +444,11 @@ def header_analysis_api(request):
         if not user_id:
             return JsonResponse({"status": "error", "message": "Login required"}, status=401)
 
-    from Email_validate_app.services.credit_manager import get_ac_current_credit
-    if get_ac_current_credit(user_id) <= 0:
+    # Phase 6 commit 5: the gate reads the header_analysis service wallet plus
+    # the legacy AC pool behind it, instead of the raw AC column, so a user
+    # whose credits live in the new wallet is not turned away. The message and
+    # the 429 are unchanged.
+    if get_effective_balance(user_id, 'header_analysis') <= 0:
         return JsonResponse({"status": "error", "message": "No Analysis Credits left. Please upgrade your plan to continue."}, status=429)
 
     content_type = request.content_type or ""
@@ -489,8 +493,16 @@ def header_analysis_api(request):
         return JsonResponse({"status": "error", "message": f"Analysis error: {str(e)}"}, status=500)
 
     try:
-        deduct_ac_credits(user_id, 1, ref_type='ip_check', description='Header Analysis')
-        remaining_credits = get_ac_current_credit(user_id)
+        deduct_service_credits(user_id, 'header_analysis', 1,
+                               ref_type='ip_check', description='Header Analysis')
+        # Effective balance, not the raw AC column: after the cutover a user
+        # spending from the new wallet would otherwise be told 0 remain while
+        # still being able to run analyses.
+        remaining_credits = get_effective_balance(user_id, 'header_analysis')
+    except InsufficientCredits:
+        # Lost a race against another request since the gate above. Withhold
+        # the result rather than serve it free.
+        return JsonResponse({"status": "error", "message": "No Analysis Credits left. Please upgrade your plan to continue."}, status=429)
     except Exception:
         remaining_credits = None
 

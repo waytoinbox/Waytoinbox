@@ -10,7 +10,10 @@ logger = logging.getLogger(__name__)
 
 from Email_validate_app.models import CurrentCredits, SubsPayment, DMARCAnalysis
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.services.credit_manager import get_ac_current_credit, deduct_ac_credits
+from Email_validate_app.services.credit_manager import (
+    get_ac_current_credit, get_effective_balance, deduct_service_credits,
+    InsufficientCredits,
+)
 from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
 from Email_validate_app.services.dmarc_checker import (
@@ -151,6 +154,17 @@ def Header_Analysis(request):
             valid, msg = validate_email_input(final_email)
             if not valid:
                 messages.error(request, msg)
+            # Phase 6 commit 5: this branch had no credit gate at all. The
+            # deduction below was wrapped in a bare `except Exception`, so a
+            # user with no credits had the failure swallowed and got the
+            # analysis for nothing. The page's form posts to
+            # /api/header-analysis/, but this endpoint is still reachable by a
+            # direct POST, so the gap was a billing bypass rather than dead
+            # code.
+            elif get_effective_balance(user_id, 'header_analysis') <= 0:
+                messages.error(
+                    request,
+                    "No Analysis Credits left. Purchase more credits to continue.")
             else:
                 try:
                     analyzer = ProfessionalEmailAnalyzer(
@@ -164,7 +178,16 @@ def Header_Analysis(request):
 
         if results:
             try:
-                deduct_ac_credits(user_id, 1, ref_type='ip_check', description='Header Analysis')
+                deduct_service_credits(user_id, 'header_analysis', 1,
+                                       ref_type='ip_check',
+                                       description='Header Analysis')
+            except InsufficientCredits:
+                # Lost a race against another request between the gate above
+                # and here. Withhold the result rather than serve it free.
+                results = None
+                messages.error(
+                    request,
+                    "No Analysis Credits left. Purchase more credits to continue.")
             except Exception as e:
                 logger.error("Credit update error: %s", e)
 
