@@ -32,7 +32,7 @@ from Email_validate_app.models import (
 )
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.email_validation import (
-    validate_emails_in_parallel, find_email_column, can_validate_email,
+    validate_emails_in_parallel, find_email_column,
 )
 from Email_validate_app.tasks.verify_emails import (
     create_job, validate_email_list_task, find_emailcolumn_file,
@@ -40,7 +40,9 @@ from Email_validate_app.tasks.verify_emails import (
 from Email_validate_app.services.api_auth import api_key_required
 
 from .billing import get_current_credit, calculate_price, generate_receipt_id
-from Email_validate_app.services.credit_manager import deduct_vc_credits
+from Email_validate_app.services.credit_manager import (
+    deduct_service_credits, get_effective_balance,
+)
 from Email_validate_app.services.email_validation import core_validate_email
 
 # DB-01: strict allowlist — table names are always WIN_<id>_<YYYY>_<MM>_<DD>
@@ -314,17 +316,21 @@ def single_verify(request):
         if not email:
             return JsonResponse({"status": "error", "message": "Please enter an email."})
 
-        try:
-            current_credits = get_current_credit(user_id)
-        except Exception:
-            current_credits = 0
+        # Phase 6 commit 1: single validation always costs one credit. The old
+        # "0 credits -> validate free, up to 5 a day" branch is gone, so a user
+        # with no balance is not validated at all. core_validate_email takes
+        # the credit before doing any work and reports need_credits if it
+        # cannot.
+        email_result = core_validate_email(user_id, email, deduct_credits=True)
 
-        if current_credits < 1:
-            if not can_validate_email(user_id):
-                return JsonResponse({"status": "error", "message": "Daily free limit reached. Max 5 emails per day."})
-            email_result = core_validate_email(user_id, email, deduct_credits=False)
-        else:
-            email_result = core_validate_email(user_id, email, deduct_credits=True)
+        if email_result.get("need_credits"):
+            return JsonResponse({
+                "status":  "error",
+                "message": "You have no Email Validation credits left. "
+                           "Please buy credits to continue.",
+                "need":    1,
+                "current": get_effective_balance(user_id, 'email_validation'),
+            })
 
         if email_result.get("error"):
             return JsonResponse({"status": "error", "message": "Validation error: " + str(email_result['error'])})
@@ -401,7 +407,11 @@ def verify_emails(request):
         total_rows = 0
 
     # uid already set at top of view (auth check)
-    current_credits = get_current_credit(uid)
+    # Phase 6 commit 1: the balance now comes from the email_validation service
+    # wallet plus the legacy VC pool behind it, instead of VC alone. The
+    # threshold, the need_credits response and every other bulk behaviour are
+    # deliberately unchanged.
+    current_credits = get_effective_balance(uid, 'email_validation')
 
     if total_rows > current_credits:
         need_c = total_rows - current_credits
@@ -440,7 +450,9 @@ def verify_emails(request):
         })
 
     # Enough credits — deduct before validation starts
-    deduct_vc_credits(uid, total_rows, ref_type='validation', description=f"Bulk validation: {table}")
+    deduct_service_credits(uid, 'email_validation', total_rows,
+                           ref_type='validation',
+                           description=f"Bulk validation: {table}")
     ListFiles.objects.filter(table_name=table, user_id=uid).update(credite_status="Credited")
 
     # Fetch user details for completion notification

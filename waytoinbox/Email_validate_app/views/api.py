@@ -26,9 +26,8 @@ from Email_validate_app.services.api_auth import api_key_required
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
 from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.services.email_validation import can_validate_email
 from Email_validate_app.services.credit_manager import (
-    get_vc_current_credit, deduct_ac_credits,
+    get_vc_current_credit, deduct_ac_credits, get_effective_balance,
 )
 from Email_validate_app.views import get_current_credit, core_validate_email, check_spf, check_dmarc, check_dkim
 from Email_validate_app.tasks.verify_emails import (
@@ -146,17 +145,18 @@ def _validate_email_view_inner(request):
     if not email:
         return JsonResponse({"status": "error", "message": "Email is required"}, status=400)
 
-    try:
-        current_credits = get_current_credit(user_id) or 0
-    except Exception:
-        current_credits = 0
+    # Phase 6 commit 1: one email costs one credit here too. The old
+    # "0 credits -> 5 free a day" branch is gone; without a balance the API
+    # returns 402 and performs no validation.
+    email_result = core_validate_email(user_id, email, deduct_credits=True)
 
-    if current_credits < 1:
-        if not can_validate_email(user_id):
-            return JsonResponse({"status": "error", "message": "Daily free limit reached. Max 5 emails per day."}, status=429)
-        email_result = core_validate_email(user_id, email, deduct_credits=False)
-    else:
-        email_result = core_validate_email(user_id, email, deduct_credits=True)
+    if email_result.get("need_credits"):
+        return JsonResponse({
+            "status":  "error",
+            "message": "Insufficient Email Validation credits.",
+            "need":    1,
+            "current": get_effective_balance(user_id, 'email_validation'),
+        }, status=402)
 
     if email_result.get("error"):
         return JsonResponse({"status": "error", "message": str(email_result["error"])}, status=500)
@@ -168,7 +168,10 @@ def _validate_email_view_inner(request):
         "reason":    str(email_result.get("reason", "") or ""),
         "mx_record": str(email_result["mx_record"]),
         "record_id": email_result.get("record_id"),
-        "credits":   get_current_credit(user_id),
+        # Effective balance, not the raw VC column: after the Phase 6 cutover a
+        # user spending from the new email_validation wallet would otherwise be
+        # told they have 0 credits left while still being able to validate.
+        "credits":   get_effective_balance(user_id, 'email_validation'),
     })
 
 

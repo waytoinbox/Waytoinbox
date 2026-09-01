@@ -16,7 +16,9 @@ from django.utils import timezone
 from Email_validate_app.models import (
     CurrentCredits, UsedCredits, EmailValidate, EmailValidationLog,
 )
-from Email_validate_app.services.credit_manager import deduct_vc_credits
+from Email_validate_app.services.credit_manager import (
+    deduct_service_credits, refund_service_credits, InsufficientCredits,
+)
 from Email_validate_app.tasks.verify_emails import validate_email_, get_mx_records_
 
 
@@ -24,7 +26,29 @@ def core_validate_email(user_id, email, deduct_credits=False):
     """
     Core validation logic shared by the website (deduct_credits=True)
     and the API (deduct_credits=False).
+
+    Phase 6 commit 1: credits are now taken from the email_validation service
+    wallet (new balance first, then the legacy VC pool) and, crucially, BEFORE
+    any work is done.
+
+    This previously deducted after validating and swallowed the failure:
+
+        except (ValueError, CurrentCredits.DoesNotExist):
+            pass  # insufficient credits or no credits row - validation still proceeds
+
+    which meant a user with a zero balance was validated for free every time.
+    Now an insufficient balance returns {'need_credits': True} and no
+    validation is performed at all. One email costs exactly one credit.
     """
+    if deduct_credits:
+        try:
+            deduct_service_credits(
+                user_id, 'email_validation', 1,
+                ref_type='validation', ref_id=email,
+                description='Single email validation')
+        except InsufficientCredits as e:
+            return {"error": str(e), "need_credits": True}
+
     try:
         result, reason = validate_email_(email)
 
@@ -47,12 +71,6 @@ def core_validate_email(user_id, email, deduct_credits=False):
             email=email,
         )
 
-        if deduct_credits:
-            try:
-                deduct_vc_credits(user_id, 1, ref_type='validation', ref_id=email, description='Single email validation')
-            except (ValueError, CurrentCredits.DoesNotExist):
-                pass  # insufficient credits or no credits row — validation still proceeds
-
         return {
             "email":     email,
             "result":    result,
@@ -63,6 +81,20 @@ def core_validate_email(user_id, email, deduct_credits=False):
         }
 
     except Exception as e:
+        # The credit was taken before the work started, so a failure here must
+        # give it back — otherwise a DNS timeout silently costs the user a
+        # credit for a result they never received.
+        if deduct_credits:
+            try:
+                refund_service_credits(
+                    user_id, 'email_validation', 1,
+                    ref_type='validation', ref_id=email,
+                    description='Refund: single email validation failed')
+            except Exception:
+                logger.exception(
+                    "Could not refund the validation credit for user %s (%s) "
+                    "after validation failed", user_id, email)
+        logger.warning("Single validation failed for user %s (%s): %s", user_id, email, e)
         return {"error": str(e)}
 
 
