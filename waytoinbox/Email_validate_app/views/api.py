@@ -328,7 +328,11 @@ def ip_blocklist_check_api(request):
         last_monitor_date=current_datetime, listed_count=str(listed_count)
     )
 
-    remaining = get_vc_current_credit(user_id)
+    # Phase 6 commit 10: this reported get_vc_current_credit() — the Email
+    # Validation column, not an analysis balance at all. It now reports what
+    # IP Blocklist can actually spend: its own wallet plus the shared legacy
+    # AC pool. The field name is unchanged for API compatibility.
+    remaining = get_effective_balance(user_id, 'ip_blocklist')
     return JsonResponse({
         "status": "ok",
         "ip": ip_s,
@@ -452,7 +456,11 @@ def domain_blocklist_check_api(request):
         "domain": domain_s,
         "domain_id": new_entry.domain_id,
         "listed_count": listed_count,
-        "ip_current_credits": get_vc_current_credit(user_id),
+        # Same fix as the IP endpoint: this was get_vc_current_credit(), the
+        # Email Validation column. The key name is "ip_current_credits" even
+        # in the domain response — pre-existing and deliberately left as is,
+        # since renaming it would break the published contract.
+        "ip_current_credits": get_effective_balance(user_id, 'domain_blocklist'),
     })
 
 

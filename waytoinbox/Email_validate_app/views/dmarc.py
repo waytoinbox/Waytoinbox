@@ -218,10 +218,19 @@ def Header_Analysis(request):
         except Exception:
             plan_total = 0
 
+    # Phase 6 commit 10: show what this service can actually spend — its own
+    # wallet plus the shared legacy AC pool behind it — instead of the raw AC
+    # column. A user whose credits sat entirely in the header_analysis wallet
+    # was shown 0 while still being able to run analyses.
+    #
+    # ac_total_credits / ac_used_credits are left alone: they describe the
+    # legacy subscription grant, not this wallet.
+    header_balance = get_effective_balance(user_id, 'header_analysis') if user_id else 0
+
     return render(request, "i_header_analysis.html", {
         "results":            results,
-        "credits":            ac_current,
-        "ac_current_credits": ac_current,
+        "credits":            header_balance,
+        "ac_current_credits": header_balance,
         "ac_total_credits":   plan_total,
         "ac_used_credits":    ac_used,
         "plan_name":          plan_name,

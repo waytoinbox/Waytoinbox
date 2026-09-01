@@ -81,10 +81,16 @@ def Blocklist_Monitor(request):
 
     from Email_validate_app.services.filter_status import BLOCKLIST_STATUSES
     ac_current, plan_total, ac_used, plan_name, plan_valid_till = _get_ac_subscription_context(user_id)
+    # Phase 6 commit 10: show this service's own wallet plus the shared legacy
+    # AC pool behind it, not the raw AC column. The two blocklist pages share
+    # _get_ac_subscription_context() but need different service balances, so the
+    # figure is overridden here rather than inside the helper — the helper still
+    # supplies the legacy plan totals below.
+    ip_balance = get_effective_balance(user_id, 'ip_blocklist')
 
     return render(request, "i_ip_blocklist.html", {
-        "credits":            ac_current,
-        "ac_current_credits": ac_current,
+        "credits":            ip_balance,
+        "ac_current_credits": ip_balance,
         "ac_total_credits":   plan_total,
         "ac_used_credits":    ac_used,
         "plan_name":          plan_name,
@@ -100,10 +106,11 @@ def Domain_Blacklist(request):
 
     from Email_validate_app.services.filter_status import BLOCKLIST_STATUSES
     ac_current, plan_total, ac_used, plan_name, plan_valid_till = _get_ac_subscription_context(user_id)
+    domain_balance = get_effective_balance(user_id, 'domain_blocklist')
 
     return render(request, "i_domain_blocklist.html", {
-        "credits":            ac_current,
-        "ac_current_credits": ac_current,
+        "credits":            domain_balance,
+        "ac_current_credits": domain_balance,
         "ac_total_credits":   plan_total,
         "ac_used_credits":    ac_used,
         "plan_name":          plan_name,
@@ -661,9 +668,17 @@ def add_to_monitors(request):
                     ip_result = {'status': 'error', 'message': 'No Analysis Credits left'}
                 except Exception as e:
                     ip_result = {'status': 'error', 'message': str(e)}
+    # Phase 6 commit 10: this endpoint is called only from the Header Analyzer
+    # page (i_header_analysis.html), whose credit bar is rendered from
+    # header_analysis's effective balance and then refreshed from this field.
+    # It therefore has to report the same metric, or the bar would change
+    # meaning between page load and refresh.
+    #
+    # A request can add an IP and a domain at once, so no single per-monitor
+    # figure would be correct anyway; what the bar tracks is the shared pool
+    # this page spends from, which an added monitor also draws on.
     try:
-        from Email_validate_app.services.credit_manager import get_ac_current_credit as _get_ac
-        remaining = _get_ac(user_id)
+        remaining = get_effective_balance(user_id, 'header_analysis')
     except Exception:
         remaining = None
     return JsonResponse({

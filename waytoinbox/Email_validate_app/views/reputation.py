@@ -71,9 +71,13 @@ def Reputation_Analysis(request):
             _get_ac_subscription_context(user_id) if user_id else (0, 0, 0, None, None)
         )
         from Email_validate_app.services.filter_status import REPUTATION_STATUSES
+        # Phase 6 commit 10: the displayed balance is this service's own wallet
+        # plus the shared legacy AC pool behind it, not the raw AC column.
+        # ac_total_credits / ac_used_credits still describe the legacy grant.
+        rep_balance = get_effective_balance(user_id, 'reputation') if user_id else 0
         return render(request, 'i_Reputation_Analysis.html', {
-            'credits':            ac_current,
-            'ac_current_credits': ac_current,
+            'credits':            rep_balance,
+            'ac_current_credits': rep_balance,
             'ac_total_credits':   plan_total,
             'ac_used_credits':    ac_used,
             'plan_name':          plan_name,
@@ -175,7 +179,8 @@ def Reputation_Analysis(request):
             'no_credits': True,
         })
 
-    new_ac_current = get_ac_current_credit(user_id)
+    # Same figure the page shows, so the number does not jump after an add.
+    new_ac_current = get_effective_balance(user_id, 'reputation')
     if rep_status == 'unverified':
         try:
             from Email_validate_app.utils import create_notification
