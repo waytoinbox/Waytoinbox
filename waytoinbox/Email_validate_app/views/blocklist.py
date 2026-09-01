@@ -21,7 +21,6 @@ from Email_validate_app.models import (
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
 from Email_validate_app.services.credit_manager import (
-    get_ac_current_credit, deduct_ac_credits,
     get_effective_balance, deduct_service_credits, InsufficientCredits,
 )
 
@@ -424,23 +423,50 @@ def check_domain_blocklist(request):
         messages.warning(request, f"Domain '{domain_s}' already exists.")
         return redirect('Domain_Blacklist')
 
+    # Phase 6 commit 7: despite this view's name it ADDS a monitor — the charge
+    # is for the add, not for the recurring re-check (my_second_job re-scans
+    # every monitored domain and costs nothing).
+    #
+    # Creation and the charge now share one transaction; the old order deducted
+    # first and created second, so a failed insert burned a credit. The lock is
+    # the same row, in the same order (ServiceCredit -> CurrentCredits), that
+    # deduct_service_credits() takes, so two simultaneous adds of one domain
+    # serialise and the duplicate re-check below is reliable.
+    #
+    # Both existing error contracts are preserved: InsufficientCredits
+    # subclasses ValueError, so an empty balance still produces "No Analysis
+    # Credits left.", and any other failure still produces "Error: ...".
     try:
-        deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=domain_s, description='Domain Blocklist Check')
+        with transaction.atomic():
+            ServiceCredit.objects.select_for_update().filter(
+                user_id=user_id, service='domain_blocklist',
+            ).first()
+
+            if DomainBlocklist.objects.filter(
+                user=user, domain=domain_s, is_hidden=False,
+            ).exists():
+                raise _AlreadyMonitored(domain_s)
+
+            new_entry = DomainBlocklist.objects.create(
+                user=user,
+                domain=domain_s,
+                created_date=current_datetime,
+                last_monitor_date=current_datetime,
+                listed_count=0
+            )
+            deduct_service_credits(
+                user_id, 'domain_blocklist', 1,
+                ref_type='ip_check', ref_id=domain_s,
+                description='Domain Blocklist Check',
+            )
+    except _AlreadyMonitored:
+        # A concurrent request created it first — same result the pre-check
+        # above produces.
+        messages.warning(request, f"Domain '{domain_s}' already exists.")
+        return redirect('Domain_Blacklist')
     except ValueError:
         messages.warning(request, "No Analysis Credits left.")
         return redirect('Domain_Blacklist')
-    except Exception as e:
-        messages.error(request, f"Error: {str(e)}")
-        return redirect('Domain_Blacklist')
-
-    try:
-        new_entry = DomainBlocklist.objects.create(
-            user=user,
-            domain=domain_s,
-            created_date=current_datetime,
-            last_monitor_date=current_datetime,
-            listed_count=0
-        )
     except Exception as e:
         messages.error(request, f"Error: {str(e)}")
         return redirect('Domain_Blacklist')
@@ -526,13 +552,32 @@ def add_to_monitors(request):
             domain_result = {'status': 'duplicate', 'message': "'" + domain_s + "' is already monitored"}
         else:
             try:
-                deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=domain_s, description='Domain Monitor Add')
-                entry = DomainBlocklist.objects.create(
-                    user=user, domain=domain_s,
-                    created_date=current_datetime,
-                    last_monitor_date=current_datetime,
-                    listed_count=0
-                )
+                # Create and charge together. The old order deducted first and
+                # created second, so a failed insert burned the credit.
+                # InsufficientCredits subclasses ValueError, so the existing
+                # `except ValueError` below still yields 'No Analysis Credits
+                # left'.
+                with transaction.atomic():
+                    ServiceCredit.objects.select_for_update().filter(
+                        user_id=user_id, service='domain_blocklist',
+                    ).first()
+
+                    if DomainBlocklist.objects.filter(
+                        user=user, domain=domain_s, is_hidden=False,
+                    ).exists():
+                        raise _AlreadyMonitored(domain_s)
+
+                    entry = DomainBlocklist.objects.create(
+                        user=user, domain=domain_s,
+                        created_date=current_datetime,
+                        last_monitor_date=current_datetime,
+                        listed_count=0
+                    )
+                    deduct_service_credits(
+                        user_id, 'domain_blocklist', 1,
+                        ref_type='ip_check', ref_id=domain_s,
+                        description='Domain Monitor Add',
+                    )
                 try:
                     bl_status = domain_blacklists(domain_s)
                 except Exception:
@@ -550,6 +595,9 @@ def add_to_monitors(request):
                 DomainBlocklist.objects.filter(domain_id=entry.domain_id).update(listed_count=listed_count, last_monitor_date=current_datetime)
                 credits_used += 1
                 domain_result = {'status': 'added', 'message': "'" + domain_s + "' added to Domain Monitor", 'listed_count': listed_count}
+            except _AlreadyMonitored:
+                # A concurrent request won the race and created it first.
+                domain_result = {'status': 'duplicate', 'message': "'" + domain_s + "' is already monitored"}
             except ValueError:
                 domain_result = {'status': 'error', 'message': 'No Analysis Credits left'}
             except Exception as e:

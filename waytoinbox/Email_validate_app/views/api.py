@@ -28,7 +28,7 @@ from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.views.blocklist import _AlreadyMonitored
 from Email_validate_app.services.credit_manager import (
-    get_vc_current_credit, deduct_ac_credits, get_effective_balance,
+    get_vc_current_credit, get_effective_balance,
     deduct_service_credits, InsufficientCredits,
 )
 from Email_validate_app.views import get_current_credit, core_validate_email, check_spf, check_dmarc, check_dkim
@@ -384,19 +384,38 @@ def domain_blocklist_check_api(request):
     if DomainBlocklist.objects.filter(user=user, domain=domain_s, is_hidden=False).exists():
         return JsonResponse({"status": "warning", "message": f"Domain '{domain_s}' is already being monitored."})
 
+    # Phase 6 commit 7: this endpoint ADDS a monitor (the duplicate check above
+    # returns early for an already-monitored domain), so the charge is for the
+    # add, not for a repeated check. Creation and the charge now share one
+    # transaction — the old order deducted first and created second, so a failed
+    # insert burned the credit. The lock is the same row, in the same order,
+    # deduct_service_credits() takes, so two simultaneous adds of one domain
+    # serialise and only one is charged.
     current_datetime = timezone.now()
     try:
-        deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=domain_s, description='Domain Blocklist Check')
+        with transaction.atomic():
+            ServiceCredit.objects.select_for_update().filter(
+                user_id=user_id, service='domain_blocklist',
+            ).first()
+
+            if DomainBlocklist.objects.filter(
+                user=user, domain=domain_s, is_hidden=False,
+            ).exists():
+                raise _AlreadyMonitored(domain_s)
+
+            new_entry = DomainBlocklist.objects.create(
+                user=user, domain=domain_s,
+                created_date=current_datetime, last_monitor_date=current_datetime, listed_count=0,
+            )
+            deduct_service_credits(user_id, 'domain_blocklist', 1,
+                                   ref_type='ip_check', ref_id=domain_s,
+                                   description='Domain Blocklist Check')
+    except _AlreadyMonitored:
+        return JsonResponse({"status": "warning", "message": f"Domain '{domain_s}' is already being monitored."})
     except CurrentCredits.DoesNotExist:
         return JsonResponse({"status": "error", "message": "Credits not found for your account"}, status=402)
     except ValueError:
         return JsonResponse({"status": "error", "message": "No Analysis Credits left. Please upgrade your plan to continue."}, status=429)
-
-    try:
-        new_entry = DomainBlocklist.objects.create(
-            user=user, domain=domain_s,
-            created_date=current_datetime, last_monitor_date=current_datetime, listed_count=0,
-        )
     except Exception as e:
         return JsonResponse({"status": "error", "message": str(e)}, status=500)
 
