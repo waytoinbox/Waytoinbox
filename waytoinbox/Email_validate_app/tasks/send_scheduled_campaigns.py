@@ -90,7 +90,9 @@ def send_campaign_emails_task(self, campaign_id):
     from Email_validate_app.models import Campaign, CampaignEmail
     from Email_validate_app.services.campaign_sender import send_campaign_emails
     from Email_validate_app.tasks.sync_campaigns_cloudwatch import sync_campaign_events
-    from Email_validate_app.services.credit_manager import get_cc_current_credit, deduct_cc_credits
+    from Email_validate_app.services.credit_manager import (
+        get_effective_balance, deduct_service_credits,
+    )
 
     lock_key = f'send_campaign:{campaign_id}'
     if not cache.add(lock_key, '1', timeout=_SEND_LOCK_TIMEOUT):
@@ -123,7 +125,12 @@ def send_campaign_emails_task(self, campaign_id):
             subscribed='subscribed',
         ).count()
 
-        cc_available = get_cc_current_credit(campaign.user_id)
+        # Phase 6 commit 2: the balance now comes from the email_marketing
+        # service wallet plus the legacy CC pool behind it, instead of CC
+        # alone. Without this the preflight would still read CC only and block
+        # a user whose credits live entirely in the new wallet. The threshold
+        # and every other behaviour here are unchanged.
+        cc_available = get_effective_balance(campaign.user_id, 'email_marketing')
         if cc_available < recipient_count:
             Campaign.objects.filter(id=campaign_id).update(status='failed')
             logger.warning(
@@ -182,13 +189,17 @@ def send_campaign_emails_task(self, campaign_id):
             except Exception:
                 pass
             try:
-                deduct_cc_credits(campaign.user_id, send_count,
-                                  ref_type='campaign', ref_id=str(campaign.id),
-                                  description=f"Campaign send: {campaign.campaign_name}")
+                # Phase 6 commit 2: charged to the email_marketing service
+                # wallet, which spends the new balance first and falls back to
+                # the legacy CC pool for any remainder. send_count is the
+                # SUCCESSFUL send count — failed recipients are never charged.
+                deduct_service_credits(campaign.user_id, 'email_marketing', send_count,
+                                       ref_type='campaign', ref_id=str(campaign.id),
+                                       description=f"Campaign send: {campaign.campaign_name}")
             except Exception as cc_exc:
                 logger.error(
-                    "send_campaign_emails_task: CC credit deduction failed for "
-                    "campaign %s: %s", campaign_id, cc_exc,
+                    "send_campaign_emails_task: Email Marketing credit deduction "
+                    "failed for campaign %s: %s", campaign_id, cc_exc,
                 )
             try:
                 sync_campaign_events(campaign.id)
