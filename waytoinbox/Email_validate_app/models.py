@@ -215,12 +215,33 @@ class UsedCredits(models.Model):
         return f"{self.user.user_email if self.user else 'Unknown'} used {self.vc_used_credits} VC credits"
 
 
+# ── Service-based credit system ───────────────────────────────────────────────
+# The seven credit-consuming services. These keys are used as ServiceCredit
+# .service, CreditPackage.service and CreditAuditLog.credit_type values.
+#
+# NOTE: CreditAuditLog.credit_type was max_length=10 when only 'vc'/'ac'/'cc'
+# existed; six of these keys are longer, so that column is widened to 20 in the
+# same migration that adds these models. The legacy 'vc'/'ac'/'cc' values stay
+# valid — historical audit rows are never rewritten.
+SERVICE_CHOICES = [
+    ('email_validation', 'Email Validation'),
+    ('email_marketing',  'Email Marketing'),
+    ('sales_outreach',   'Sales Outreach'),
+    ('reputation',       'Reputation Analysis'),
+    ('header_analysis',  'Email Header Analyzer'),
+    ('ip_blocklist',     'IP Blocklist Monitor'),
+    ('domain_blocklist', 'Domain Blocklist Monitor'),
+]
+
+SERVICE_KEYS = [key for key, _ in SERVICE_CHOICES]
+
+
 class CreditAuditLog(models.Model):
     CREDIT_TYPES = [
         ('vc', 'Validation Credits'),
         ('ac', 'Analysis Credits'),
         ('cc', 'Contact Credits'),
-    ]
+    ] + SERVICE_CHOICES
     ENTRY_TYPES = [
         ('credit',     'Credit Added'),
         ('debit',      'Credit Used'),
@@ -235,10 +256,12 @@ class CreditAuditLog(models.Model):
         ('campaign',     'Campaign Send'),
         ('ip_check',     'IP/Domain/Header/Reputation Check'),
         ('admin',        'Admin Adjustment'),
+        ('service_purchase', 'Service Credit Purchase'),
+        ('so_account',       'Sales Outreach Account Added'),
     ]
 
     user           = models.ForeignKey(UserTable, on_delete=models.CASCADE)
-    credit_type    = models.CharField(max_length=10, choices=CREDIT_TYPES)
+    credit_type    = models.CharField(max_length=20, choices=CREDIT_TYPES)
     entry_type     = models.CharField(max_length=20, choices=ENTRY_TYPES)
     amount         = models.IntegerField()
     balance_before = models.IntegerField(default=0)

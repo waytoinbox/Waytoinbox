@@ -93,7 +93,6 @@ def _razorpay_payer_method(payment_details):
 
 
 def pricing(request):
-    return redirect('dashboard')  # temporary — page hidden
     user_id = get_user_id(request)
     current_credits = 0
     active_plan = None

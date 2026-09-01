@@ -142,6 +142,17 @@ def so_email_account_action(request):
         display  = (data.get('display_name') or '').strip()
         password = (data.get('password') or '').replace(' ', '')
 
+        existing_count = SOEmailAccount.objects.filter(
+            user_id=user_id,
+            deleted_at__isnull=True,
+        ).count()
+
+        if existing_count >= 2:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'You can add up to 2 Sales Outreach email accounts only.'
+            })
+
         if not email or '@' not in email:
             return JsonResponse({'status': 'error', 'message': 'A valid email address is required.'})
         if not password:

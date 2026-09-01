@@ -28,7 +28,6 @@ from .billing import (
 
 
 def subscription(request):
-    return redirect('dashboard')  # temporary — page hidden
     user_id = get_user_id(request)
 
     try:
