@@ -201,12 +201,12 @@ class NoLegacyDeductionCallersTests(TestCase):
     LEGACY_DEDUCTORS = ('deduct_ac_credits', 'deduct_cc_credits',
                         'deduct_vc_credits')
 
-    # credit_manager.py defines them and manage_credits() still calls
-    # deduct_vc_credits for the bulk-download charge — a known, reported
-    # Email Validation gap left for its own commit rather than changed here.
-    ALLOWED = {
-        pathlib.Path('services') / 'credit_manager.py',
-    }
+    # Nothing is exempt any more. Commit 8 had to allow credit_manager.py
+    # because manage_credits() still called deduct_vc_credits for the
+    # bulk-download charge; commit 9 moved that onto the service wallet, so
+    # there is now not one call to any of the three anywhere in the app. The
+    # regex ignores the `def` lines, so their definitions do not trip it.
+    ALLOWED = set()
 
     def _production_files(self):
         for path in APP_ROOT.rglob('*.py'):

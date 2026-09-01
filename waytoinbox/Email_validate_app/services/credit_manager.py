@@ -350,18 +350,34 @@ def manage_credits(selected_option, table_name, user_id, timezone_str):
         validation_results__in=["Valid", "Invalid"],
     ).count()
 
-    current_credit = get_vc_current_credit(user_id)
+    # Phase 6 commit 9: the balance is the email_validation service wallet plus
+    # the legacy VC pool behind it, rather than the raw VC column. Without this
+    # a customer whose credits live entirely in the new wallet could not
+    # download results they had already paid to validate.
+    current_credit = get_effective_balance(user_id, 'email_validation')
     if row_count > current_credit:
         logger.warning(f"Insufficient credits: {current_credit} available, {row_count} required.")
         return str(row_count)
 
-    deduct_vc_credits(
-        user_id, row_count,
-        ref_type='validation',
-        description=f"Bulk download: {table_name}",
-    )
-    file_entry.credite_status = "Credited"
-    file_entry.save()
+    # The charge and the credite_status flag share one transaction. Previously
+    # a failure between them would have spent the credits while leaving the file
+    # unmarked, so the next download attempt would charge for it again.
+    try:
+        with transaction.atomic():
+            deduct_service_credits(
+                user_id, 'email_validation', row_count,
+                ref_type='validation',
+                description=f"Bulk download: {table_name}",
+            )
+            file_entry.credite_status = "Credited"
+            file_entry.save()
+    except InsufficientCredits:
+        # Lost a race against another spend since the check above. Report it the
+        # same way the check does, so download_results() routes into its
+        # existing need_credits flow instead of raising into a 500.
+        logger.warning("Bulk download charge lost a race for user %s on %s",
+                       user_id, table_name)
+        return str(row_count)
 
     return _fetch_rows(file_entry, selected_option)
 
