@@ -43,6 +43,9 @@ def create_coupon(data, created_by):
         is_active=data.get('is_active', True),
         description=data.get('description', '').strip(),
         created_by=created_by,
+        per_user_limit=data.get('per_user_limit') or None,
+        min_order_amount=data.get('min_order_amount') or 0,
+        applicable_services=data.get('applicable_services', ''),
     )
     coupon.full_clean()
     coupon.save()
@@ -59,6 +62,14 @@ def edit_coupon(coid, data):
     coupon.valid_until = data.get('valid_until') or None
     coupon.is_active = data.get('is_active', True)
     coupon.description = data.get('description', '').strip()
+    # Absent keys leave the stored value alone, so a form that does not post
+    # these fields cannot silently reset an existing coupon's limits.
+    if 'per_user_limit' in data:
+        coupon.per_user_limit = data.get('per_user_limit') or None
+    if 'min_order_amount' in data:
+        coupon.min_order_amount = data.get('min_order_amount') or 0
+    if 'applicable_services' in data:
+        coupon.applicable_services = data.get('applicable_services', '')
     coupon.full_clean()
     coupon.save()
     return coupon

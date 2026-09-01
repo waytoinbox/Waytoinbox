@@ -124,11 +124,23 @@ def send_payment_success_email(user_name, user_email, amount, currency, order_id
     """
     extra = {'type': 'payg', 'credits': 500}
          or {'type': 'subscription', 'plan': 'Classic', 'vc_credits': 1050, 'ac_credits': 5, 'valid_till': '...'}
+         or {'type': 'service_credits', 'cart': {'email_validation': 25000, 'sales_outreach': 10}}
     """
     paid_str = f"${amount} {currency}"
     time_str = payment_time.strftime('%d %b %Y, %I:%M %p UTC') if payment_time else 'N/A'
 
-    if extra.get('type') == 'subscription':
+    if extra.get('type') == 'service_credits':
+        # A service purchase has no single credit number — it is a basket, so
+        # itemise it rather than printing a meaningless total.
+        from Email_validate_app.services.pricing import SERVICE_LABELS
+        cart  = extra.get('cart') or {}
+        width = max((len(SERVICE_LABELS.get(s, s)) for s in cart), default=0)
+        detail = "".join(
+            f"  {SERVICE_LABELS.get(svc, svc):<{width}} : {int(qty):,}\n"
+            for svc, qty in cart.items()
+        ) or "  Credits Added : 0\n"
+        subject = "Payment Successful — Credits Added | Waytoinbox"
+    elif extra.get('type') == 'subscription':
         plan   = extra.get('plan', '')
         vc_c   = extra.get('vc_credits', 0)
         ac_c   = extra.get('ac_credits', 0)

@@ -67,6 +67,30 @@
 
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         <div class="admin-form-group">
+          <label class="admin-form-label">Per-User Limit <small style="color:var(--ink-3);">(blank = unlimited)</small></label>
+          <input type="number" name="per_user_limit" class="admin-input" min="1"
+                 value="{{ coupon.per_user_limit|default:'' }}" placeholder="Unlimited">
+        </div>
+        <div class="admin-form-group">
+          <label class="admin-form-label">Minimum Order ($) <small style="color:var(--ink-3);">(0 = no minimum)</small></label>
+          <input type="number" name="min_order_amount" class="admin-input" step="0.01" min="0"
+                 value="{{ coupon.min_order_amount|default:'0' }}" placeholder="0.00">
+        </div>
+      </div>
+
+      <div class="admin-form-group">
+        <label class="admin-form-label">Applicable Services
+          <small style="color:var(--ink-3);">(select none = valid on all services)</small></label>
+        <select name="applicable_services" class="admin-input" multiple size="7"
+                style="height:auto;padding:8px;">
+          {% for key, label in service_choices %}
+          <option value="{{ key }}" {% if key in coupon_services %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <div class="admin-form-group">
           <label class="admin-form-label">Valid From <span style="color:var(--red);">*</span></label>
           <input type="datetime-local" name="valid_from" class="admin-input"
                  value="{% if coupon.valid_from %}{{ coupon.valid_from|date:'Y-m-d' }}T{{ coupon.valid_from|time:'H:i' }}{% endif %}" required>

@@ -3,7 +3,7 @@ from django.shortcuts import render, get_object_or_404
 from django.views.decorators.http import require_POST
 from django.utils.dateparse import parse_datetime
 
-from Email_validate_app.models import Coupon
+from Email_validate_app.models import Coupon, SERVICE_CHOICES
 from Email_validate_app.views.admin._base import (
     admin_required, handle_admin_errors, audit, json_ok, json_error,
 )
@@ -41,6 +41,8 @@ def admin_coupon_create(request):
         'coupon': None,
         'form_action': '/wti-admin/coupons/create/',
         'title': 'Create Coupon',
+        'service_choices': SERVICE_CHOICES,
+        'coupon_services': [],
     })
 
 
@@ -65,6 +67,8 @@ def admin_coupon_edit(request, coid):
         'coupon': coupon,
         'form_action': f'/wti-admin/coupons/{coid}/edit/',
         'title': 'Edit Coupon',
+        'service_choices': SERVICE_CHOICES,
+        'coupon_services': [s for s in (coupon.applicable_services or '').split(',') if s],
     })
 
 
@@ -108,7 +112,20 @@ def _parse_form(post):
     except ValueError:
         raise ValueError('Invalid discount value.')
 
+    per_user_raw = post.get('per_user_limit', '').strip()
+    min_order_raw = post.get('min_order_amount', '').strip()
+    try:
+        min_order = float(min_order_raw) if min_order_raw else 0
+    except ValueError:
+        raise ValueError('Invalid minimum order amount.')
+
+    # Stored as a comma-separated list of service keys; blank = all services.
+    services = [s.strip() for s in post.getlist('applicable_services') if s.strip()]
+
     return {
+        'per_user_limit': int(per_user_raw) if per_user_raw else None,
+        'min_order_amount': min_order,
+        'applicable_services': ','.join(services),
         'code': post.get('code', ''),
         'discount_type': post.get('discount_type', ''),
         'discount_value': discount_value,

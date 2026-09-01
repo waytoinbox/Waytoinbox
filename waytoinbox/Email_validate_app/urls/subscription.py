@@ -7,5 +7,4 @@ urlpatterns = [
     path("subscription_cancel/", views.subscription_cancel, name="subscription_cancel"),
     path("create_subscription/", views.create_subscription, name="create_subscription"),
     path("subs_payment/", views.subs_payment, name="subs_payment"),
-    path("add_ip_credit_view/", views.add_ip_credit_view, name="add_ip_credit_view"),
 ]

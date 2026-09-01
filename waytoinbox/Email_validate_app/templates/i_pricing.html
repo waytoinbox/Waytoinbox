@@ -255,6 +255,7 @@
 </footer>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script src="{% static 'Email_validate_app/js/checkout.js' %}"></script>
 <script>
 /* ── NAV scroll shadow ───────────────────────────────── */
 window.addEventListener('scroll', function() {
@@ -302,65 +303,26 @@ function getCsrf() {
 }
 
 /* ── Open Razorpay popup from order data ─────────────── */
+/* Thin wrapper over the shared implementation in checkout.js. Behaviour and
+   every URL, message and posted field are unchanged from the copy that used
+   to live here. */
 function openRazorpay(order) {
-  var options = {
-    key:         order.key_id,
-    amount:      order.amount,
-    currency:    order.currency,
-    name:        order.user_name,
-    description: order.flow === 'subscription' ? 'Subscription Plan: ' + order.credit : 'Email Credits Purchase',
-    order_id:    order.order_id,
-    handler: async function(response) {
-      var fd = new FormData();
-      fd.append('csrfmiddlewaretoken', getCsrf());
-      fd.append('payment_id',         response.razorpay_payment_id);
-      fd.append('order_id',           order.order_id);
-      fd.append('razorpay_signature', response.razorpay_signature);
-      fd.append('amount',             order.amount);
-      fd.append('credits',            order.credit);
-      fd.append('user_email',         order.user_email);
-      fd.append('user_name',          order.user_name);
-      fd.append('currency',   order.currency);
-      fd.append('plan',         order.plan || '');
-      fd.append('billing_cycle', order.billing_cycle || 'monthly');
-      fd.append('contacts', order.contacts || '0');
-      fd.append('description', order.flow === 'subscription' ? 'Subscription: ' + order.credit : 'Credits purchase');
-
-      var url = order.flow === 'subscription'
-        ? '{% url "subs_payment" %}'
-        : '{% url "payment" %}';
-
-      try {
-        var res  = await fetch(url, { method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd });
-        var data = await res.json();
-        if (data.status === 'ok') {
-          subShowAlert('success', order.flow === 'subscription'
-            ? 'Payment successful! Your ' + order.credit + ' plan is now active.'
-            : 'Payment successful! Credits have been added to your account.');
-          setTimeout(function(){ window.location.href = '{% url "pricing" %}'; }, 1500);
-        } else {
-          subShowAlert('error', data.message || 'Payment finalisation failed.');
-          setTimeout(function(){ window.location.href = '{% url "pricing" %}'; }, 2000);
-        }
-      } catch (err) {
-        subShowAlert('error', 'Something went wrong finalising payment. Please contact support.');
-        setTimeout(function(){ window.location.href = '{% url "pricing" %}'; }, 2000);
-      }
+  var isSub = order.flow === 'subscription';
+  WTICheckout.open(order, {
+    verifyUrl:   isSub ? '{% url "subs_payment" %}' : '{% url "payment" %}',
+    returnUrl:   '{% url "pricing" %}',
+    description: isSub ? 'Subscription Plan: ' + order.credit : 'Email Credits Purchase',
+    fields: {
+      plan:          order.plan || '',
+      billing_cycle: order.billing_cycle || 'monthly',
+      contacts:      order.contacts || '0',
+      description:   isSub ? 'Subscription: ' + order.credit : 'Credits purchase'
     },
-    modal: {
-      ondismiss: function() {
-        window.location.href = '{% url "pricing" %}';
-      }
-    },
-    theme: { color: '#3399cc' }
-  };
-
-  var rzp = new Razorpay(options);
-  rzp.on('payment.failed', function(response) {
-    subShowAlert('error', 'Payment failed: ' + (response.error.description || 'Unknown error.'));
-    setTimeout(function(){ window.location.href = '{% url "pricing" %}'; }, 2000);
+    notify: function (type, msg) { subShowAlert(type, msg); },
+    successMessage: isSub
+      ? 'Payment successful! Your ' + order.credit + ' plan is now active.'
+      : 'Payment successful! Credits have been added to your account.'
   });
-  rzp.open();
 }
 
 /* ── Subscription plan buy ───────────────────────────── */

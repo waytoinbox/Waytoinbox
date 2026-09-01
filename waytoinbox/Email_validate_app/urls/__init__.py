@@ -6,6 +6,7 @@ urlpatterns = [
     path('', include('Email_validate_app.urls.email_validation')),
     path('', include('Email_validate_app.urls.billing')),
     path('', include('Email_validate_app.urls.subscription')),
+    path('', include('Email_validate_app.urls.credits')),
     path('', include('Email_validate_app.urls.blocklist')),
     path('', include('Email_validate_app.urls.dmarc')),
     path('', include('Email_validate_app.urls.campaigns')),

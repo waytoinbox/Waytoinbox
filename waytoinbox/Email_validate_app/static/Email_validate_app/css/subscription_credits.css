@@ -1,0 +1,436 @@
+/* ══════════════════════════════════════════════════════
+   subscription_credits.css
+   WayToInbox — service-credit purchase card
+   ══════════════════════════════════════════════════════
+
+   One card, not seven. The hierarchy is deliberate:
+
+       TOTAL  ->  PROMO  ->  GET STARTED  ->  QUANTITY ROWS
+
+   so the eye lands on a single price. Each service row is one bordered
+   container holding quantity, name and arrows together, so the quantity and
+   the service it belongs to read as a single control.
+
+   Per-credit rates and per-service prices are intentionally absent from this
+   file — there is no class to style them, because they must never be shown.
+   ────────────────────────────────────────────────────── */
+
+.sc-page {
+  max-width: 620px;
+  margin: 0 auto;
+  padding: 28px 18px 64px;
+}
+
+/* ── Card ─────────────────────────────────────────────── */
+.sc-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: 34px 30px 30px;
+}
+
+.sc-card-head { text-align: center; }
+
+.sc-eyebrow {
+  font-family: var(--font-head);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+/* ── Total ────────────────────────────────────────────── */
+.sc-total {
+  font-family: var(--font-head);
+  font-size: clamp(38px, 9vw, 54px);
+  font-weight: 800;
+  line-height: 1.05;
+  color: var(--ink);
+  letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+  transition: opacity .18s ease;
+}
+.sc-total.is-loading { opacity: .45; }
+
+/* Subtotal / discount breakdown. Present only when the server returns a
+   discount, so a full-price cart still shows a single clean number. */
+.sc-breakdown {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.sc-breakdown[hidden] { display: none; }
+.sc-breakdown s      { color: var(--ink-3); text-decoration-thickness: 1px; }
+.sc-breakdown b      { color: var(--mint); font-weight: 700; }
+
+.sc-modal-line.sc-modal-discount b { color: var(--mint); }
+
+.sc-total-note {
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  min-height: 18px;
+}
+.sc-total-note.is-error { color: var(--warn); font-weight: 600; }
+
+/* ── Promo ────────────────────────────────────────────── */
+.sc-promo { margin-top: 18px; }
+
+.sc-promo-toggle {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--teal);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sc-promo-toggle:hover { color: var(--teal-dk); }
+
+.sc-promo-panel {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  justify-content: center;
+}
+.sc-promo-panel[hidden] { display: none; }
+
+.sc-promo-input {
+  flex: 1 1 auto;
+  max-width: 260px;
+  height: 42px;
+  padding: 0 13px;
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  text-transform: uppercase;
+}
+.sc-promo-input::placeholder { text-transform: none; color: var(--ink-3); }
+
+.sc-promo-apply {
+  flex: 0 0 auto;
+  height: 42px;
+  padding: 0 20px;
+  font-family: var(--font-head);
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.sc-promo-apply:hover { background: var(--bg-3); color: var(--ink); }
+
+.sc-promo-msg {
+  margin-top: 8px;
+  font-size: 12.5px;
+  min-height: 17px;
+  color: var(--ink-3);
+}
+.sc-promo-msg.is-error { color: var(--warn); }
+.sc-promo-msg.is-ok    { color: var(--mint); font-weight: 600; }
+
+/* ── Get Started ──────────────────────────────────────── */
+.sc-cta {
+  width: 100%;
+  margin-top: 20px;
+  height: 52px;
+  font-family: var(--font-head);
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--teal);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background .16s ease, opacity .16s ease;
+}
+.sc-cta:hover:not(:disabled) { background: var(--teal-dk); }
+.sc-cta:disabled { opacity: .45; cursor: not-allowed; }
+
+.sc-cta-hint {
+  margin-top: 9px;
+  font-size: 12.5px;
+  color: var(--ink-3);
+  text-align: center;
+  min-height: 17px;
+}
+
+.sc-divider {
+  height: 1px;
+  background: var(--border);
+  margin: 26px 0 20px;
+  border: 0;
+}
+
+.sc-rows-label {
+  font-family: var(--font-head);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 12px;
+}
+
+/* ── Service rows ─────────────────────────────────────── */
+.sc-rows { display: flex; flex-direction: column; gap: 10px; }
+
+/* One bordered container per service: quantity + name + arrows read as a
+   single control, rather than a card for the number and a card for the name. */
+.sc-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 10px 10px 14px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.sc-row:hover { border-color: var(--ink-3); }
+.sc-row:focus-within {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(0,153,204,.13);
+}
+.sc-row.is-active { border-color: var(--teal); background: var(--teal-lt); }
+
+.sc-qty {
+  flex: 0 0 auto;
+  width: 92px;
+  height: 38px;
+  padding: 0 8px;
+  font-family: var(--font-head);
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--ink);
+  text-align: center;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+.sc-qty::-webkit-outer-spin-button,
+.sc-qty::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.sc-qty:focus {
+  outline: 2px solid var(--teal);
+  outline-offset: 1px;
+  background: var(--bg);
+}
+
+.sc-name {
+  flex: 1 1 auto;
+  min-width: 0;               /* long names wrap instead of blowing the row out */
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--ink);
+  line-height: 1.3;
+}
+.sc-balance {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+  margin-top: 1px;
+}
+
+/* Vertical caret pair, same shape as the editor stepper in so_campaign.css,
+   sized up to a comfortable tap target. */
+.sc-arrows {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sc-arrows button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 21px;
+  padding: 0;
+  color: var(--ink-2);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background .13s ease, color .13s ease;
+}
+.sc-arrows button:hover:not(:disabled) {
+  background: var(--teal);
+  border-color: var(--teal);
+  color: #fff;
+}
+.sc-arrows button:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+}
+.sc-arrows button:disabled { opacity: .35; cursor: not-allowed; }
+
+/* ── Balances footer ──────────────────────────────────── */
+.sc-legacy {
+  margin-top: 22px;
+  padding: 13px 15px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--ink-2);
+}
+.sc-legacy-title {
+  font-family: var(--font-head);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 7px;
+}
+.sc-legacy-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.sc-legacy-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 100px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+.sc-legacy-chip b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.sc-legacy-note { margin-top: 8px; font-size: 11.5px; color: var(--ink-3); }
+
+.sc-active-plan {
+  margin-top: 16px;
+  padding: 11px 15px;
+  background: var(--teal-lt);
+  border: 1px solid rgba(0,153,204,.28);
+  border-radius: var(--radius-md);
+  font-size: 12.5px;
+  color: var(--teal-dk);
+  text-align: center;
+}
+
+/* ── Confirmation modal ───────────────────────────────── */
+.sc-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(11,30,61,.55);
+}
+.sc-modal.is-open { display: flex; }
+
+.sc-modal-box {
+  width: 100%;
+  max-width: 400px;
+  background: var(--bg);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  padding: 26px 24px 22px;
+}
+.sc-modal-title {
+  font-family: var(--font-head);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  margin-bottom: 14px;
+  text-align: center;
+}
+.sc-modal-lines {
+  margin: 0 0 14px;
+  border-top: 1px solid var(--border);
+}
+.sc-modal-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 2px;
+  border-bottom: 1px solid var(--border);
+  font-size: 13.5px;
+  color: var(--ink-2);
+}
+.sc-modal-line b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.sc-modal-total {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 4px 2px 16px;
+}
+.sc-modal-actions { display: flex; gap: 10px; }
+.sc-modal-actions button {
+  flex: 1;
+  height: 44px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sc-modal-cancel {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--ink-2);
+}
+.sc-modal-cancel:hover { background: var(--bg-3); }
+.sc-modal-confirm {
+  background: var(--teal);
+  border: none;
+  color: #fff;
+}
+.sc-modal-confirm:hover { background: var(--teal-dk); }
+.sc-modal-confirm:disabled { opacity: .6; cursor: not-allowed; }
+
+/* ── Responsive ───────────────────────────────────────── */
+@media (max-width: 560px) {
+  .sc-page { padding: 18px 12px 52px; }
+  .sc-card { padding: 26px 16px 22px; border-radius: var(--radius-md); }
+
+  .sc-row {
+    /* Quantity and arrows stay on one line; the name takes the row above so
+       "Domain Blocklist Monitor" never squeezes the controls. */
+    flex-wrap: wrap;
+    padding: 12px;
+    gap: 10px;
+  }
+  .sc-name  { order: 1; flex: 1 1 100%; font-size: 14px; }
+  .sc-qty   { order: 2; flex: 1 1 auto; width: auto; min-width: 0; height: 42px; }
+  .sc-arrows{ order: 3; flex-direction: row; gap: 6px; }
+  .sc-arrows button { width: 46px; height: 42px; font-size: 13px; }
+
+  .sc-promo-panel { flex-wrap: wrap; }
+  .sc-promo-input { max-width: none; }
+}
+
+/* ── Dark mode ────────────────────────────────────────── */
+[data-theme="dark"] .sc-card,
+[data-theme="dark"] .sc-row,
+[data-theme="dark"] .sc-modal-box { background: var(--bg); }
+[data-theme="dark"] .sc-row.is-active { background: rgba(0,153,204,.13); }
+
+/* ── Reduced motion ───────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .sc-total, .sc-row, .sc-arrows button, .sc-cta { transition: none; }
+}

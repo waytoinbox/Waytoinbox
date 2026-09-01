@@ -693,6 +693,7 @@ $(document).ready(function() { fetchData('all', null); });
 </script>
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+<script src="{% static 'Email_validate_app/js/checkout.js' %}"></script>
 <script>
 /* ── Payment confirmation modal ──────────────────────── */
 var _pendingOrder = null;
@@ -723,48 +724,18 @@ document.getElementById('payConfirmModal').addEventListener('click', function(e)
   if (e.target === this) closePayConfirm();
 });
 
+/* Thin wrapper over the shared implementation in checkout.js. Same verify
+   URL, same posted fields, same toasts, and still no redirect afterwards —
+   the user stays on the page to retry their download. */
 function openRazorpay(order) {
-  var options = {
-    key:         order.key_id,
-    amount:      order.amount,
-    currency:    order.currency,
-    name:        order.user_name,
+  WTICheckout.open(order, {
+    verifyUrl:   '{% url "payment" %}',
     description: 'Email Credits Purchase',
-    order_id:    order.order_id,
-    handler: async function(response) {
-      var fd = new FormData();
-      fd.append('csrfmiddlewaretoken', getCSRFToken());
-      fd.append('payment_id',         response.razorpay_payment_id);
-      fd.append('order_id',           order.order_id);
-      fd.append('razorpay_signature', response.razorpay_signature);
-      fd.append('amount',             order.amount);
-      fd.append('credits',            order.credit);
-      fd.append('user_email',         order.user_email);
-      fd.append('user_name',          order.user_name);
-      fd.append('currency',   order.currency);
-      fd.append('plan',       order.plan || '');
-      fd.append('description', 'Credits purchase');
-      try {
-        var res  = await fetch('{% url "payment" %}', {
-          method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd
-        });
-        var data = await res.json();
-        if (data.status === 'ok') {
-          WTI.toast('Payment successful! ' + order.credit + ' credits added. Please download again.', 'success');
-        } else {
-          WTI.toast(data.message || 'Payment finalisation failed.', 'error');
-        }
-      } catch (err) {
-        WTI.toast('Something went wrong finalising payment. Please contact support.', 'error');
-      }
-    },
-    theme: { color: '#3399cc' }
-  };
-  var rzp = new Razorpay(options);
-  rzp.on('payment.failed', function(response) {
-    WTI.toast('Payment failed: ' + (response.error.description || 'Unknown error.'), 'error');
+    fields: { plan: order.plan || '', description: 'Credits purchase' },
+    notify: function (type, msg) { WTI.toast(msg, type); },
+    successMessage: 'Payment successful! ' + order.credit +
+                    ' credits added. Please download again.'
   });
-  rzp.open();
 }
 </script>
 

@@ -219,10 +219,11 @@ def subscription_expiry_job():
         for sub in expired:
             SubsPayment.objects.filter(pk=sub.pk).update(plan_status="Inactive")
             try:
+                # Does NOT clear balances - credits never expire. The plan
+                # status flip above is what actually ends the subscription.
                 expire_subscription_credits(sub.user.id, sub)
-                logger.info(f"AC/CC credits reset for user {sub.user.user_email} ({sub.subs_plan})")
             except Exception as e:
-                logger.error(f"Credit expiry reset failed for {sub.user.user_email}: {e}")
+                logger.error(f"Credit expiry record failed for {sub.user.user_email}: {e}")
             try:
                 # Always save in-app notification
                 try:

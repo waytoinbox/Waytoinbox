@@ -706,8 +706,9 @@ def contact_us(request):
         return JsonResponse({"status": "error", "message": "Failed to send message. Please try again."}, status=500)
 
 
-def add_ip_credit_view(request):
-    user_id = 7  # Replace with actual user ID logic
-    ip_credit = 50
-    insert_ip_credits(request, user_id, ip_credit)
-    return JsonResponse({'status': 'IP credits added successfully'})
+# add_ip_credit_view was removed: it was routed publicly at
+# /add_ip_credit_view/ with no authentication check, hardcoded user_id = 7,
+# and granted 50 AC credits on every request — so anyone could mint unlimited
+# credits for that account by hitting the URL repeatedly. It was leftover
+# scaffolding ("Replace with actual user ID logic"), not a used feature.
+# Admin credit grants belong in the admin console, audited via CreditAuditLog.

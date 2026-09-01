@@ -283,6 +283,175 @@ class CreditAuditLog(models.Model):
         return f"{self.user_id} | {self.credit_type} | {self.entry_type} | {self.amount}"
 
 
+class ServiceCredit(models.Model):
+    """Per-service credit wallet. One row per (user, service), created lazily
+    on first purchase or first spend.
+
+    Deliberately a SEPARATE table from CurrentCredits, for two reasons:
+
+    1. Lock granularity. Every legacy deduct does
+       CurrentCredits.objects.select_for_update().get(user_id=...), locking ONE
+       row per user — so a bulk validation and a campaign send already
+       serialise against each other. Per-service rows lock independently.
+    2. These balances never expire. subscription_expiry_job used to zero
+       CurrentCredits.ac/cc_current_credits nightly (it no longer does, and
+       legacy balances are retained too); keeping the new balances in a
+       different table makes "never expires" structural rather than a
+       code-review promise that a future change to the expiry job could undo.
+    """
+    user            = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                        related_name='service_credits')
+    service         = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+    balance         = models.BigIntegerField(default=0)   # spendable now
+    total_purchased = models.BigIntegerField(default=0)   # reporting only
+    total_used      = models.BigIntegerField(default=0)   # reporting only
+    created_at      = models.DateTimeField(auto_now_add=True)
+    updated_at      = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'service_credits'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'service'],
+                                    name='uniq_service_credit_user_service'),
+            models.CheckConstraint(condition=models.Q(balance__gte=0),
+                                   name='service_credit_balance_nonneg'),
+        ]
+        indexes = [models.Index(fields=['user'], name='svc_credit_user_idx')]
+
+    def __str__(self):
+        return f"{self.user_id} | {self.service} | {self.balance}"
+
+
+class CreditPackage(models.Model):
+    """Server-side pricing catalogue. DB-backed so prices can be corrected
+    without a deploy (the supplied ladders contain deliberate anomalies —
+    see the seed migration).
+
+    Two pricing modes:
+      tier  — flat price for the whole band. Matched as min_qty <= qty <= max_qty
+              (max_qty NULL = open-ended top band).
+      block — price_usd per block_size units, charged as
+              ceil(qty / block_size) * price_usd.
+    """
+    MODE_TIER  = 'tier'
+    MODE_BLOCK = 'block'
+    MODES = [(MODE_TIER, 'Flat tier price'), (MODE_BLOCK, 'Price per block')]
+
+    service    = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+    mode       = models.CharField(max_length=10, choices=MODES, default=MODE_TIER)
+    min_qty    = models.BigIntegerField(null=True, blank=True)   # tier mode
+    max_qty    = models.BigIntegerField(null=True, blank=True)   # tier mode; NULL = open-ended
+    block_size = models.BigIntegerField(null=True, blank=True)   # block mode
+    price_usd  = models.DecimalField(max_digits=10, decimal_places=2)
+    is_active  = models.BooleanField(default=True)
+    sort_order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'credit_packages'
+        ordering = ['service', 'sort_order']
+        indexes = [
+            models.Index(fields=['service', 'is_active', 'sort_order'],
+                         name='credit_pkg_svc_active_idx'),
+        ]
+
+    def __str__(self):
+        if self.mode == self.MODE_BLOCK:
+            return f"{self.service} | {self.block_size}/block | ${self.price_usd}"
+        return f"{self.service} | {self.min_qty}-{self.max_qty or '∞'} | ${self.price_usd}"
+
+
+class ServiceOrder(models.Model):
+    """A checkout intent: what the server quoted, before Razorpay confirms it.
+
+    This is deliberately NOT a pending row in `Payment`. `Payment` is the
+    receipts table — billing.receipt_list filters only on is_hidden, so an
+    unpaid row written at order-creation time would show the customer a
+    receipt for money they had not spent, and an abandoned checkout would
+    leave that receipt behind forever. A Payment row is still created only on
+    successful verification, exactly as the legacy flow does, so the receipt,
+    invoice and PDF views need no changes at all.
+
+    Its real job is to be the server's memory of the quote. The browser sends
+    quantities to /subscription/order/ and nothing else; the price, the
+    discount, the currency and the credit amounts are computed here and
+    frozen into this row. /subscription/verify/ then reads the cart back from
+    THIS ROW — never from the POST body — so a tampered verify request cannot
+    change what gets credited.
+
+    Exactly-once fulfilment: status starts 'created' and moves to 'paid'
+    under select_for_update(). A replayed verify POST finds 'paid' and
+    returns success without crediting again.
+    """
+    STATUS_CREATED  = 'created'
+    STATUS_PAID     = 'paid'
+    STATUS_FAILED   = 'failed'
+    STATUS_CHOICES  = [
+        (STATUS_CREATED, 'Created'),
+        (STATUS_PAID,    'Paid'),
+        (STATUS_FAILED,  'Failed'),
+    ]
+
+    user     = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                 related_name='service_orders')
+    order_id = models.CharField(max_length=225, unique=True)   # Razorpay order id
+
+    # The quote, frozen. cart_json is {service_key: quantity}; the *_cents
+    # fields are integers because money must never round-trip through a float.
+    cart_json       = models.JSONField()
+    subtotal_cents  = models.BigIntegerField(default=0)
+    discount_cents  = models.BigIntegerField(default=0)
+    amount_cents    = models.BigIntegerField(default=0)   # what Razorpay was asked to charge
+    currency        = models.CharField(max_length=8, default='USD')
+    promo_code      = models.CharField(max_length=50, blank=True, default='')
+    # Resolved at order time so fulfilment never has to look the code up
+    # again — a coupon can be renamed or deactivated between checkout and
+    # payment, and the order must still redeem the coupon it was priced with.
+    # SET_NULL rather than CASCADE: deleting a coupon must not delete orders.
+    coupon          = models.ForeignKey('Coupon', null=True, blank=True,
+                                        on_delete=models.SET_NULL,
+                                        related_name='service_orders')
+
+    status     = models.CharField(max_length=10, choices=STATUS_CHOICES,
+                                  default=STATUS_CREATED, db_index=True)
+    payment    = models.OneToOneField('Payment', null=True, blank=True,
+                                      on_delete=models.SET_NULL,
+                                      related_name='service_order')
+    created_at = models.DateTimeField(auto_now_add=True)
+    paid_at    = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'service_orders'
+        indexes = [models.Index(fields=['user', 'status'], name='svc_order_user_status_idx')]
+
+    def __str__(self):
+        return f"{self.order_id} ({self.status})"
+
+
+class CouponRedemption(models.Model):
+    """The missing half of Coupon — admin CRUD existed, redemption did not
+    (Coupon.used_count was never incremented anywhere).
+
+    OneToOne on payment guarantees exactly-once redemption per payment at the
+    database level, so a replayed payment verification cannot double-count.
+    """
+    coupon           = models.ForeignKey('Coupon', on_delete=models.CASCADE,
+                                         related_name='redemptions')
+    user             = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                         related_name='coupon_redemptions')
+    payment          = models.OneToOneField('Payment', on_delete=models.CASCADE,
+                                            related_name='coupon_redemption')
+    discount_applied = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    redeemed_at      = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'coupon_redemptions'
+        ordering = ['-redeemed_at']
+        indexes = [models.Index(fields=['coupon', 'user'], name='coupon_redeem_cu_idx')]
+
+    def __str__(self):
+        return f"{self.coupon_id} | {self.user_id} | {self.discount_applied}"
 
 
 
@@ -305,6 +474,16 @@ class Payment(models.Model):
     payment_time = models.DateTimeField(auto_now_add=True)
     description = models.CharField(max_length=225, null=True, blank=True)
     is_hidden = models.BooleanField(default=False)
+
+    # ── Service-credit purchases (NULL on every legacy PAYG row) ──────────
+    # cart_json is the authoritative record of what was bought: it is written
+    # at order-creation time from a server-side quote, and it is what the
+    # verification step reads to decide how many credits to grant. The browser
+    # is never consulted at that point.
+    cart_json       = models.JSONField(null=True, blank=True)
+    promo_code      = models.CharField(max_length=50, blank=True, default='')
+    discount_amount = models.DecimalField(max_digits=10, decimal_places=2,
+                                          null=True, blank=True)
 
     class Meta:
         db_table = 'payment'
@@ -1069,6 +1248,14 @@ class Coupon(models.Model):
     description    = models.TextField(blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
     created_by     = models.ForeignKey(UserTable, on_delete=models.SET_NULL, null=True, related_name='created_coupons')
+
+    # ── Customer-side redemption controls (all optional/defaulted) ────────
+    # NULL per_user_limit = unlimited per user. min_order_amount 0 = no
+    # minimum. Blank applicable_services = valid on every service; otherwise a
+    # comma-separated list of SERVICE_CHOICES keys.
+    per_user_limit      = models.PositiveIntegerField(null=True, blank=True)
+    min_order_amount    = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    applicable_services = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table = 'coupons'

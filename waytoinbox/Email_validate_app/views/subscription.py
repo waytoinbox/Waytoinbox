@@ -52,10 +52,52 @@ def subscription(request):
     except SubsPayment.DoesNotExist:
         active_plan = None
 
+    # ── Service-credit purchase card ──────────────────────────────────────
+    # Balances are read, never created: no get_or_create here or in the
+    # template. A user with no ServiceCredit row simply renders 0.
+    #
+    # Only the NEW per-service balance is exposed per row. The 'effective'
+    # figure from get_all_service_balances() adds the legacy pool in, and for
+    # the four analysis services that pool is ONE shared AC balance — showing
+    # it on all four rows would tell a user with 100 AC that they have 400.
+    # It is surfaced once, separately, as "Shared Analysis Credits".
+    from Email_validate_app.services.credit_manager import get_all_service_balances
+    from Email_validate_app.services.pricing import (
+        SERVICE_LABELS, SERVICE_UNITS, public_config,
+    )
+    from Email_validate_app.models import SERVICE_KEYS
+
+    try:
+        balances = get_all_service_balances(user_id) if user_id else None
+    except Exception as e:
+        logger.error("Error fetching service balances: %s", e)
+        balances = None
+
+    new_balances  = (balances or {}).get('services', {})
+    legacy_shared = (balances or {}).get('legacy_shared', {})
+
+    services = [
+        {
+            'key':     key,
+            'label':   SERVICE_LABELS[key],
+            'unit':    SERVICE_UNITS.get(key, 'credits'),
+            'balance': new_balances.get(key, {}).get('new', 0),
+        }
+        for key in SERVICE_KEYS
+    ]
+
     return render(request, "i_subscription.html", {
         "credits": ip_current_credits,
         "active_plan": active_plan,
         "subs_plan": active_plan["subs_plan"] if active_plan else None,
+        "services": services,
+        "legacy_shared": legacy_shared,
+        # Display-only mirror of the ladders so the total can update instantly
+        # while the debounced quote is in flight. Carries no per-credit rate —
+        # public_config() deliberately exposes whole-package prices only — and
+        # the server re-quotes at order time regardless. Rendered through the
+        # json_script filter, so it is escaped rather than inlined raw.
+        "pricing_config": public_config(),
     })
 
 
