@@ -142,34 +142,94 @@ def so_email_account_action(request):
         display  = (data.get('display_name') or '').strip()
         password = (data.get('password') or '').replace(' ', '')
 
-        existing_count = SOEmailAccount.objects.filter(
-            user_id=user_id,
-            deleted_at__isnull=True,
-        ).count()
+        # Phase 6 commit 3: adding an account costs 1 Sales Outreach credit.
+        # There is no legacy pool for this service, so the new ServiceCredit
+        # wallet is the only source.
+        #
+        # The whole add runs in one transaction. Account creation and the
+        # deduction therefore succeed or fail together: if the deduction finds
+        # no credit, the INSERT above it is rolled back and no account exists;
+        # if creation fails, no credit is spent. Nothing is ever refunded by
+        # hand.
+        from django.db import transaction
+        from Email_validate_app.models import ServiceCredit
+        from Email_validate_app.services.credit_manager import (
+            deduct_service_credits, InsufficientCredits,
+        )
 
-        if existing_count >= 2:
+        try:
+            with transaction.atomic():
+                # Serialise concurrent adds by this user on the very row
+                # deduct_service_credits() will lock a moment later, keeping the
+                # lock order (ServiceCredit first) identical to credit_manager.
+                # Without it both the 2-account limit and the duplicate check
+                # below are read-then-write races: two simultaneous requests
+                # for the same mailbox would both pass and both be charged.
+                #
+                # A UNIQUE (user, email) index would be the usual guard, but
+                # accounts are soft-deleted via deleted_at, so it would block
+                # re-adding a removed mailbox — and MySQL has no partial index
+                # to scope it to live rows. The lock is the smaller, correct fix
+                # and needs no migration.
+                ServiceCredit.objects.select_for_update().filter(
+                    user_id=user_id, service='sales_outreach',
+                ).first()
+
+                existing_count = SOEmailAccount.objects.filter(
+                    user_id=user_id,
+                    deleted_at__isnull=True,
+                ).count()
+
+                if existing_count >= 2:
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'You can add up to 2 Sales Outreach email accounts only.'
+                    })
+
+                if not email or '@' not in email:
+                    return JsonResponse({'status': 'error', 'message': 'A valid email address is required.'})
+                if not password:
+                    return JsonResponse({'status': 'error', 'message': 'App password is required.'})
+
+                # Duplicate guard, before any credit is spent. `email` is
+                # already lower-cased above, so this is belt-and-braces for
+                # rows written before that normalisation existed.
+                if SOEmailAccount.objects.filter(
+                    user_id=user_id, email__iexact=email, deleted_at__isnull=True,
+                ).exists():
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': 'That email account is already connected.'
+                    })
+
+                if provider == 'microsoft':
+                    smtp_host, imap_host = 'smtp.office365.com', 'outlook.office365.com'
+                else:
+                    smtp_host, imap_host = 'smtp.gmail.com', 'imap.gmail.com'
+
+                enc_pwd = signing.dumps(password, salt='so-ea-pwd')
+                acc = SOEmailAccount.objects.create(
+                    user_id=user_id, provider=provider, display_name=display,
+                    email=email, smtp_host=smtp_host, smtp_port=587,
+                    imap_host=imap_host, imap_port=993, imap_ssl=True,
+                    username=email, password=enc_pwd,
+                )
+
+                # Charged last so ref_id can be the real account id. If this
+                # raises, the account created above goes with it.
+                deduct_service_credits(
+                    user_id, 'sales_outreach', 1,
+                    ref_type='sales_outreach_account',
+                    ref_id=str(acc.id),
+                    description='Sales Outreach email account',
+                )
+        except InsufficientCredits:
             return JsonResponse({
                 'status': 'error',
-                'message': 'You can add up to 2 Sales Outreach email accounts only.'
+                'message': 'You have no Sales Outreach credits left. '
+                           'Please buy credits to add another email account.'
             })
 
-        if not email or '@' not in email:
-            return JsonResponse({'status': 'error', 'message': 'A valid email address is required.'})
-        if not password:
-            return JsonResponse({'status': 'error', 'message': 'App password is required.'})
-
-        if provider == 'microsoft':
-            smtp_host, imap_host = 'smtp.office365.com', 'outlook.office365.com'
-        else:
-            smtp_host, imap_host = 'smtp.gmail.com', 'imap.gmail.com'
-
-        enc_pwd = signing.dumps(password, salt='so-ea-pwd')
-        acc = SOEmailAccount.objects.create(
-            user_id=user_id, provider=provider, display_name=display,
-            email=email, smtp_host=smtp_host, smtp_port=587,
-            imap_host=imap_host, imap_port=993, imap_ssl=True,
-            username=email, password=enc_pwd,
-        )
         return JsonResponse({'status': 'ok', 'id': acc.id})
 
     # ── Test (SMTP) ───────────────────────────────────────────────────────────
