@@ -14,7 +14,7 @@ from django.utils import timezone
 from django.db import transaction, IntegrityError, DatabaseError
 
 from Email_validate_app.models import (
-    UserTable, CurrentCredits, UsedCredits, SubsPayment,
+    UserTable, CurrentCredits, UsedCredits, SubsPayment, ServiceCredit,
     BlocklistMonitor, Blacklists, BlacklistStatus, BlacklistListed,
     DomainBlocklist, DomainBlacklistListed, DomainBlacklistStatus, DomainBlacklists,
 )
@@ -22,9 +22,21 @@ from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
 from Email_validate_app.services.credit_manager import (
     get_ac_current_credit, deduct_ac_credits,
+    get_effective_balance, deduct_service_credits, InsufficientCredits,
 )
 
 from .billing import get_current_credit
+
+
+class _AlreadyMonitored(Exception):
+    """Raised inside the add transaction when a concurrent request created
+    the same monitor first. Rolls the transaction back so nothing is
+    created and nothing is charged; the caller reports the usual
+    'already monitored' result.
+
+    Deliberately not a ValueError: the surrounding handler treats those as
+    'No Analysis Credits left'.
+    """
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +135,11 @@ def check_ip_blacklists(request):
             messages.error(request, 'User not found.')
             return redirect('Blocklist_Monitor')
 
-        if get_ac_current_credit(user_id) <= 0:
+        # Phase 6 commit 6: the balance is the ip_blocklist service wallet plus
+        # the legacy AC pool behind it, rather than the raw AC column. That
+        # legacy half is still ONE pool shared with Reputation, Header Analyzer
+        # and Domain Blocklist — spent in place, never copied here.
+        if get_effective_balance(user_id, 'ip_blocklist') <= 0:
             messages.warning(
                 request,
                 'You have already reached your limit for IP checks. Please extend your limit or update your Plan to continue.'
@@ -140,11 +156,46 @@ def check_ip_blacklists(request):
         if BlocklistMonitor.objects.filter(user=user, ips=ip_s, is_hidden=False).exists():
             messages.warning(request, f"IP '{ip_s}' is already being monitored.")
         else:
-            new_entry = BlocklistMonitor.objects.create(
-                user=user,
-                ips=ip_s,
-                created_date=current_datetime
-            )
+            # Despite this view's name, this branch ADDS a monitor — the charge
+            # is for the add, not for the recurring re-check (scheduler_job
+            # re-scans every monitored IP nightly and costs nothing).
+            #
+            # Creation and the charge share one transaction so a failure on
+            # either side cannot leave a monitor that was never paid for, or a
+            # credit spent with no monitor. The lock is the same row, in the
+            # same order, deduct_service_credits() takes moments later, so two
+            # simultaneous adds of one IP serialise and the duplicate re-check
+            # below is reliable.
+            try:
+                with transaction.atomic():
+                    ServiceCredit.objects.select_for_update().filter(
+                        user_id=user_id, service='ip_blocklist',
+                    ).first()
+
+                    if BlocklistMonitor.objects.filter(
+                        user=user, ips=ip_s, is_hidden=False,
+                    ).exists():
+                        messages.warning(request, f"IP '{ip_s}' is already being monitored.")
+                        return redirect('Blocklist_Monitor')
+
+                    new_entry = BlocklistMonitor.objects.create(
+                        user=user,
+                        ips=ip_s,
+                        created_date=current_datetime
+                    )
+                    deduct_service_credits(
+                        user_id, 'ip_blocklist', 1,
+                        ref_type='ip_check', ref_id=ip_s,
+                        description='IP Blocklist Check',
+                    )
+            except InsufficientCredits:
+                # Lost a race against another add since the gate above.
+                messages.warning(
+                    request,
+                    'You have already reached your limit for IP checks. Please extend your limit or update your Plan to continue.'
+                )
+                return redirect('Blocklist_Monitor')
+
             logger.info("Inserted IP monitor ID: %s", new_entry.ip_id)
             try:
                 status = ip_blacklists(ip_s)
@@ -188,11 +239,7 @@ def check_ip_blacklists(request):
                 listed_count=str(listed_count)
             )
 
-            try:
-                deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=ip_s, description='IP Blocklist Check')
-            except ValueError:
-                pass  # already checked above; deduct best-effort
-
+            # (The charge already happened, atomically with the monitor row.)
             messages.success(request, f"IP '{ip_s}' has been successfully added to the monitor.")
 
         return redirect('Blocklist_Monitor')
@@ -518,11 +565,30 @@ def add_to_monitors(request):
                 ip_result = {'status': 'duplicate', 'message': "'" + ip_s + "' is already monitored"}
             else:
                 try:
-                    deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=ip_s, description='IP Monitor Add')
-                    entry = BlocklistMonitor.objects.create(
-                        user=user, ips=ip_s,
-                        created_date=current_datetime
-                    )
+                    # Create and charge together. The old order deducted first
+                    # and created second, so a failed insert burned the credit.
+                    # InsufficientCredits subclasses ValueError, so the existing
+                    # `except ValueError` below still produces the same
+                    # 'No Analysis Credits left' result.
+                    with transaction.atomic():
+                        ServiceCredit.objects.select_for_update().filter(
+                            user_id=user_id, service='ip_blocklist',
+                        ).first()
+
+                        if BlocklistMonitor.objects.filter(
+                            user=user, ips=ip_s, is_hidden=False,
+                        ).exists():
+                            raise _AlreadyMonitored(ip_s)
+
+                        entry = BlocklistMonitor.objects.create(
+                            user=user, ips=ip_s,
+                            created_date=current_datetime
+                        )
+                        deduct_service_credits(
+                            user_id, 'ip_blocklist', 1,
+                            ref_type='ip_check', ref_id=ip_s,
+                            description='IP Monitor Add',
+                        )
                     try:
                         bl_status = ip_blacklists(ip_s)
                     except Exception:
@@ -539,6 +605,10 @@ def add_to_monitors(request):
                     BlocklistMonitor.objects.filter(ip_id=entry.ip_id).update(listed_count=str(listed_count), last_monitor_date=current_datetime)
                     credits_used += 1
                     ip_result = {'status': 'added', 'message': "'" + ip_s + "' added to IP Monitor", 'listed_count': listed_count}
+                except _AlreadyMonitored:
+                    # A concurrent request won the race and created it first.
+                    # Same result the pre-check above would have produced.
+                    ip_result = {'status': 'duplicate', 'message': "'" + ip_s + "' is already monitored"}
                 except ValueError:
                     ip_result = {'status': 'error', 'message': 'No Analysis Credits left'}
                 except Exception as e:

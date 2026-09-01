@@ -19,13 +19,14 @@ from Email_validate_app.models import (
     APIKey,
     AllEmails, ListFiles,
     BlocklistMonitor, BlacklistStatus, BlacklistListed,
-    CurrentCredits, UsedCredits, UserTable,
+    CurrentCredits, UsedCredits, UserTable, ServiceCredit,
     DomainBlocklist, DomainBlacklistStatus, DomainBlacklistListed,
 )
 from Email_validate_app.services.api_auth import api_key_required
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
 from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.utils import get_user_id
+from Email_validate_app.views.blocklist import _AlreadyMonitored
 from Email_validate_app.services.credit_manager import (
     get_vc_current_credit, deduct_ac_credits, get_effective_balance,
     deduct_service_credits, InsufficientCredits,
@@ -272,15 +273,34 @@ def ip_blocklist_check_api(request):
     if BlocklistMonitor.objects.filter(user=user, ips=ip_s, is_hidden=False).exists():
         return JsonResponse({"status": "warning", "message": f"IP '{ip_s}' is already being monitored."})
 
+    # Phase 6 commit 6: this endpoint ADDS a monitor (the duplicate check above
+    # returns early for an already-monitored IP), so the charge is for the add,
+    # not for a repeated check. Creation and the charge now share one
+    # transaction — the old order deducted first and created second, so a failed
+    # insert burned the credit. The lock is the same row, in the same order,
+    # deduct_service_credits() takes, so two simultaneous adds of one IP
+    # serialise and only one is charged.
+    current_datetime = timezone.now().replace(tzinfo=None)
     try:
-        deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=ip_s, description='IP Blocklist Check')
+        with transaction.atomic():
+            ServiceCredit.objects.select_for_update().filter(
+                user_id=user_id, service='ip_blocklist',
+            ).first()
+
+            if BlocklistMonitor.objects.filter(user=user, ips=ip_s, is_hidden=False).exists():
+                raise _AlreadyMonitored(ip_s)
+
+            new_entry = BlocklistMonitor.objects.create(
+                user=user, ips=ip_s, created_date=current_datetime)
+            deduct_service_credits(user_id, 'ip_blocklist', 1,
+                                   ref_type='ip_check', ref_id=ip_s,
+                                   description='IP Blocklist Check')
+    except _AlreadyMonitored:
+        return JsonResponse({"status": "warning", "message": f"IP '{ip_s}' is already being monitored."})
     except CurrentCredits.DoesNotExist:
         return JsonResponse({"status": "error", "message": "Credits not found for your account"}, status=402)
     except ValueError:
         return JsonResponse({"status": "error", "message": "No Analysis Credits left. Please upgrade your plan to continue."}, status=429)
-
-    current_datetime = timezone.now().replace(tzinfo=None)
-    new_entry = BlocklistMonitor.objects.create(user=user, ips=ip_s, created_date=current_datetime)
 
     try:
         status = ip_blacklists(ip_s)
