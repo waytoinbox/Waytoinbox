@@ -258,6 +258,10 @@ class CreditAuditLog(models.Model):
         ('admin',        'Admin Adjustment'),
         ('service_purchase', 'Service Credit Purchase'),
         ('so_account',       'Sales Outreach Account Added'),
+        # Reputation moved off the shared 'ip_check' catch-all when it was cut
+        # over to its own service wallet. Header Analyzer and the two blocklist
+        # monitors still use 'ip_check' until their own cutovers.
+        ('reputation',       'Reputation Analysis'),
     ]
 
     user           = models.ForeignKey(UserTable, on_delete=models.CASCADE)

@@ -3,6 +3,7 @@ import logging
 from datetime import datetime
 from urllib.parse import urlparse
 
+from django.db import transaction
 from django.db.models import Max
 
 from django.shortcuts import render, redirect, get_object_or_404
@@ -10,9 +11,14 @@ from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.utils import timezone
 
-from Email_validate_app.models import CurrentCredits, SubsPayment, Reputation, ReputationResults
+from Email_validate_app.models import (
+    CurrentCredits, SubsPayment, Reputation, ReputationResults, ServiceCredit,
+)
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.services.credit_manager import get_ac_current_credit, deduct_ac_credits
+from Email_validate_app.services.credit_manager import (
+    get_ac_current_credit, get_effective_balance, deduct_service_credits,
+    InsufficientCredits,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -99,9 +105,11 @@ def Reputation_Analysis(request):
     if not user_id:
         return JsonResponse({'status': 'error', 'message': 'User session not found.'})
 
-    # AC credit check
-    ac_current, plan_total, ac_used_count, _pn, _pvt = _get_ac_subscription_context(user_id)
-    if ac_current <= 0:
+    # Credit check. Phase 6 commit 4: the balance is the reputation service
+    # wallet plus the legacy AC pool behind it, rather than the raw AC column.
+    # That legacy half is still ONE pool shared with Header Analyzer and the
+    # two blocklist monitors — it is spent in place, never copied here.
+    if get_effective_balance(user_id, 'reputation') <= 0:
         return JsonResponse({
             'status':  'error',
             'message': 'No Analysis Credits left. Purchase more credits to continue.',
@@ -116,10 +124,51 @@ def Reputation_Analysis(request):
             'message': f'Domain "{domain}" already exists.',
         })
 
-    # Deduct 1 AC credit
+    # Postmaster lookup happens BEFORE anything is charged, and deliberately
+    # outside the transaction below: it is a network call, and holding row
+    # locks across it would be a long-lived lock for no benefit. A failure
+    # here now costs the user nothing, where previously the credit had already
+    # been taken.
+    from Email_validate_app.services.postmaster import fetch_domain_traffic_stats
+    stats = fetch_domain_traffic_stats(domain)
+
+    # Determine verification status
+    rep_status = 'verified' if stats else 'unverified'
+
+    # The record and the charge share one transaction, so a failed insert can
+    # never leave the credit spent and a failed charge can never leave an
+    # unpaid record. No manual refund is involved.
     try:
-        deduct_ac_credits(user_id, 1, ref_type='ip_check', ref_id=domain, description='Reputation Analysis')
-    except ValueError:
+        with transaction.atomic():
+            # Same lock, and the same lock order (ServiceCredit first), that
+            # deduct_service_credits() uses a moment later — so concurrent
+            # requests for one domain serialise here and the duplicate re-check
+            # below is reliable.
+            ServiceCredit.objects.select_for_update().filter(
+                user_id=user_id, service='reputation',
+            ).first()
+
+            if Reputation.objects.filter(
+                user_id=user_id, domain=domain, deleted_at__isnull=True,
+            ).exists():
+                return JsonResponse({
+                    'status': 'warning',
+                    'message': f'Domain "{domain}" already exists.',
+                })
+
+            # Persist Reputation row
+            rep = Reputation.objects.create(
+                user_id=user_id,
+                domain=domain,
+                status=rep_status,
+            )
+
+            deduct_service_credits(
+                user_id, 'reputation', 1,
+                ref_type='reputation', ref_id=domain,
+                description='Reputation Analysis',
+            )
+    except InsufficientCredits:
         return JsonResponse({
             'status': 'error',
             'message': 'No Analysis Credits left. Purchase more credits to continue.',
@@ -127,19 +176,6 @@ def Reputation_Analysis(request):
         })
 
     new_ac_current = get_ac_current_credit(user_id)
-
-    from Email_validate_app.services.postmaster import fetch_domain_traffic_stats
-    stats = fetch_domain_traffic_stats(domain)
-
-    # Determine verification status
-    rep_status = 'verified' if stats else 'unverified'
-
-    # Persist Reputation row
-    rep = Reputation.objects.create(
-        user_id=user_id,
-        domain=domain,
-        status=rep_status,
-    )
     if rep_status == 'unverified':
         try:
             from Email_validate_app.utils import create_notification
