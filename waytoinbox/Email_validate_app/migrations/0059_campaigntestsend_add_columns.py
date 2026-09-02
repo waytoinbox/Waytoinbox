@@ -1,78 +1,40 @@
-from django.db import migrations, models
-import django.db.models.deletion
+from django.db import migrations
 
 
 class Migration(migrations.Migration):
     """
-    Bring campaign_test_send in line with the current CampaignTestSend model.
+    NO-OP — kept only so migration history and dependency numbering are not
+    disturbed for the real database, where this migration is already recorded
+    as applied in django_migrations.
 
-    The table was originally created with only:
-        id, campaign_id, recipients, status, sent_at
+    This migration's original operations (AlterField 'campaign' to nullable,
+    then AddField 'user', 'template', 'sender_name', 'from_email',
+    'reply_email', 'error_log' on CampaignTestSend) were all redundant with
+    what 0056_campaign_test_send.py's CreateModel already defines for this
+    model — that migration includes every one of those fields, with 'campaign'
+    already `blank=True, null=True`, from the moment the table is created.
 
-    This migration adds the missing columns and makes campaign_id nullable.
+    Both files were added together in the same commit (see
+    0056_campaign_test_send.py and this file's git history), so this was
+    never a case of 0056 being edited after the fact — the pair was
+    self-consistent only against a pre-existing physical table that already
+    had the narrower shape described in the old docstring, never against a
+    fresh database built from these migrations in order. Replaying the
+    original operations here on an empty database made Django issue
+    `ALTER TABLE campaign_test_send ADD COLUMN user_id ...` for a column
+    0056 had just created, which MySQL rejects with
+    `(1060, "Duplicate column name 'user_id'")` — the exact error that made
+    `manage.py test` unable to build an isolated test database for this app.
+
+    Because Django matches an already-applied migration by (app, name), not
+    by the content of its operations, emptying this list changes nothing for
+    any database where this migration already ran — it is simply never
+    replayed there. It only changes what happens when building a database
+    from scratch, which is exactly the case that was broken.
     """
 
     dependencies = [
         ('Email_validate_app', '0058_campaign_list_nullable'),
     ]
 
-    operations = [
-        # campaign_id was originally non-nullable — make it nullable
-        migrations.AlterField(
-            model_name='campaigntestsend',
-            name='campaign',
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name='test_sends',
-                to='Email_validate_app.campaign',
-            ),
-        ),
-
-        # Add user FK
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='user',
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                to='Email_validate_app.usertable',
-            ),
-        ),
-
-        # Add template FK
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='template',
-            field=models.ForeignKey(
-                blank=True,
-                null=True,
-                on_delete=django.db.models.deletion.SET_NULL,
-                to='Email_validate_app.usertemplate',
-            ),
-        ),
-
-        # Add sender detail columns
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='sender_name',
-            field=models.CharField(blank=True, default='', max_length=255),
-        ),
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='from_email',
-            field=models.EmailField(blank=True, default=''),
-        ),
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='reply_email',
-            field=models.EmailField(blank=True, default=''),
-        ),
-        migrations.AddField(
-            model_name='campaigntestsend',
-            name='error_log',
-            field=models.TextField(blank=True, default=''),
-        ),
-    ]
+    operations = []
