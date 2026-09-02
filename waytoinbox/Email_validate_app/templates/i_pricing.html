@@ -74,29 +74,29 @@
             </tr>
           </thead>
           <tbody>
-            <tr class="pricing-row" data-min="0" data-max="5000">
-              <td style="text-align: right; padding-right: 65px">Up to 5,000</td>
-              <td>$0.007</td>
+            <tr class="pricing-row" data-min="0" data-max="10000">
+              <td style="text-align: right; padding-right: 65px">Up to 10,000</td>
+              <td>$0.0039</td>
             </tr>
-            <tr class="pricing-row" data-min="5000" data-max="50000">
+            <tr class="pricing-row" data-min="10000" data-max="50000">
               <td style="text-align: right; padding-right: 65px">Up to 50,000</td>
-              <td>$0.004</td>
+              <td>$0.00178</td>
             </tr>
             <tr class="pricing-row" data-min="50000" data-max="100000">
               <td style="text-align: right; padding-right: 65px">Up to 100,000</td>
-              <td>$0.003</td>
+              <td>$0.00149</td>
             </tr>
             <tr class="pricing-row" data-min="100000" data-max="500000">
               <td style="text-align: right; padding-right: 65px">Up to 500,000</td>
-              <td>$0.002</td>
+              <td>$0.00059</td>
             </tr>
             <tr class="pricing-row" data-min="500000" data-max="1000000">
               <td style="text-align: right; padding-right: 65px">Up to 1,000,000</td>
-              <td>$0.0024</td>
+              <td>$0.00044</td>
             </tr>
             <tr class="pricing-row" data-min="1000000" data-max="Infinity">
               <td style="text-align: right; padding-right: 65px">2,000,000+</td>
-              <td>$0.001</td>
+              <td>$0.00039</td>
             </tr>
           </tbody>
         </table>
@@ -352,12 +352,12 @@ function openRazorpay(order) {
 
 /* ── PAYG calculator ─────────────────────────────────── */
 var prices = {
-  5000: 0.007, 50000: 0.004, 100000: 0.003,
-  500000: 0.002, 1000000: 0.0024, 2000000: 0.001,
+  10000: 0.0039, 50000: 0.00178, 100000: 0.00149,
+  500000: 0.00059, 1000000: 0.00044, 2000000: 0.00039,
 };
 
 function getPrice(count) {
-  if (count <= 5000)    return prices[5000];
+  if (count <= 10000)   return prices[10000];
   if (count <= 50000)   return prices[50000];
   if (count <= 100000)  return prices[100000];
   if (count <= 500000)  return prices[500000];
@@ -366,7 +366,7 @@ function getPrice(count) {
 }
 
 function getRowIndex(count) {
-  if (count <= 5000)    return 0;
+  if (count <= 10000)   return 0;
   if (count <= 50000)   return 1;
   if (count <= 100000)  return 2;
   if (count <= 500000)  return 3;

@@ -312,3 +312,54 @@ class SubscriptionTotalPeriodLabelTests(TestCase):
             css = f.read()
         self.assertIn('.sc-total-row', css)
         self.assertIn('.sc-total-period', css)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class PaygPricingTableTests(TestCase):
+    """The Pay-As-You-Go volume pricing table, on both pages. This is a
+    separate, hardcoded pricing surface from the Subscription cards (not
+    backed by CreditPackage) -- its own <table> rows and its own inline
+    getPrice()/getRowIndex() JS both need to agree."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_rendered_table_shows_the_new_rates(self):
+        rows = [
+            ('Up to 10,000',    '$0.0039'),
+            ('Up to 50,000',    '$0.00178'),
+            ('Up to 100,000',   '$0.00149'),
+            ('Up to 500,000',   '$0.00059'),
+            ('Up to 1,000,000', '$0.00044'),
+            ('2,000,000+',      '$0.00039'),
+        ]
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            for label, price in rows:
+                self.assertIn(label, html, f"{url}: {label}")
+                self.assertIn(price, html, f"{url}: {price}")
+            # The old table must be completely gone, not just superseded.
+            for old in ('Up to 5,000', '$0.007', '$0.004<', '$0.003<',
+                       '$0.002<', '$0.0024', '$0.001<'):
+                self.assertNotIn(old, html, f"{url}: stale value {old!r}")
+
+    def test_row_thresholds_match_the_new_boundaries(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('data-max="10000"', html, url)
+            self.assertIn('data-min="10000"', html, url)
+
+    def test_calculator_js_uses_the_new_rates(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('10000: 0.0039', html, url)
+            self.assertIn('50000: 0.00178', html, url)
+            self.assertIn('100000: 0.00149', html, url)
+            self.assertIn('500000: 0.00059', html, url)
+            self.assertIn('1000000: 0.00044', html, url)
+            self.assertIn('2000000: 0.00039', html, url)
+            self.assertIn('count <= 10000)', html, url)
+            # "count <= 5000)" (with the closing paren) rather than a bare
+            # "count <= 5000" substring, which would also match the
+            # still-correct, unrelated "count <= 50000)" check.
+            self.assertNotIn('count <= 5000)', html, url)
