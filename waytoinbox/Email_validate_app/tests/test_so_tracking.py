@@ -12,21 +12,27 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from Email_validate_app.models import (
-    SOCampaign, SOCampaignContact, SOProspect, SOEvent,
+    UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEvent,
     SOTrackedLink, SOOpenPixel,
 )
 from Email_validate_app.services.so_smtp import inject_tracking
 
 
+def make_user(email):
+    return UserTable.objects.create_user(
+        user_name='Tracking Test', user_email=email, password='StrongPass123!')
+
+
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class _TrackingTestCase(TestCase):
     def setUp(self):
+        self.user = make_user('so_tracking@example.com')
         self.campaign = SOCampaign.objects.create(
-            user_id=7, name='Test Campaign', subject='s', html_body='<p>x</p>',
+            user_id=self.user.id, name='Test Campaign', subject='s', html_body='<p>x</p>',
             status='sending', tracking_enabled=True,
         )
         self.prospect = SOProspect.objects.create(
-            user_id=7, email='tracking-test-prospect@example.com',
+            user_id=self.user.id, email='tracking-test-prospect@example.com',
             first_name='Test', last_name='Prospect',
         )
         self.cc = SOCampaignContact.objects.create(

@@ -24,7 +24,7 @@ from django.test import TestCase, override_settings
 from django.urls import reverse
 
 from Email_validate_app.models import (
-    SOCampaign, SOCampaignContact, SOProspect, SOEmailAccount,
+    UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEmailAccount,
     SOEmailAccountDailyUsage, SOEvent, SOOpenPixel, SOTrackedLink,
     SOSequenceStep, SOSequenceVariant,
 )
@@ -32,17 +32,23 @@ from Email_validate_app.services.so_smtp import inject_tracking
 from Email_validate_app.services import so_drip
 
 
+def make_user(email):
+    return UserTable.objects.create_user(
+        user_name='Drip Test', user_email=email, password='StrongPass123!')
+
+
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class OpenAndClickPersistenceTests(TestCase):
     """Items 1 and 2 of the Phase-2 validation list."""
 
     def setUp(self):
+        self.user = make_user('drip_open_click@example.com')
         self.campaign = SOCampaign.objects.create(
-            user_id=7, name='Test Campaign', subject='s', html_body='<p>x</p>',
+            user_id=self.user.id, name='Test Campaign', subject='s', html_body='<p>x</p>',
             status='sending', tracking_enabled=True,
         )
         self.prospect = SOProspect.objects.create(
-            user_id=7, email='drip-test-prospect@example.com', first_name='T', last_name='P',
+            user_id=self.user.id, email='drip-test-prospect@example.com', first_name='T', last_name='P',
         )
         self.cc = SOCampaignContact.objects.create(
             campaign=self.campaign, prospect=self.prospect, email=self.prospect.email,
@@ -86,8 +92,9 @@ class SendNextStepTests(TestCase):
     """Items 3, 4, 5 — the actual send_next_step() fix verification."""
 
     def setUp(self):
+        self.user = make_user('drip_send_next@example.com')
         self.campaign = SOCampaign.objects.create(
-            user_id=7, name='Test Send Campaign', subject='s', html_body='<p>x</p>',
+            user_id=self.user.id, name='Test Send Campaign', subject='s', html_body='<p>x</p>',
             status='sending', tracking_enabled=True,
             send_weekdays='mon,tue,wed,thu,fri,sat,sun',
             send_hour_start=time(0, 0, 0), send_hour_end=time(23, 59, 59),
@@ -98,13 +105,13 @@ class SendNextStepTests(TestCase):
             weight=100, is_active=True,
         )
         self.account = SOEmailAccount.objects.create(
-            user_id=7, provider='google', display_name='Test Sender',
+            user_id=self.user.id, provider='google', display_name='Test Sender',
             email='drip-test-sender@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='drip-test-sender@example.com',
             password='x', daily_limit=50, status='connected',
         )
         self.prospect = SOProspect.objects.create(
-            user_id=7, email='drip-test-recipient@example.com', first_name='T', last_name='P',
+            user_id=self.user.id, email='drip-test-recipient@example.com', first_name='T', last_name='P',
             status='subscribed',
         )
         self.cc = SOCampaignContact.objects.create(

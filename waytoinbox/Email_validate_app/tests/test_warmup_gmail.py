@@ -21,12 +21,18 @@ from django.test import TestCase
 from django.utils.timezone import now
 
 from Email_validate_app.models import (
-    SOEmailAccount, SOEmailAccountWarmup, WarmupReceiverAccount, WarmupMessage,
+    UserTable, SOEmailAccount, SOEmailAccountWarmup, WarmupReceiverAccount,
+    WarmupMessage,
 )
 from Email_validate_app.services.warmup_receiver import (
     find_warmup_message, classify_landing, rescue_from_spam,
 )
 from Email_validate_app.services.warmup import create_pending_messages_for_sender
+
+
+def make_user(email):
+    return UserTable.objects.create_user(
+        user_name='Warmup Test', user_email=email, password='StrongPass123!')
 
 
 # ── A. Gmail search includes spam/trash ─────────────────────────────────
@@ -104,14 +110,15 @@ class RescueFromSpamTests(TestCase):
 
 class WarmupCheckOneTests(TestCase):
     def setUp(self):
+        self.user = make_user('warmup_check_one@example.com')
         self.account = SOEmailAccount.objects.create(
-            user_id=7, provider='google', display_name='Warmup Sender',
+            user_id=self.user.id, provider='google', display_name='Warmup Sender',
             email='warmup-sender-test@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='warmup-sender-test@example.com',
             password='x', daily_limit=50, status='connected',
         )
         self.receiver = WarmupReceiverAccount.objects.create(
-            user_id=7, email='warmup-receiver-test@example.com',
+            user_id=self.user.id, email='warmup-receiver-test@example.com',
             refresh_token_encrypted='irrelevant-for-this-test', status='connected',
         )
         self.message = WarmupMessage.objects.create(
@@ -175,9 +182,12 @@ class WarmupCheckOneTests(TestCase):
 # ── F. Empty receiver pool — dispatcher no-ops safely, logs a warning ───
 
 class EmptyReceiverPoolTests(TestCase):
+    def setUp(self):
+        self.user = make_user('warmup_empty_pool@example.com')
+
     def test_no_receivers_creates_nothing_and_logs_warning(self):
         account = SOEmailAccount.objects.create(
-            user_id=7, provider='google', display_name='Warmup Sender 2',
+            user_id=self.user.id, provider='google', display_name='Warmup Sender 2',
             email='warmup-sender-test2@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='warmup-sender-test2@example.com',
             password='x', daily_limit=50, status='connected',
@@ -202,7 +212,7 @@ class EmptyReceiverPoolTests(TestCase):
         receiver appearing before the third tick -- the dispatcher must
         keep working normally once one connects, not get stuck."""
         account = SOEmailAccount.objects.create(
-            user_id=7, provider='google', display_name='Warmup Sender 3',
+            user_id=self.user.id, provider='google', display_name='Warmup Sender 3',
             email='warmup-sender-test3@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='warmup-sender-test3@example.com',
             password='x', daily_limit=50, status='connected',
@@ -219,7 +229,7 @@ class EmptyReceiverPoolTests(TestCase):
 
         # A receiver connects.
         WarmupReceiverAccount.objects.create(
-            user_id=7, email='warmup-receiver-test3@example.com',
+            user_id=self.user.id, email='warmup-receiver-test3@example.com',
             refresh_token_encrypted='x', status='connected',
         )
 
