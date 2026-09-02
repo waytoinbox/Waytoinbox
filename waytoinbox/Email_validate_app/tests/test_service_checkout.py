@@ -63,12 +63,12 @@ class ServiceCheckoutTests(TestCase):
 
     def test_quote_prices_the_cart_server_side(self):
         r = self._json('/subscription/quote/', {'cart': {
-            'email_validation': 25_000, 'email_marketing': 5_000, 'sales_outreach': 10}})
+            'email_validation': 25_000, 'email_marketing': 5_000, 'sales_outreach': 250}})
         self.assertEqual(r.status_code, 200)
         body = r.json()
         self.assertEqual(body['status'], 'ok')
-        self.assertEqual(body['subtotal_cents'], 9900)     # $59 + $10 + $30
-        self.assertEqual(body['total_cents'], 9900)
+        self.assertEqual(body['subtotal_cents'], 81900)    # $59 + $10 + $750
+        self.assertEqual(body['total_cents'], 81900)
         self.assertEqual(len(body['lines']), 3)
 
     def test_quote_never_exposes_a_per_credit_rate(self):
@@ -94,18 +94,18 @@ class ServiceCheckoutTests(TestCase):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
             r = self._json('/subscription/order/', {'cart': {
-                'email_validation': 25_000, 'sales_outreach': 10}})
+                'email_validation': 25_000, 'sales_outreach': 250}})
 
         self.assertEqual(r.status_code, 200, r.content)
         order = ServiceOrder.objects.get(order_id='order_TEST123')
-        self.assertEqual(order.amount_cents, 8900)                 # $59 + $30
-        self.assertEqual(order.cart_json, {'email_validation': 25_000, 'sales_outreach': 10})
+        self.assertEqual(order.amount_cents, 80900)                # $59 + $750
+        self.assertEqual(order.cart_json, {'email_validation': 25_000, 'sales_outreach': 250})
         self.assertEqual(order.status, ServiceOrder.STATUS_CREATED)
         self.assertEqual(order.currency, 'USD')
 
         # Razorpay was asked for an integer amount, in the server's currency.
         sent = rz.return_value.order.create.call_args.kwargs['data']
-        self.assertEqual(sent['amount'], 8900)
+        self.assertEqual(sent['amount'], 80900)
         self.assertIsInstance(sent['amount'], int)
         self.assertEqual(sent['currency'], 'USD')
 
@@ -147,7 +147,7 @@ class ServiceCheckoutTests(TestCase):
         return ServiceOrder.objects.get(order_id=order_id)
 
     def test_verify_credits_exactly_what_the_order_row_says(self):
-        self._make_order({'email_validation': 25_000, 'sales_outreach': 10})
+        self._make_order({'email_validation': 25_000, 'sales_outreach': 250})
 
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
@@ -159,7 +159,7 @@ class ServiceCheckoutTests(TestCase):
 
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(get_service_balance(self.user.id, 'email_validation'), 25_000)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 10)
+        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 250)
         self.assertEqual(
             ServiceOrder.objects.get(order_id='order_TEST123').status,
             ServiceOrder.STATUS_PAID)
@@ -263,7 +263,7 @@ class ServiceCheckoutTests(TestCase):
     def test_verify_leaves_legacy_wallets_untouched(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=50,
                                       cc_current_credits=100, vc_current_credits=7000)
-        self._make_order({'email_validation': 25_000, 'reputation': 50})
+        self._make_order({'email_validation': 25_000, 'reputation': 250})
 
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
@@ -276,8 +276,85 @@ class ServiceCheckoutTests(TestCase):
         cc = CurrentCredits.objects.get(user_id=self.user.id)
         self.assertEqual((cc.ac_current_credits, cc.cc_current_credits,
                           cc.vc_current_credits), (50, 100, 7000))
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 50)
+        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 250)
 
     def test_get_is_not_allowed_on_any_endpoint(self):
         for url in ('/subscription/quote/', '/subscription/order/', '/subscription/verify/'):
             self.assertEqual(self.client.get(url).status_code, 405, url)
+
+
+# ── Phase 7: minimum purchase quantity, end to end ──────────────────────────
+
+@override_settings(
+    ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'],
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+    RAZORPAY_KEY_ID='rzp_test_key', RAZORPAY_KEY_SECRET='rzp_test_secret',
+)
+class MinimumPurchaseEndpointTests(TestCase):
+    """The 250-credit floor as seen by an actual (mocked) browser request —
+    not just the pricing.quote_cart() unit tests. A request forged to carry
+    249 must be rejected identically to one built by a tampered client, since
+    quote/order never trust anything but the quantities themselves."""
+
+    def setUp(self):
+        self.user = make_user('minqty@example.com')
+        self.client = Client(SERVER_NAME='127.0.0.1')
+        session = self.client.session
+        session['logged_in'] = self.user.user_email
+        session.save()
+
+    def _json(self, url, payload):
+        return self.client.post(url, data=json.dumps(payload),
+                                content_type='application/json')
+
+    def test_quote_rejects_249(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 249}})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('250', r.json()['message'])
+
+    def test_quote_accepts_250(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 250}})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()['status'], 'ok')
+
+    def test_quote_accepts_251(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 251}})
+        self.assertEqual(r.status_code, 200)
+
+    def test_order_rejects_249_and_creates_nothing(self):
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()) as rz:
+            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 249}})
+        self.assertEqual(r.status_code, 400)
+        rz.return_value.order.create.assert_not_called()
+        self.assertFalse(ServiceOrder.objects.exists())
+
+    def test_order_accepts_250(self):
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 250}})
+        self.assertEqual(r.status_code, 200, r.content)
+        order = ServiceOrder.objects.get()
+        self.assertEqual(order.cart_json, {'sales_outreach': 250})
+
+    def test_one_undersized_line_blocks_a_request_with_other_valid_lines(self):
+        """A manipulated request cannot smuggle a sub-250 line through by
+        pairing it with a legitimately large one."""
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()) as rz:
+            r = self._json('/subscription/order/', {'cart': {
+                'email_validation': 100_000, 'reputation': 10}})
+        self.assertEqual(r.status_code, 400)
+        rz.return_value.order.create.assert_not_called()
+        self.assertFalse(ServiceOrder.objects.exists())
+
+    def test_client_side_bypass_attempt_is_rejected_server_side(self):
+        """Simulates a tampered request that skips the JS stepper entirely
+        (as if buy_credits.js's clamp had been patched out or DevTools was
+        used to POST directly) — the server must still hold the line."""
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()) as rz:
+            r = self._json('/subscription/order/', {'cart': {'email_marketing': 1}})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('250', r.json()['message'])
+        rz.return_value.order.create.assert_not_called()

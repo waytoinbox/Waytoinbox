@@ -13,6 +13,7 @@ from Email_validate_app.models import (
 )
 from Email_validate_app.services.pricing import (
     quote_service, quote_cart, public_config, validate_pricing_table, PricingError,
+    MIN_QTY_PER_SERVICE, SERVICE_KEYS as PRICING_SERVICE_KEYS,
 )
 from Email_validate_app.services.credit_manager import (
     add_service_credits, deduct_service_credits, ensure_service_credits,
@@ -92,12 +93,14 @@ class PricingValidationTests(TestCase):
         with self.assertRaises(PricingError):
             quote_cart({'warp_drive': 10})
 
-    def test_spec_cart_example_totals_ninety_nine_dollars(self):
+    def test_spec_cart_example_totals_correctly(self):
+        # sales_outreach bumped to the 250-credit minimum (below it, the cart
+        # would be rejected outright — see PricingMinimumQuantityTests).
         q = quote_cart({'email_validation': 25_000,
                         'email_marketing': 5_000,
-                        'sales_outreach': 10})
-        self.assertEqual(q.subtotal_cents, 9900)
-        self.assertEqual(q.subtotal_display, '$99.00')
+                        'sales_outreach': 250})
+        self.assertEqual(q.subtotal_cents, 81900)   # $59 + $10 + $750
+        self.assertEqual(q.subtotal_display, '$819.00')
         self.assertEqual(len(q.lines), 3)
 
     def test_public_config_never_exposes_a_per_credit_rate(self):
@@ -110,6 +113,62 @@ class PricingValidationTests(TestCase):
     def test_seeded_ladders_are_gapless(self):
         gaps = [w for w in validate_pricing_table() if 'gap/overlap' in w]
         self.assertEqual(gaps, [], f"pricing ladders have gaps: {gaps}")
+
+
+# ── Phase 7: minimum purchase quantity ──────────────────────────────────────
+
+class PricingMinimumQuantityTests(TestCase):
+    """A selected service line must be purchased at MIN_QTY_PER_SERVICE (250)
+    or more. 0 is unaffected — it means "not selected", not "buy zero".
+
+    This is a quote_cart() rule, not a quote_service() one: quote_service
+    stays a pure per-unit pricing primitive (PricingTierTests/PricingBlockTests
+    above price quantities well under 250 directly through it), while
+    quote_cart is the single funnel every real checkout entry point
+    (subscription_quote / subscription_order) uses.
+    """
+
+    def test_249_is_rejected_for_every_service(self):
+        for service in PRICING_SERVICE_KEYS:
+            with self.assertRaises(PricingError, msg=service):
+                quote_cart({service: MIN_QTY_PER_SERVICE - 1})
+
+    def test_250_is_accepted_for_every_service(self):
+        for service in PRICING_SERVICE_KEYS:
+            q = quote_cart({service: MIN_QTY_PER_SERVICE})
+            self.assertEqual(len(q.lines), 1, service)
+            self.assertEqual(q.lines[0].quantity, MIN_QTY_PER_SERVICE, service)
+
+    def test_251_is_accepted(self):
+        q = quote_cart({'email_validation': MIN_QTY_PER_SERVICE + 1})
+        self.assertEqual(q.lines[0].quantity, 251)
+
+    def test_zero_is_still_not_selected_not_a_minimum_violation(self):
+        q = quote_cart({'email_validation': 0, 'sales_outreach': 0})
+        self.assertEqual(q.lines, [])
+        self.assertEqual(q.subtotal_cents, 0)
+
+    def test_one_bad_line_rejects_the_whole_cart(self):
+        with self.assertRaises(PricingError):
+            quote_cart({'email_validation': 25_000, 'sales_outreach': 1})
+
+    def test_error_message_names_the_service_and_the_floor(self):
+        with self.assertRaises(PricingError) as ctx:
+            quote_cart({'sales_outreach': 100})
+        msg = str(ctx.exception)
+        self.assertIn('Sales Outreach', msg)
+        self.assertIn('250', msg)
+
+    def test_quote_service_itself_is_unaffected_by_the_cart_minimum(self):
+        # The per-unit pricing primitive still prices any positive quantity —
+        # only quote_cart (the checkout funnel) enforces the 250 floor.
+        price_cents, _ = quote_service('email_validation', 1)
+        self.assertEqual(price_cents, 3900)
+
+    def test_public_config_exposes_the_minimum_for_every_service(self):
+        cfg = public_config()
+        for service, entry in cfg.items():
+            self.assertEqual(entry['min_qty'], MIN_QTY_PER_SERVICE, service)
 
 
 # ── New wallets ───────────────────────────────────────────────────────────

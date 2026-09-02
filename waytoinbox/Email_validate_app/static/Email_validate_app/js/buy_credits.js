@@ -17,6 +17,7 @@
 
   var DEBOUNCE_MS = 350;
   var MAX_QTY = 1000000000;   // guards against pasted nonsense, not a price cap
+  var MIN_QTY = 250;          // server default; a row's own config.min_qty wins if present
 
   var cfgEl  = document.getElementById('sc-pricing-config');
   var config = {};
@@ -266,23 +267,45 @@
   }
 
   function initRow(row) {
-    var key   = row.dataset.service;
-    var input = row.querySelector('.sc-qty');
-    var up    = row.querySelector('.sc-up');
-    var down  = row.querySelector('.sc-down');
+    var key    = row.dataset.service;
+    var input  = row.querySelector('.sc-qty');
+    var up     = row.querySelector('.sc-up');
+    var down   = row.querySelector('.sc-down');
+    var minQty = (config[key] && config[key].min_qty) || MIN_QTY;
 
     quantities[key] = 0;
     paintRow(row, input, 0, false);
 
+    // 0 always means "not selected". Any other value must be at least
+    // minQty -- values in between snap up rather than being rejected, which
+    // covers the common case (typing "10", clicking + once from zero)
+    // without a round trip. The server enforces the real floor regardless
+    // (services/pricing.py::quote_cart), so this is a convenience, not the
+    // authority.
+    function clampSelected(qty) {
+      if (qty > 0 && qty < minQty) { return minQty; }
+      return qty;
+    }
+
     function commit(qty, focused) {
-      quantities[key] = qty;
-      paintRow(row, input, qty, focused);
+      // While typing, keep the raw value so multi-digit entry (e.g. "300")
+      // isn't clobbered mid-keystroke by the floor; clamp once they stop.
+      var stored = focused ? qty : clampSelected(qty);
+      quantities[key] = stored;
+      paintRow(row, input, stored, focused);
       scheduleQuote();
     }
 
     function step(delta) {
-      commit(Math.max(0, Math.min(MAX_QTY, quantities[key] + delta)),
-             document.activeElement === input);
+      var cur = quantities[key], next;
+      if (delta > 0) {
+        next = cur === 0 ? minQty : cur + delta;
+      } else if (cur <= minQty) {
+        next = 0;   // stepping down from the floor removes the selection
+      } else {
+        next = Math.max(minQty, cur + delta);
+      }
+      commit(Math.min(MAX_QTY, next), document.activeElement === input);
     }
 
     up.addEventListener('click', function () { step(1); });
@@ -298,7 +321,11 @@
     });
 
     input.addEventListener('blur', function () {
-      paintRow(row, input, quantities[key], false);
+      var clamped = clampSelected(quantities[key]);
+      var changed = clamped !== quantities[key];
+      quantities[key] = clamped;
+      paintRow(row, input, clamped, false);
+      if (changed) { scheduleQuote(); }
     });
 
     // Arrow keys step by one, matching the buttons. The input is type=text

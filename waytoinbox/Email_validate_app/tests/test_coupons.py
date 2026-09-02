@@ -193,18 +193,18 @@ class CouponValidationTests(TestCase):
         portion, not the whole basket."""
         make_coupon('EVONLY', applicable_services='email_validation',
                     discount_type='percentage', discount_value=Decimal('50'))
-        mixed = quote_cart({'email_validation': 25_000, 'sales_outreach': 10})
-        self.assertEqual(mixed.subtotal_cents, 8900)   # $59 + $30
+        mixed = quote_cart({'email_validation': 25_000, 'sales_outreach': 250})
+        self.assertEqual(mixed.subtotal_cents, 80900)  # $59 + $750
         ok, discount, reason = self._validate('EVONLY', quote=mixed)
         self.assertTrue(ok, reason)
         self.assertEqual(discount, 2950)               # 50% of the $59 line only
 
     def test_blank_applicable_services_means_all(self):
         make_coupon('ANY', applicable_services='')
-        mixed = quote_cart({'email_validation': 25_000, 'sales_outreach': 10})
+        mixed = quote_cart({'email_validation': 25_000, 'sales_outreach': 250})
         ok, discount, _ = self._validate('ANY', quote=mixed)
         self.assertTrue(ok)
-        self.assertEqual(discount, 1780)               # 20% of the full $89
+        self.assertEqual(discount, 16180)              # 20% of the full $809
 
     def test_unknown_service_key_is_ignored_not_fatal(self):
         make_coupon('TYPO', applicable_services='email_validation,not_a_service')
@@ -324,6 +324,17 @@ class CouponCheckoutTests(TestCase):
         r, rz = self._order({'email_validation': 25_000}, promo='NOPE')
         self.assertEqual(r.status_code, 400)
         self.assertIn('not valid', r.json()['message'])
+        rz.return_value.order.create.assert_not_called()
+        self.assertFalse(ServiceOrder.objects.exists())
+
+    def test_coupon_cannot_bypass_the_minimum_credit_quantity(self):
+        """A 100%-off coupon still cannot make a sub-250 quantity purchasable
+        -- the floor is on the quantity, checked in quote_cart() before any
+        discount is even looked at, so no discount can waive it."""
+        make_coupon('FREE100', discount_type='percentage', discount_value=Decimal('100'))
+        r, rz = self._order({'sales_outreach': 249}, promo='FREE100')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('250', r.json()['message'])
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
 

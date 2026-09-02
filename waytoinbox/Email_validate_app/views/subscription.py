@@ -63,7 +63,7 @@ def subscription(request):
     # It is surfaced once, separately, as "Shared Analysis Credits".
     from Email_validate_app.services.credit_manager import get_all_service_balances
     from Email_validate_app.services.pricing import (
-        SERVICE_LABELS, SERVICE_UNITS, public_config,
+        SERVICE_LABELS, SERVICE_UNITS, MIN_QTY_PER_SERVICE, public_config,
     )
     from Email_validate_app.models import SERVICE_KEYS
 
@@ -78,10 +78,11 @@ def subscription(request):
 
     services = [
         {
-            'key':     key,
-            'label':   SERVICE_LABELS[key],
-            'unit':    SERVICE_UNITS.get(key, 'credits'),
-            'balance': new_balances.get(key, {}).get('new', 0),
+            'key':      key,
+            'label':    SERVICE_LABELS[key],
+            'unit':     SERVICE_UNITS.get(key, 'credits'),
+            'balance':  new_balances.get(key, {}).get('new', 0),
+            'min_qty':  MIN_QTY_PER_SERVICE,
         }
         for key in SERVICE_KEYS
     ]

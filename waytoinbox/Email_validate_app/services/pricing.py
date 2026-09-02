@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 
 SERVICE_LABELS = dict(SERVICE_CHOICES)
 
+# Product rule: a selected service line must be purchased at least this many
+# credits at a time (0 is still "not selected" and stays free). This is a
+# cart-eligibility rule, not a pricing one, so it lives in quote_cart() rather
+# than quote_service()/normalize_quantity() — quote_service stays a pure
+# per-unit pricing primitive callable at any quantity (admin tools, tests,
+# and future per-unit displays all rely on that), and MIN_ORDER_CENTS in
+# views/credits.py is a separate, unrelated $1.00 Razorpay floor on the
+# order's total price, not a credit-quantity floor.
+MIN_QTY_PER_SERVICE = 250
+
 # Unit noun per service, for UI copy ("25,000 emails", "10 accounts").
 SERVICE_UNITS = {
     'email_validation': 'emails',
@@ -178,6 +188,11 @@ def quote_cart(cart: dict, currency: str = 'USD') -> Quote:
         qty = normalize_quantity(service, cart[service])
         if qty == 0:
             continue
+        if qty < MIN_QTY_PER_SERVICE:
+            raise PricingError(
+                f"Minimum purchase for {SERVICE_LABELS[service]} is "
+                f"{MIN_QTY_PER_SERVICE:,} credits."
+            )
         price_cents, tier_label = quote_service(service, qty)
         lines.append(QuoteLine(
             service=service, label=SERVICE_LABELS[service], quantity=qty,
@@ -203,9 +218,10 @@ def public_config() -> dict:
         if not packages:
             continue
         entry = {
-            'label': SERVICE_LABELS[service],
-            'unit':  SERVICE_UNITS.get(service, 'credits'),
-            'mode':  packages[0].mode,
+            'label':   SERVICE_LABELS[service],
+            'unit':    SERVICE_UNITS.get(service, 'credits'),
+            'mode':    packages[0].mode,
+            'min_qty': MIN_QTY_PER_SERVICE,
         }
         if packages[0].mode == CreditPackage.MODE_BLOCK:
             entry['block_size'] = packages[0].block_size or 1

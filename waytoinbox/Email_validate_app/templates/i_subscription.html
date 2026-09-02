@@ -97,6 +97,7 @@
           {% if service.balance %}
             <span class="sc-balance">{{ service.balance|floatformat:0 }} available</span>
           {% endif %}
+          <span class="sc-min-hint">{{ service.min_qty|floatformat:0 }} minimum</span>
         </span>
 
         <span class="sc-arrows">

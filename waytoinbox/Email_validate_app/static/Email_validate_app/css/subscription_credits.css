@@ -246,6 +246,14 @@
   color: var(--ink-3);
   margin-top: 1px;
 }
+.sc-min-hint {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--ink-3);
+  opacity: .75;
+  margin-top: 1px;
+}
 
 /* Vertical caret pair, same shape as the editor stepper in so_campaign.css,
    sized up to a comfortable tap target. */
