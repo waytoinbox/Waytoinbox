@@ -26,6 +26,8 @@ Covers:
   * The sidebar-hiding mechanism is additive: a page with no body_class
     override still gets an ordinary (sidebar-shown) body tag.
 """
+from unittest.mock import patch
+
 from django.test import TestCase, Client, override_settings
 
 from Email_validate_app.models import UserTable
@@ -64,7 +66,9 @@ class PricingPageTests(TestCase):
         self.assertIn('id="panel-subscription"', html)
         self.assertIn('id="scTotal"', html)
         self.assertIn('id="scGetStarted"', html)
-        self.assertIn('id="scModal"', html)
+        # Confirmation is the shared Order Summary modal now, not a
+        # subscription-only one — see SubscriptionSharesPaygOrderSummaryTests.
+        self.assertIn('id="payConfirmModal"', html)
         for service in ('email_validation', 'email_marketing', 'sales_outreach',
                         'reputation', 'header_analysis', 'ip_blocklist',
                         'domain_blocklist'):
@@ -363,3 +367,96 @@ class PaygPricingTableTests(TestCase):
             # "count <= 5000" substring, which would also match the
             # still-correct, unrelated "count <= 50000)" check.
             self.assertNotIn('count <= 5000)', html, url)
+
+
+@override_settings(
+    ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'],
+    RAZORPAY_KEY_ID='rzp_test_key', RAZORPAY_KEY_SECRET='rzp_test_secret',
+)
+class PaygMinimumOrderTests(TestCase):
+    """order_payment()'s minimum is now a plain $1.00 floor, full stop --
+    the separate 150-credit floor is gone, since at the current per-email
+    rates a fixed credit count no longer maps to a fixed dollar amount."""
+
+    def setUp(self):
+        self.user = make_user('payg_min@example.com')
+        self.client = Client(SERVER_NAME='127.0.0.1')
+        session = self.client.session
+        session['logged_in'] = self.user.user_email
+        session.save()
+
+    def _post(self, credits, price):
+        return self.client.post('/pricing/order_payment/', {
+            'plan': str(credits), 'price': str(price),
+            'pricePerEmail': '0.0039', 'usd-inr': 'USD',
+        }, HTTP_X_REQUESTED_WITH='XMLHttpRequest')
+
+    def test_below_one_dollar_is_rejected(self):
+        r = self._post(credits=10, price=0.50)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('$1.00', r.json()['message'])
+        self.assertNotIn('150', r.json()['message'])
+
+    def test_below_one_dollar_is_rejected_even_with_a_huge_credit_count(self):
+        """Proves the floor is purely dollar-based now, not influenced by
+        credit count at all -- 100,000 credits was always far above the old
+        150-credit floor, but $0.99 must still be rejected."""
+        r = self._post(credits=100_000, price=0.99)
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('$1.00', r.json()['message'])
+
+    def test_at_least_one_dollar_is_accepted_regardless_of_credit_count(self):
+        """10 credits is far below the old 150-credit floor -- must now
+        succeed purely because the price clears $1.00."""
+        with patch('Email_validate_app.views.billing.razorpay.Client') as ClientCls:
+            ClientCls.return_value.order.create.return_value = {
+                'id': 'order_TEST123', 'amount': 100, 'currency': 'USD',
+            }
+            r = self._post(credits=10, price=1.00)
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['status'], 'ok')
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class SubscriptionSharesPaygOrderSummaryTests(TestCase):
+    """"Get Started" now leads to the exact same "Order Summary" confirmation
+    step (#payConfirmModal / openPayConfirm / proceedToPay / openRazorpay) as
+    Pay-As-You-Go's "Buy Now", instead of its own separate #scModal."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_old_custom_confirmation_modal_is_gone(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('id="scModal"', html, url)
+            self.assertNotIn('scModalConfirm', html, url)
+            self.assertNotIn('scModalCancel', html, url)
+            self.assertNotIn('function openModal', html, url)
+            self.assertNotIn('function closeModal', html, url)
+
+    def test_shared_order_summary_modal_present_on_both_pages(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="payConfirmModal"', html, url)
+            self.assertIn('Order Summary', html, url)
+            self.assertIn('Review your order before proceeding to payment', html, url)
+            self.assertIn('function openPayConfirm', html, url)
+            self.assertIn('function proceedToPay', html, url)
+
+    def test_open_razorpay_routes_service_credits_to_subscription_verify(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn("isServiceCredits", html, url)
+            self.assertIn("order.flow === 'service_credits'", html, url)
+            self.assertIn('subscription/verify/', html, url)
+
+    def test_buy_credits_js_no_longer_ships_its_own_modal_wiring(self):
+        from django.contrib.staticfiles.finders import find
+
+        js_path = find('Email_validate_app/js/buy_credits.js')
+        with open(js_path, encoding='utf-8') as f:
+            js = f.read()
+        for stale in ('scModal', 'openModal', 'closeModal', 'modalConfirm', 'modalCancel'):
+            self.assertNotIn(stale, js, stale)
+        self.assertIn('openPayConfirm', js)

@@ -46,12 +46,6 @@
   var promoApply = document.getElementById('scPromoApply');
   var promoMsg   = document.getElementById('scPromoMsg');
 
-  var modal        = document.getElementById('scModal');
-  var modalLines   = document.getElementById('scModalLines');
-  var modalTotal   = document.getElementById('scModalTotal');
-  var modalConfirm = document.getElementById('scModalConfirm');
-  var modalCancel  = document.getElementById('scModalCancel');
-
   if (!rows.length || !totalEl) { return; }
 
   var urls = {
@@ -351,54 +345,61 @@
     });
   }
 
-  /* ── confirmation modal ──────────────────────────────── */
+  /* ── checkout ────────────────────────────────────────── */
 
-  function openModal() {
-    if (!lastQuote) { return; }
+  /* Creates the order server-side (re-validating everything fresh from the
+     live cart — including each service's minimum quantity, which the
+     stepper only clamps client-side as a convenience), then hands off to
+     the SAME "Order Summary" confirmation step and Razorpay flow
+     Pay-As-You-Go uses: openPayConfirm() / proceedToPay() / openRazorpay()
+     are defined once in this page's own inline script (shared by both
+     flows) rather than reimplemented here. A rejected order (e.g. below a
+     service's minimum, or the $1 order floor) never reaches that step —
+     the server's exact message is shown inline instead, and no payment can
+     start. */
+  function createOrder() {
+    inFlight = true;
+    ctaEl.disabled = true;
+    refreshCta();
 
-    modalLines.innerHTML = '';
-    lastQuote.lines.forEach(function (line) {
-      var div = document.createElement('div');
-      div.className = 'sc-modal-line';
-      // Quantity and service only — no per-line price, by design.
-      var name = document.createElement('span');
-      name.textContent = line.label;
-      var qty = document.createElement('b');
-      qty.textContent = Number(line.quantity).toLocaleString();
-      div.appendChild(name);
-      div.appendChild(qty);
-      modalLines.appendChild(div);
-    });
+    return fetch(urls.order, {
+      method: 'POST',
+      headers: {
+        'Content-Type':     'application/json',
+        'X-CSRFToken':      csrf(),
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({
+        cart: buildCart(),
+        promo_code: promoInput ? promoInput.value.trim() : ''
+      })
+    })
+      .then(function (res) {
+        return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+      })
+      .then(function (r) {
+        inFlight = false;
+        refreshCta();
 
-    if (lastQuote.discount_cents) {
-      var drow = document.createElement('div');
-      drow.className = 'sc-modal-line sc-modal-discount';
-      var dname = document.createElement('span');
-      dname.textContent = 'Promo' + (lastQuote.promo_code ? ' (' + lastQuote.promo_code + ')' : '');
-      var dval = document.createElement('b');
-      dval.textContent = '−' + money(lastQuote.discount_cents);
-      drow.appendChild(dname);
-      drow.appendChild(dval);
-      modalLines.appendChild(drow);
-    }
+        if (!r.ok || r.data.status !== 'ok') {
+          notify('error', r.data.message || 'Could not start checkout.');
+          setNote(r.data.message || 'Could not start checkout.', true);
+          return;
+        }
 
-    modalTotal.innerHTML = '';
-    var lbl = document.createElement('span'); lbl.textContent = 'Total';
-    var amt = document.createElement('span'); amt.textContent = money(lastQuote.total_cents);
-    modalTotal.appendChild(lbl);
-    modalTotal.appendChild(amt);
-
-    modal.classList.add('is-open');
-    modalConfirm.disabled = false;
-    modalConfirm.focus();
+        window.openPayConfirm(r.data);
+      })
+      .catch(function () {
+        inFlight = false;
+        refreshCta();
+        notify('error', 'Could not reach the server. Please try again.');
+      });
   }
-
-  function closeModal() { modal.classList.remove('is-open'); }
 
   if (ctaEl) {
     ctaEl.addEventListener('click', function () {
-      if (cartIsEmpty()) { return; }
-      if (lastQuote) { openModal(); return; }
+      if (cartIsEmpty() || inFlight) { return; }
+      if (lastQuote) { createOrder(); return; }
 
       // Either the user beat the debounce or the last quote failed. Re-quote
       // and wait for the actual answer — never guess at a timeout, and never
@@ -410,75 +411,11 @@
         ctaEl.disabled = false;
         refreshCta();
         if (quote) {
-          openModal();
+          createOrder();
         } else if (!noteEl.classList.contains('is-error')) {
           setNote('Could not calculate your total. Please try again.', true);
         }
       });
-    });
-  }
-
-  if (modalCancel) { modalCancel.addEventListener('click', closeModal); }
-  if (modal) {
-    modal.addEventListener('click', function (e) { if (e.target === modal) { closeModal(); } });
-  }
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && modal && modal.classList.contains('is-open')) { closeModal(); }
-  });
-
-  /* ── checkout ────────────────────────────────────────── */
-
-  if (modalConfirm) {
-    modalConfirm.addEventListener('click', function () {
-      modalConfirm.disabled = true;
-      inFlight = true;
-      refreshCta();
-
-      fetch(urls.order, {
-        method: 'POST',
-        headers: {
-          'Content-Type':     'application/json',
-          'X-CSRFToken':      csrf(),
-          'X-Requested-With': 'XMLHttpRequest'
-        },
-        body: JSON.stringify({
-          cart: buildCart(),
-          promo_code: promoInput ? promoInput.value.trim() : ''
-        })
-      })
-        .then(function (res) {
-          return res.json().then(function (data) { return { ok: res.ok, data: data }; });
-        })
-        .then(function (r) {
-          inFlight = false;
-          refreshCta();
-
-          if (!r.ok || r.data.status !== 'ok') {
-            closeModal();
-            notify('error', r.data.message || 'Could not start checkout.');
-            setNote(r.data.message || 'Could not start checkout.', true);
-            return;
-          }
-
-          closeModal();
-
-          // The shared Phase 3 implementation. This page supplies only its
-          // own URLs and copy — openRazorpay is not reimplemented here.
-          WTICheckout.open(r.data, {
-            verifyUrl:   urls.verify,
-            returnUrl:   urls.self,
-            json:        true,
-            description: 'WayToInbox Credits',
-            notify:      notify,
-            successMessage: 'Payment successful! Your credits have been added.'
-          });
-        })
-        .catch(function () {
-          inFlight = false;
-          modalConfirm.disabled = false;
-          refreshCta();
-          notify('error', 'Could not reach the server. Please try again.');
-        });
     });
   }
 

@@ -191,11 +191,14 @@ def order_payment(request):
             messages.error(request, "Invalid input for credits or price.")
             return redirect('subscription')
 
-        # Minimum order check
-        if price_ < 1.0 or credits < 150:
+        # Minimum order check: $1.00, full stop. No separate credit-count
+        # floor -- at the current per-email rates a fixed credit count no
+        # longer maps to a fixed dollar amount, so the dollar minimum is the
+        # only one that still means anything.
+        if price_ < 1.0:
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Order amount must be at least $1.00 and minimum 150 credits."}, status=400)
-            messages.error(request, "Order amount must be at least $1.00 and minimum credits: 150.")
+                return JsonResponse({"status": "error", "message": "Order amount must be at least $1.00."}, status=400)
+            messages.error(request, "Order amount must be at least $1.00.")
             return redirect('subscription')
 
         user_data = fetch_user_data(user_id)

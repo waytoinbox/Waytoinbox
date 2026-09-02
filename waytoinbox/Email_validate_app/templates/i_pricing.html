@@ -247,19 +247,9 @@
       </div>
 
     </div><!-- /.payg-wrap -->
-
-    <!-- ── CONFIRMATION MODAL ──────────────────────────────── -->
-    <div class="sc-modal" id="scModal" role="dialog" aria-modal="true" aria-labelledby="scModalTitle">
-      <div class="sc-modal-box">
-        <h3 class="sc-modal-title" id="scModalTitle">Confirm your purchase</h3>
-        <div class="sc-modal-lines" id="scModalLines"></div>
-        <div class="sc-modal-total" id="scModalTotal"></div>
-        <div class="sc-modal-actions">
-          <button type="button" class="sc-modal-cancel"  id="scModalCancel">Cancel</button>
-          <button type="button" class="sc-modal-confirm" id="scModalConfirm">Pay now</button>
-        </div>
-      </div>
-    </div>
+    <!-- Confirmation step is the shared "Order Summary" modal
+         (#payConfirmModal, below the footer) -- same one Pay-As-You-Go
+         uses, opened by buy_credits.js via openPayConfirm(). -->
 
   </div>
 </div>
@@ -330,23 +320,34 @@ function getCsrf() {
 /* ── Open Razorpay popup from order data ─────────────── */
 /* Thin wrapper over the shared implementation in checkout.js. Behaviour and
    every URL, message and posted field are unchanged from the copy that used
-   to live here. */
+   to live here. Also handles the service-credit cart's orders (flow ===
+   'service_credits', created by /subscription/order/, buy_credits.js) so
+   that flow shares this exact Order Summary + Razorpay step with
+   Pay-As-You-Go rather than having its own. */
 function openRazorpay(order) {
   var isSub = order.flow === 'subscription';
+  var isServiceCredits = order.flow === 'service_credits';
+  var verifyUrl = isServiceCredits ? '{% url "subscription_verify" %}'
+                 : isSub            ? '{% url "subs_payment" %}'
+                                    : '{% url "payment" %}';
+  var description = isServiceCredits ? 'WayToInbox Credits'
+                    : isSub           ? 'Subscription Plan: ' + order.credit
+                                      : 'Email Credits Purchase';
+  var successMessage = isServiceCredits ? 'Payment successful! Your credits have been added.'
+                       : isSub           ? 'Payment successful! Your ' + order.credit + ' plan is now active.'
+                                         : 'Payment successful! Credits have been added to your account.';
   WTICheckout.open(order, {
-    verifyUrl:   isSub ? '{% url "subs_payment" %}' : '{% url "payment" %}',
+    verifyUrl:   verifyUrl,
     returnUrl:   '{% url "pricing" %}',
-    description: isSub ? 'Subscription Plan: ' + order.credit : 'Email Credits Purchase',
+    description: description,
     fields: {
       plan:          order.plan || '',
       billing_cycle: order.billing_cycle || 'monthly',
       contacts:      order.contacts || '0',
-      description:   isSub ? 'Subscription: ' + order.credit : 'Credits purchase'
+      description:   description
     },
     notify: function (type, msg) { subShowAlert(type, msg); },
-    successMessage: isSub
-      ? 'Payment successful! Your ' + order.credit + ' plan is now active.'
-      : 'Payment successful! Credits have been added to your account.'
+    successMessage: successMessage
   });
 }
 
@@ -458,15 +459,28 @@ function openPayConfirm(order) {
   var planLabel = order.flow === 'subscription' ? 'Plan' : 'Credits';
   document.getElementById('pcPlanLabel').textContent = planLabel;
   document.getElementById('pcPlan').textContent    = order.credit     || '—';
-  var disc = order.discount_percentage ? parseInt(order.discount_percentage) : 0;
   var discRow = document.getElementById('pcDiscountRow');
-  if (disc > 0) {
-    document.getElementById('pcDiscount').textContent = disc + '% off';
+  if (order.discount_label) {
+    // Service-credit orders send a ready-made dollar-off label — a
+    // coupon's discount is not generally a clean percentage the way
+    // Pay-As-You-Go's plan discounts are.
+    document.getElementById('pcDiscount').textContent = order.discount_label;
     discRow.style.display = '';
   } else {
-    discRow.style.display = 'none';
+    var disc = order.discount_percentage ? parseInt(order.discount_percentage) : 0;
+    if (disc > 0) {
+      document.getElementById('pcDiscount').textContent = disc + '% off';
+      discRow.style.display = '';
+    } else {
+      discRow.style.display = 'none';
+    }
   }
-  document.getElementById('pcAmount').textContent  = '$' + (order.amount / 100).toFixed(2) + ' ' + (order.currency || 'USD');
+  // amount_cents (service-credit orders) is always a genuine integer;
+  // order.amount is numeric paise for Pay-As-You-Go/plan orders but a
+  // pre-formatted display string for service-credit orders.
+  var amountCents = (order.amount_cents !== undefined && order.amount_cents !== null)
+    ? order.amount_cents : order.amount;
+  document.getElementById('pcAmount').textContent  = '$' + (amountCents / 100).toFixed(2) + ' ' + (order.currency || 'USD');
   document.getElementById('payConfirmModal').classList.add('show');
 }
 

@@ -313,6 +313,11 @@ class CouponCheckoutTests(TestCase):
         self.assertEqual(order.promo_code, 'SAVE20')
         self.assertEqual(order.coupon.code, 'SAVE20')
 
+        # The shared Order Summary modal shows this verbatim as the
+        # discount row -- a dollar-off label, since a coupon's discount
+        # isn't generally a clean percentage.
+        self.assertEqual(r.json()['discount_label'], '−$11.80 off')
+
     def test_order_does_not_increment_used_count(self):
         coupon = make_coupon('SAVE20')
         self._order({'email_validation': 25_000}, promo='SAVE20')

@@ -67,9 +67,14 @@
     }
 
     var notify = opts.notify || defaultNotify;
-    var amount = (order.amount !== undefined && order.amount !== null)
-      ? order.amount
-      : order.amount_cents;
+    // amount_cents (when present) is always a genuine integer; order.amount
+    // is numeric paise for the legacy PAYG/plan flows but a pre-formatted
+    // display string ("$59.00") for the service-credit flow, so prefer
+    // amount_cents whenever it's there rather than risk handing Razorpay a
+    // string.
+    var amount = (order.amount_cents !== undefined && order.amount_cents !== null)
+      ? order.amount_cents
+      : order.amount;
 
     function finish(ok, message, data) {
       notify(ok ? 'success' : 'error', message);

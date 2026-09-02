@@ -143,6 +143,37 @@ class ServiceCheckoutTests(TestCase):
         self.assertIsInstance(sent['amount'], int)
         self.assertEqual(sent['currency'], 'USD')
 
+    def test_order_response_carries_a_human_readable_credit_summary(self):
+        """The shared Order Summary modal (openPayConfirm, same one
+        Pay-As-You-Go uses) needs a "Credits" row value -- unlike PAYG's
+        response, subscription_order has no single number for a multi-service
+        cart, so it sends a description instead."""
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': {
+                'email_validation': 25_000, 'sales_outreach': 250}})
+        body = r.json()
+        self.assertIn('25,000 Email Validation', body['credit'])
+        self.assertIn('250 Sales Outreach', body['credit'])
+
+    def test_order_response_has_no_discount_label_without_a_coupon(self):
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': {'email_validation': 25_000}})
+        self.assertEqual(r.json()['discount_label'], '')
+
+    def test_order_response_amount_cents_is_always_a_genuine_integer(self):
+        """Guards against the class of bug where a UI reads the wrong field:
+        amount_cents must be numeric even though `amount` is a pre-formatted
+        display string ("$59.00")."""
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': {'email_validation': 25_000}})
+        body = r.json()
+        self.assertIsInstance(body['amount_cents'], int)
+        self.assertEqual(body['amount_cents'], 5900)
+        self.assertEqual(body['amount'], '$59.00')
+
     def test_order_ignores_any_price_the_browser_sends(self):
         """A price/amount/total in the payload must have no effect."""
         with patch('Email_validate_app.views.credits._razorpay_client',

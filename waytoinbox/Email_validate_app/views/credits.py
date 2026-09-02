@@ -250,15 +250,22 @@ def subscription_order(request):
                 rz_order['id'], user_id, amount_cents, frozen_cart)
 
     return JsonResponse({
-        "status":       "ok",
-        "key_id":       settings.RAZORPAY_KEY_ID,
-        "order_id":     rz_order['id'],
-        "amount_cents": amount_cents,
-        "amount":       f"${amount_cents / 100:,.2f}",
-        "currency":     CURRENCY,
-        "user_name":    user.user_name,
-        "user_email":   user.user_email,
-        "flow":         "service_credits",
+        "status":         "ok",
+        "key_id":         settings.RAZORPAY_KEY_ID,
+        "order_id":       rz_order['id'],
+        "amount_cents":   amount_cents,
+        "amount":         f"${amount_cents / 100:,.2f}",
+        "currency":       CURRENCY,
+        "user_name":      user.user_name,
+        "user_email":     user.user_email,
+        "flow":           "service_credits",
+        # For the shared Order Summary modal (openPayConfirm in the page's
+        # own script, same one Pay-As-You-Go uses): a human-readable line
+        # for the "Credits" row, and a ready-made discount label — the
+        # dollar-off amount, since a coupon's discount is not generally a
+        # clean percentage the way Pay-As-You-Go's plan discounts are.
+        "credit":         _credits_summary(frozen_cart),
+        "discount_label": f"−${discount_cents / 100:,.2f} off" if discount_cents else '',
     })
 
 
