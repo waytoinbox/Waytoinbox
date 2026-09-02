@@ -72,7 +72,7 @@
 
 /* ── Empty state ─────────────────────────────────────────────── */
 .sg-empty { padding:56px 20px; text-align:center; color:var(--ink-3); }
-.sg-empty i { font-size:36px; margin-bottom:14px; display:block; opacity:.35; }
+.sg-empty i { font-size:36px;  display:block; opacity:.35; }
 .sg-empty p { font-size:14px; margin:0 0 16px; }
 
 /* ── Pagination ──────────────────────────────────────────────── */

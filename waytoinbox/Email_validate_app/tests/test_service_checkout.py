@@ -26,6 +26,24 @@ def make_user(email):
         user_name='Checkout Test', user_email=email, password='StrongPass123!')
 
 
+# subscription_order() now requires all 7 services to be present (each at
+# or above its own minimum) -- not just a nonempty subset. This is the
+# cheapest such cart: every service at exactly its minimum quantity.
+# Total: 390 (email_validation) + 200 (email_marketing) + 300 (sales_outreach)
+#      + 200 (reputation) + 40 (header_analysis) + 200 (ip_blocklist)
+#      + 200 (domain_blocklist) = 1530 cents = $15.30
+FULL_CART_AT_MINIMUM = {
+    'email_validation': 1000,
+    'email_marketing':  1000,
+    'sales_outreach':   1,
+    'reputation':        1,
+    'header_analysis':   1,
+    'ip_blocklist':      1,
+    'domain_blocklist':  1,
+}
+FULL_CART_AT_MINIMUM_CENTS = 1530
+
+
 def fake_razorpay(order_id='order_TEST123', raise_signature=False):
     """A Razorpay client stand-in. order.create echoes a fixed id; the
     signature utility either passes silently or raises."""
@@ -125,66 +143,75 @@ class ServiceCheckoutTests(TestCase):
     # -- order ---------------------------------------------------------------
 
     def test_order_freezes_the_server_quote(self):
+        cart = dict(FULL_CART_AT_MINIMUM, email_validation=25_000, sales_outreach=250)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
-            r = self._json('/subscription/order/', {'cart': {
-                'email_validation': 25_000, 'sales_outreach': 250}})
+            r = self._json('/subscription/order/', {'cart': cart})
 
         self.assertEqual(r.status_code, 200, r.content)
         order = ServiceOrder.objects.get(order_id='order_TEST123')
-        self.assertEqual(order.amount_cents, 80900)                # $59 + $750
-        self.assertEqual(order.cart_json, {'email_validation': 25_000, 'sales_outreach': 250})
+        self.assertEqual(order.amount_cents, 81740)
+        self.assertEqual(order.cart_json, cart)
         self.assertEqual(order.status, ServiceOrder.STATUS_CREATED)
         self.assertEqual(order.currency, 'USD')
 
         # Razorpay was asked for an integer amount, in the server's currency.
         sent = rz.return_value.order.create.call_args.kwargs['data']
-        self.assertEqual(sent['amount'], 80900)
+        self.assertEqual(sent['amount'], 81740)
         self.assertIsInstance(sent['amount'], int)
         self.assertEqual(sent['currency'], 'USD')
 
-    def test_order_response_carries_a_human_readable_credit_summary(self):
-        """The shared Order Summary modal (openPayConfirm, same one
-        Pay-As-You-Go uses) needs a "Credits" row value -- unlike PAYG's
-        response, subscription_order has no single number for a multi-service
-        cart, so it sends a description instead."""
+    def test_order_response_carries_a_human_readable_credit_summary_and_lines(self):
+        """The "Confirm your purchase" / "Order Summary" popup
+        (openServiceConfirm) needs a per-service line-items list for its
+        left column, and a general-purpose summary string used elsewhere
+        (e.g. Payment.credits at verify time)."""
+        cart = dict(FULL_CART_AT_MINIMUM, email_validation=25_000, sales_outreach=250)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {
-                'email_validation': 25_000, 'sales_outreach': 250}})
+            r = self._json('/subscription/order/', {'cart': cart})
         body = r.json()
         self.assertIn('25,000 Email Validation', body['credit'])
         self.assertIn('250 Sales Outreach', body['credit'])
 
+        lines_by_service = {ln['service']: ln for ln in body['lines']}
+        self.assertEqual(len(body['lines']), 7)
+        self.assertEqual(lines_by_service['email_validation']['quantity'], 25_000)
+        self.assertEqual(lines_by_service['email_validation']['label'], 'Email Validation')
+        self.assertEqual(lines_by_service['sales_outreach']['quantity'], 250)
+        self.assertEqual(lines_by_service['header_analysis']['quantity'], 1)
+
     def test_order_response_has_no_discount_label_without_a_coupon(self):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {'email_validation': 25_000}})
+            r = self._json('/subscription/order/', {'cart': dict(
+                FULL_CART_AT_MINIMUM, email_validation=25_000)})
         self.assertEqual(r.json()['discount_label'], '')
 
     def test_order_response_amount_cents_is_always_a_genuine_integer(self):
         """Guards against the class of bug where a UI reads the wrong field:
         amount_cents must be numeric even though `amount` is a pre-formatted
-        display string ("$59.00")."""
+        display string ("$70.40")."""
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {'email_validation': 25_000}})
+            r = self._json('/subscription/order/', {'cart': dict(
+                FULL_CART_AT_MINIMUM, email_validation=25_000)})
         body = r.json()
         self.assertIsInstance(body['amount_cents'], int)
-        self.assertEqual(body['amount_cents'], 5900)
-        self.assertEqual(body['amount'], '$59.00')
+        self.assertEqual(body['amount_cents'], 7040)
+        self.assertEqual(body['amount'], '$70.40')
 
     def test_order_ignores_any_price_the_browser_sends(self):
         """A price/amount/total in the payload must have no effect."""
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
             self._json('/subscription/order/', {
-                'cart': {'email_validation': 25_000},
+                'cart': dict(FULL_CART_AT_MINIMUM, email_validation=25_000),
                 'price': 1, 'amount': 1, 'amount_cents': 1, 'total_cents': 1,
                 'currency': 'INR', 'discount_cents': 5900,
             })
         order = ServiceOrder.objects.get(order_id='order_TEST123')
-        self.assertEqual(order.amount_cents, 5900)   # the real $59
+        self.assertEqual(order.amount_cents, 7040)   # the real total
         self.assertEqual(order.currency, 'USD')
         self.assertEqual(order.discount_cents, 0)
 
@@ -203,9 +230,55 @@ class ServiceCheckoutTests(TestCase):
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
 
+    def test_order_rejects_a_cart_missing_one_service(self):
+        cart = dict(FULL_CART_AT_MINIMUM)
+        del cart['sales_outreach']
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()) as rz:
+            r = self._json('/subscription/order/', {'cart': cart})
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Sales Outreach', r.json()['message'])
+        rz.return_value.order.create.assert_not_called()
+        self.assertFalse(ServiceOrder.objects.exists())
+
+    def test_order_rejects_a_cart_missing_several_services(self):
+        cart = {'email_validation': 25_000, 'sales_outreach': 1}
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()) as rz:
+            r = self._json('/subscription/order/', {'cart': cart})
+        self.assertEqual(r.status_code, 400)
+        message = r.json()['message']
+        for missing in ('Email Marketing', 'Reputation Analysis',
+                       'Email Header Analyzer', 'IP Blocklist Monitor',
+                       'Domain Blocklist Monitor'):
+            self.assertIn(missing, message)
+        rz.return_value.order.create.assert_not_called()
+        self.assertFalse(ServiceOrder.objects.exists())
+
+    def test_order_accepts_a_cart_with_all_seven_services_at_minimum(self):
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': FULL_CART_AT_MINIMUM})
+        self.assertEqual(r.status_code, 200, r.content)
+        order = ServiceOrder.objects.get(order_id='order_TEST123')
+        self.assertEqual(order.amount_cents, FULL_CART_AT_MINIMUM_CENTS)
+        self.assertEqual(order.cart_json, FULL_CART_AT_MINIMUM)
+
+    def test_quote_still_prices_a_partial_cart(self):
+        """Only the checkout gate (subscription_order) requires all 7 —
+        the live quote must keep pricing whatever subset is selected so far,
+        so the running total still updates as the user builds up their cart."""
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 25_000}})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['total_cents'], 5900)
+
     # -- verify --------------------------------------------------------------
 
+
     def _make_order(self, cart, order_id='order_TEST123'):
+        """cart is filled out to include every service (at its minimum) that
+        isn't already present -- subscription_order now requires all 7."""
+        cart = dict(FULL_CART_AT_MINIMUM, **cart)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay(order_id)):
             self._json('/subscription/order/', {'cart': cart})
@@ -250,7 +323,9 @@ class ServiceCheckoutTests(TestCase):
 
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(get_service_balance(self.user.id, 'email_validation'), 25_000)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        # The real (frozen) order's sales_outreach quantity is 1 -- from
+        # _make_order's FULL_CART_AT_MINIMUM fill-in, not the forged "500".
+        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
 
     def test_verify_is_exactly_once_when_replayed(self):
         self._make_order({'email_validation': 25_000})
@@ -271,9 +346,12 @@ class ServiceCheckoutTests(TestCase):
         self.assertTrue(third.json().get('already_processed'))
         self.assertEqual(get_service_balance(self.user.id, 'email_validation'), 25_000)
         self.assertEqual(Payment.objects.filter(order_id='order_TEST123').count(), 1)
+        # One audit-log entry per service in the frozen cart (all 7, from
+        # _make_order's FULL_CART_AT_MINIMUM fill-in) -- exactly once each,
+        # not duplicated by the replayed verify calls.
         self.assertEqual(
             CreditAuditLog.objects.filter(user_id=self.user.id,
-                                          ref_id='order_TEST123').count(), 1)
+                                          ref_id='order_TEST123').count(), 7)
 
     def test_verify_credits_nothing_when_the_signature_fails(self):
         self._make_order({'email_validation': 25_000})
@@ -405,20 +483,26 @@ class MinimumPurchaseEndpointTests(TestCase):
         self.assertFalse(ServiceOrder.objects.exists())
 
     def test_order_accepts_1000_for_a_bulk_service(self):
+        # subscription_order requires all 7 services; the other 6 are filled
+        # in at their own minimum so this test can isolate email_marketing's
+        # own boundary (999 rejected, 1000 accepted — see the two tests
+        # above) without also tripping the all-7-required check.
+        cart = dict(FULL_CART_AT_MINIMUM, email_marketing=1000)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {'email_marketing': 1000}})
+            r = self._json('/subscription/order/', {'cart': cart})
         self.assertEqual(r.status_code, 200, r.content)
         order = ServiceOrder.objects.get()
-        self.assertEqual(order.cart_json, {'email_marketing': 1000})
+        self.assertEqual(order.cart_json, cart)
 
     def test_order_accepts_a_single_account_for_sales_outreach(self):
+        cart = dict(FULL_CART_AT_MINIMUM, sales_outreach=1)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 1}})
+            r = self._json('/subscription/order/', {'cart': cart})
         self.assertEqual(r.status_code, 200, r.content)
         order = ServiceOrder.objects.get()
-        self.assertEqual(order.cart_json, {'sales_outreach': 1})
+        self.assertEqual(order.cart_json, cart)
 
     def test_one_undersized_bulk_line_blocks_a_request_with_other_valid_lines(self):
         """A manipulated request cannot smuggle a below-minimum bulk-service

@@ -459,4 +459,111 @@ class SubscriptionSharesPaygOrderSummaryTests(TestCase):
             js = f.read()
         for stale in ('scModal', 'openModal', 'closeModal', 'modalConfirm', 'modalCancel'):
             self.assertNotIn(stale, js, stale)
-        self.assertIn('openPayConfirm', js)
+        # Calls the "Confirm your purchase" / "Order Summary" popup's own
+        # open function, not the Pay-As-You-Go-only openPayConfirm.
+        self.assertIn('openServiceConfirm', js)
+        self.assertNotIn('openPayConfirm', js)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class AllSevenServicesRequiredUiTests(TestCase):
+    """"Get Started" is only enabled once every one of the 7 services has a
+    quantity at or above its own minimum -- checked in buy_credits.js's
+    incompleteServices()/refreshCta(), enforced for real server-side in
+    subscription_order() (see test_service_checkout.py /
+    AllServicesRequiredTests, test_coupons.py)."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_incomplete_services_gate_shipped_in_buy_credits_js(self):
+        from django.contrib.staticfiles.finders import find
+
+        js_path = find('Email_validate_app/js/buy_credits.js')
+        with open(js_path, encoding='utf-8') as f:
+            js = f.read()
+        self.assertIn('function incompleteServices', js)
+        self.assertIn('Select credits for every service to continue', js)
+        # The old "choose at least one" copy must be gone -- a single
+        # service is no longer sufficient.
+        self.assertNotIn('at least one service', js)
+
+    def test_static_cta_hint_copy_matches_the_all_seven_rule(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('Select credits for every service to continue.', html, url)
+            self.assertNotIn('at least one service', html, url)
+
+    def test_cta_button_starts_disabled_and_cart_gate_uses_all_seven(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="scGetStarted" class="sc-cta" disabled', html, url)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class ServiceConfirmPopupTests(TestCase):
+    """The "Get Started" -> "Confirm your purchase" / "Order Summary"
+    two-column popup: a separate popup from Pay-As-You-Go's own
+    #payConfirmModal (which is untouched), styled consistently with it."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_popup_present_with_two_column_headings_on_both_pages(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="scConfirmModal"', html, url)
+            self.assertIn('pay-confirm-columns', html, url)
+            self.assertIn('pay-confirm-box--wide', html, url)
+            self.assertIn('<h3>Confirm your purchase</h3>', html, url)
+            self.assertIn('id="scConfirmLines"', html, url)
+
+    def test_popup_order_summary_column_has_no_credits_row(self):
+        """The literal requirement: Order Summary shows the usual
+        Name/Email/Order ID/Discount/Total rows, but never a "Credits" or
+        "Plan" row -- that information lives entirely in the "Confirm your
+        purchase" column (scConfirmLines) instead."""
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            start = html.index('id="scConfirmModal"')
+            popup_html = html[start:start + 4000]
+            self.assertIn('id="scPcName"', popup_html, url)
+            self.assertIn('id="scPcEmail"', popup_html, url)
+            self.assertIn('id="scPcOrderId"', popup_html, url)
+            self.assertIn('id="scPcDiscountRow"', popup_html, url)
+            self.assertIn('id="scPcAmount"', popup_html, url)
+            self.assertNotIn('scPcPlan', popup_html, url)
+            self.assertNotIn('>Credits<', popup_html, url)
+            self.assertNotIn('>Plan<', popup_html, url)
+
+    def test_popup_reuses_pay_confirm_css_classes(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            start = html.index('id="scConfirmModal"')
+            popup_html = html[start:start + 4000]
+            for cls in ('pay-confirm-box', 'pay-confirm-icon', 'pay-confirm-sub',
+                       'pay-confirm-rows', 'pay-confirm-actions',
+                       'pay-confirm-cancel', 'pay-confirm-pay', 'pay-confirm-secure'):
+                self.assertIn(cls, popup_html, f"{url}: {cls}")
+
+    def test_two_column_css_rules_exist_and_collapse_on_mobile(self):
+        from django.contrib.staticfiles.finders import find
+
+        css_path = find('Email_validate_app/css/components.css')
+        with open(css_path, encoding='utf-8') as f:
+            css = f.read()
+        self.assertIn('.pay-confirm-columns', css)
+        self.assertIn('.pay-confirm-box--wide', css)
+        self.assertIn('@media (max-width: 560px)', css)
+
+    def test_open_service_confirm_populates_lines_and_summary_without_credits(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('function openServiceConfirm', html, url)
+            self.assertIn('function closeServiceConfirm', html, url)
+            self.assertIn('function proceedToServicePay', html, url)
+            self.assertIn('scConfirmLines', html, url)
+            # PAYG's own popup functions must be completely untouched.
+            self.assertIn('function openPayConfirm', html, url)
+            self.assertIn('function closePayConfirm', html, url)
+            self.assertIn('function proceedToPay', html, url)

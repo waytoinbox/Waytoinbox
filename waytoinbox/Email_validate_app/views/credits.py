@@ -168,6 +168,11 @@ def subscription_order(request):
     Nothing is credited here. The response carries only what Checkout.js needs
     to open; the amount it shows comes from the Razorpay order, which was
     created from the server's own arithmetic.
+
+    Requires all 7 services to be selected (each already validated against
+    its own minimum), not just a nonempty subset — this is the actual gate
+    behind "Get Started", which the frontend also disables client-side for
+    the same reason, but never relies on that alone.
     """
     user_id = get_user_id(request)
     if not user_id:
@@ -187,6 +192,21 @@ def subscription_order(request):
     if not quote.lines:
         return JsonResponse(
             {"status": "error", "message": "Select at least one service to continue."},
+            status=400)
+
+    # Product rule: checkout requires every one of the 7 services to be
+    # selected (each already validated against its own minimum by
+    # quote_cart() above) — not just a nonempty subset. Enforced here, not
+    # in quote_cart() itself, so the live quote (subscription_quote) still
+    # prices a partial cart while the user is still building it up.
+    missing = [s for s in pricing.SERVICE_KEYS
+              if s not in {ln.service for ln in quote.lines}]
+    if missing:
+        missing_labels = ', '.join(pricing.SERVICE_LABELS[s] for s in missing)
+        return JsonResponse(
+            {"status": "error",
+             "message": f"Select credits for every service before continuing. "
+                        f"Missing: {missing_labels}."},
             status=400)
 
     discount_cents, promo_message, coupon = _quote_discount(quote, promo_code, user_id)
@@ -259,11 +279,18 @@ def subscription_order(request):
         "user_name":      user.user_name,
         "user_email":     user.user_email,
         "flow":           "service_credits",
-        # For the shared Order Summary modal (openPayConfirm in the page's
-        # own script, same one Pay-As-You-Go uses): a human-readable line
-        # for the "Credits" row, and a ready-made discount label — the
-        # dollar-off amount, since a coupon's discount is not generally a
-        # clean percentage the way Pay-As-You-Go's plan discounts are.
+        # For the "Confirm your purchase" / "Order Summary" popup
+        # (openServiceConfirm in the page's own script): one line per
+        # selected service for the "Confirm your purchase" column, a
+        # general-purpose human-readable summary string (used elsewhere,
+        # e.g. Payment.credits at verify time), and a ready-made discount
+        # label — the dollar-off amount, since a coupon's discount is not
+        # generally a clean percentage the way Pay-As-You-Go's plan
+        # discounts are.
+        "lines": [
+            {"service": ln.service, "label": ln.label, "quantity": ln.quantity}
+            for ln in quote.lines
+        ],
         "credit":         _credits_summary(frozen_cart),
         "discount_label": f"−${discount_cents / 100:,.2f} off" if discount_cents else '',
     })

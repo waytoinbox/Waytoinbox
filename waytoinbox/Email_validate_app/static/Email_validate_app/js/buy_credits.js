@@ -91,6 +91,24 @@
 
   function cartIsEmpty() { return Object.keys(buildCart()).length === 0; }
 
+  /* Checkout requires every one of the 7 services to be selected, each at
+     or above its own minimum — not just a nonempty subset. Returns one
+     entry per service that still needs attention: { label, needsMore }
+     where needsMore is the target minimum if some (nonzero) quantity has
+     been entered but not enough, or null if nothing has been entered yet.
+     Used both to gate "Get Started" and to name exactly what's missing. */
+  function incompleteServices() {
+    return rows.reduce(function (acc, row) {
+      var key    = row.dataset.service;
+      var minQty = (config[key] && config[key].min_qty) || MIN_QTY_FALLBACK;
+      var qty    = quantities[key] || 0;
+      if (qty >= minQty) { return acc; }
+      var label = (config[key] && config[key].label) || key;
+      acc.push({ label: label, needsMore: qty > 0 ? minQty : null });
+      return acc;
+    }, []);
+  }
+
   /* ── rendering ───────────────────────────────────────── */
 
   function setTotal(cents, loading) {
@@ -126,11 +144,18 @@
   }
 
   function refreshCta() {
-    var empty = cartIsEmpty();
-    ctaEl.disabled = empty || inFlight;
-    ctaHintEl.textContent = empty
-      ? 'Choose a quantity for at least one service to continue.'
-      : '';
+    var incomplete = incompleteServices();
+    ctaEl.disabled = incomplete.length > 0 || inFlight;
+    if (incomplete.length === 0) {
+      ctaHintEl.textContent = '';
+      return;
+    }
+    var names = incomplete.map(function (s) {
+      return s.needsMore === null
+        ? s.label
+        : s.label + ' (increase to ' + s.needsMore.toLocaleString() + ')';
+    });
+    ctaHintEl.textContent = 'Select credits for every service to continue — ' + names.join(', ') + '.';
   }
 
   /* ── quoting ─────────────────────────────────────────── */
@@ -348,15 +373,16 @@
   /* ── checkout ────────────────────────────────────────── */
 
   /* Creates the order server-side (re-validating everything fresh from the
-     live cart — including each service's minimum quantity, which the
-     stepper only clamps client-side as a convenience), then hands off to
-     the SAME "Order Summary" confirmation step and Razorpay flow
-     Pay-As-You-Go uses: openPayConfirm() / proceedToPay() / openRazorpay()
-     are defined once in this page's own inline script (shared by both
-     flows) rather than reimplemented here. A rejected order (e.g. below a
-     service's minimum, or the $1 order floor) never reaches that step —
-     the server's exact message is shown inline instead, and no payment can
-     start. */
+     live cart — including that all 7 services are present and each meets
+     its own minimum, which the stepper only clamps client-side as a
+     convenience), then hands off to the "Confirm your purchase" / "Order
+     Summary" popup: openServiceConfirm() / closeServiceConfirm() /
+     proceedToServicePay() are defined once in this page's own inline
+     script, styled consistently with (but a separate popup from)
+     Pay-As-You-Go's own Order Summary modal. A rejected order (e.g. a
+     service still below its minimum, or one not selected at all) never
+     reaches that step — the server's exact message is shown inline
+     instead, and no payment can start. */
   function createOrder() {
     inFlight = true;
     ctaEl.disabled = true;
@@ -387,7 +413,7 @@
           return;
         }
 
-        window.openPayConfirm(r.data);
+        window.openServiceConfirm(r.data);
       })
       .catch(function () {
         inFlight = false;
@@ -398,7 +424,7 @@
 
   if (ctaEl) {
     ctaEl.addEventListener('click', function () {
-      if (cartIsEmpty() || inFlight) { return; }
+      if (incompleteServices().length > 0 || inFlight) { refreshCta(); return; }
       if (lastQuote) { createOrder(); return; }
 
       // Either the user beat the debounce or the last quote failed. Re-quote

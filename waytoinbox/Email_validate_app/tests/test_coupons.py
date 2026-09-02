@@ -54,6 +54,21 @@ def fake_razorpay(order_id='order_TEST123', raise_signature=False):
     return client
 
 
+# subscription_order() now requires all 7 services to be present (each at or
+# above its own minimum) -- not just a nonempty subset. Same fixture as
+# test_service_checkout.py: every service at exactly its minimum quantity,
+# totalling 1530 cents.
+FULL_CART_AT_MINIMUM = {
+    'email_validation': 1000,
+    'email_marketing':  1000,
+    'sales_outreach':   1,
+    'reputation':        1,
+    'header_analysis':   1,
+    'ip_blocklist':      1,
+    'domain_blocklist':  1,
+}
+
+
 # ── validate_coupon ───────────────────────────────────────────────────────────
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
@@ -248,6 +263,9 @@ class CouponCheckoutTests(TestCase):
                                 content_type='application/json')
 
     def _order(self, cart, promo='', order_id='order_TEST123'):
+        """cart is filled out to include every service (at its minimum) that
+        isn't already present -- subscription_order now requires all 7."""
+        cart = dict(FULL_CART_AT_MINIMUM, **cart)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay(order_id)) as rz:
             r = self._json('/subscription/order/',
@@ -298,25 +316,28 @@ class CouponCheckoutTests(TestCase):
     # -- order --------------------------------------------------------------
 
     def test_order_charges_the_discounted_amount(self):
+        # Full 7-service cart (email_validation overridden to 25,000, the
+        # other 6 filled in at their minimum by _order()): subtotal is
+        # 7040 cents ($70.40), 20% off is 1408 cents ($14.08).
         make_coupon('SAVE20')
         r, rz = self._order({'email_validation': 25_000}, promo='SAVE20')
         self.assertEqual(r.status_code, 200, r.content)
 
         sent = rz.return_value.order.create.call_args.kwargs['data']
-        self.assertEqual(sent['amount'], 4720)          # $59 less 20%
+        self.assertEqual(sent['amount'], 5632)
         self.assertIsInstance(sent['amount'], int)
 
         order = ServiceOrder.objects.get(order_id='order_TEST123')
-        self.assertEqual(order.subtotal_cents, 5900)
-        self.assertEqual(order.discount_cents, 1180)
-        self.assertEqual(order.amount_cents, 4720)
+        self.assertEqual(order.subtotal_cents, 7040)
+        self.assertEqual(order.discount_cents, 1408)
+        self.assertEqual(order.amount_cents, 5632)
         self.assertEqual(order.promo_code, 'SAVE20')
         self.assertEqual(order.coupon.code, 'SAVE20')
 
-        # The shared Order Summary modal shows this verbatim as the
-        # discount row -- a dollar-off label, since a coupon's discount
-        # isn't generally a clean percentage.
-        self.assertEqual(r.json()['discount_label'], '−$11.80 off')
+        # The "Confirm your purchase" / "Order Summary" popup shows this
+        # verbatim as the discount row -- a dollar-off label, since a
+        # coupon's discount isn't generally a clean percentage.
+        self.assertEqual(r.json()['discount_label'], '−$14.08 off')
 
     def test_order_does_not_increment_used_count(self):
         coupon = make_coupon('SAVE20')
@@ -350,7 +371,7 @@ class CouponCheckoutTests(TestCase):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
             self._json('/subscription/order/', {
-                'cart': {'email_validation': 25_000},
+                'cart': dict(FULL_CART_AT_MINIMUM, email_validation=25_000),
                 'promo_code': 'SAVE20',
                 # all lies
                 'discount_cents': 5800, 'discount': 58.00,
@@ -358,10 +379,10 @@ class CouponCheckoutTests(TestCase):
                 'price': 1, 'amount': 1,
             })
         order = ServiceOrder.objects.get(order_id='order_TEST123')
-        self.assertEqual(order.discount_cents, 1180)    # the real 20%
-        self.assertEqual(order.amount_cents, 4720)
-        self.assertEqual(order.subtotal_cents, 5900)
-        self.assertEqual(rz.return_value.order.create.call_args.kwargs['data']['amount'], 4720)
+        self.assertEqual(order.discount_cents, 1408)    # the real 20%
+        self.assertEqual(order.amount_cents, 5632)
+        self.assertEqual(order.subtotal_cents, 7040)
+        self.assertEqual(rz.return_value.order.create.call_args.kwargs['data']['amount'], 5632)
 
     def test_order_cannot_be_given_a_coupon_it_did_not_validate(self):
         """Passing a coupon id/object directly must have no effect — only the
@@ -371,14 +392,14 @@ class CouponCheckoutTests(TestCase):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
             r = self._json('/subscription/order/', {
-                'cart': {'email_validation': 25_000},
+                'cart': dict(FULL_CART_AT_MINIMUM, email_validation=25_000),
                 'coupon': other.pk, 'coupon_id': other.pk,
                 'discount_cents': 5310,
             })
         order = ServiceOrder.objects.get(order_id='order_TEST123')
         self.assertIsNone(order.coupon)
         self.assertEqual(order.discount_cents, 0)
-        self.assertEqual(order.amount_cents, 5900)
+        self.assertEqual(order.amount_cents, 7040)
 
     # -- verify -------------------------------------------------------------
 
@@ -394,7 +415,7 @@ class CouponCheckoutTests(TestCase):
         redemption = CouponRedemption.objects.get()
         self.assertEqual(redemption.coupon_id, coupon.pk)
         self.assertEqual(redemption.user_id, self.user.id)
-        self.assertEqual(redemption.discount_applied, Decimal('11.80'))
+        self.assertEqual(redemption.discount_applied, Decimal('14.08'))
         self.assertEqual(redemption.payment.order_id, 'order_TEST123')
 
         # And the purchase itself completed normally.
@@ -448,7 +469,7 @@ class CouponCheckoutTests(TestCase):
             })
 
         redemption = CouponRedemption.objects.get()
-        self.assertEqual(redemption.discount_applied, Decimal('11.80'))
+        self.assertEqual(redemption.discount_applied, Decimal('14.08'))
         self.assertEqual(redemption.coupon_id, coupon.pk)
         self.assertEqual(get_service_balance(self.user.id, 'email_validation'), 25_000)
 
@@ -465,8 +486,8 @@ class CouponCheckoutTests(TestCase):
 
         payment = Payment.objects.get(order_id='order_TEST123')
         self.assertEqual(payment.promo_code, 'SAVE20')
-        self.assertEqual(payment.discount_amount, Decimal('11.80'))
-        self.assertEqual(payment.coupon_redemption.discount_applied, Decimal('11.80'))
+        self.assertEqual(payment.discount_amount, Decimal('14.08'))
+        self.assertEqual(payment.coupon_redemption.discount_applied, Decimal('14.08'))
 
     def test_per_user_limit_blocks_the_second_order(self):
         make_coupon('ONCE', per_user_limit=1)

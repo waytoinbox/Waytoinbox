@@ -926,6 +926,27 @@
 .pay-confirm-pay:hover { background: var(--teal-dk); }
 .pay-confirm-secure { font-size: 11.5px; color: var(--ink-3); text-align: center; }
 
+/* ── SERVICE-CREDIT CONFIRMATION POPUP (two columns) ──
+   Subscription's "Get Started" -> "Confirm your purchase" / "Order
+   Summary" popup. A separate modal from #payConfirmModal (Pay-As-You-Go's
+   own "Buy Now" flow is untouched), but reuses every .pay-confirm-* class
+   above for the shell/rows/buttons so spacing and design stay identical —
+   only the two-column grid itself is new. */
+.pay-confirm-box--wide { max-width: 640px; }
+.pay-confirm-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.pay-confirm-col + .pay-confirm-col {
+  border-left: 1px solid var(--border);
+  padding-left: 28px;
+}
+@media (max-width: 560px) {
+  .pay-confirm-box--wide { max-width: 440px; }
+  .pay-confirm-columns { grid-template-columns: 1fr; gap: 20px; }
+  .pay-confirm-col + .pay-confirm-col {
+    border-left: none; padding-left: 0;
+    border-top: 1px solid var(--border); padding-top: 20px;
+  }
+}
+
 /* ── RECEIPTS ────────────────────────────────────────── */
 .receipt-page { display: flex; flex-direction: column; gap: 24px; }
 .receipt-card { background: #fff; border: 1.5px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; box-shadow: var(--shadow-sm); }

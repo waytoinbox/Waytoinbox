@@ -242,14 +242,15 @@
 
           <!-- ── GET STARTED ─────────────────────────────────── -->
           <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
-          <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
+          <p id="scCtaHint" class="sc-cta-hint">Select credits for every service to continue.</p>
         </div>
       </div>
 
     </div><!-- /.payg-wrap -->
-    <!-- Confirmation step is the shared "Order Summary" modal
-         (#payConfirmModal, below the footer) -- same one Pay-As-You-Go
-         uses, opened by buy_credits.js via openPayConfirm(). -->
+    <!-- Confirmation step is the "Confirm your purchase" / "Order Summary"
+         popup (#scConfirmModal, below the footer), styled consistently
+         with (but separate from) Pay-As-You-Go's own #payConfirmModal.
+         Opened by buy_credits.js via openServiceConfirm(). -->
 
   </div>
 </div>
@@ -499,6 +500,69 @@ function proceedToPay() {
 document.getElementById('payConfirmModal').addEventListener('click', function(e) {
   if (e.target === this) closePayConfirm();
 });
+
+/* ── Service-credit "Confirm your purchase" / "Order Summary" popup ──
+   A separate popup from the one above -- Pay-As-You-Go's own "Buy Now"
+   flow (openPayConfirm/closePayConfirm/proceedToPay) is untouched. Column 1
+   lists what's being bought (subscription_order's `lines`); column 2 is the
+   same account/total shape as Pay-As-You-Go's Order Summary, minus the
+   "Credits" row -- that information now lives entirely in column 1. */
+function openServiceConfirm(order) {
+  _pendingOrder = order;
+
+  var linesEl = document.getElementById('scConfirmLines');
+  linesEl.innerHTML = '';
+  (order.lines || []).forEach(function (line) {
+    var row = document.createElement('div');
+    row.className = 'pay-confirm-row';
+    var label = document.createElement('span');
+    label.className = 'pay-confirm-label';
+    label.textContent = line.label;
+    var val = document.createElement('span');
+    val.className = 'pay-confirm-val';
+    val.textContent = Number(line.quantity).toLocaleString();
+    row.appendChild(label);
+    row.appendChild(val);
+    linesEl.appendChild(row);
+  });
+
+  document.getElementById('scPcName').textContent    = order.user_name  || '—';
+  document.getElementById('scPcEmail').textContent   = order.user_email || '—';
+  document.getElementById('scPcOrderId').textContent = order.order_id   || '—';
+
+  var discRow = document.getElementById('scPcDiscountRow');
+  if (order.discount_label) {
+    document.getElementById('scPcDiscount').textContent = order.discount_label;
+    discRow.style.display = '';
+  } else {
+    discRow.style.display = 'none';
+  }
+
+  // amount_cents is always a genuine integer; order.amount is a
+  // pre-formatted display string ("$59.00") for this flow.
+  var amountCents = (order.amount_cents !== undefined && order.amount_cents !== null)
+    ? order.amount_cents : order.amount;
+  document.getElementById('scPcAmount').textContent =
+    '$' + (amountCents / 100).toFixed(2) + ' ' + (order.currency || 'USD');
+
+  document.getElementById('scConfirmModal').classList.add('show');
+}
+
+function closeServiceConfirm() {
+  document.getElementById('scConfirmModal').classList.remove('show');
+  _pendingOrder = null;
+}
+
+function proceedToServicePay() {
+  var order = _pendingOrder;
+  if (!order) return;
+  closeServiceConfirm();
+  openRazorpay(order);
+}
+
+document.getElementById('scConfirmModal').addEventListener('click', function(e) {
+  if (e.target === this) closeServiceConfirm();
+});
 </script>
 
 <!-- ── PAYMENT CONFIRMATION MODAL ───────────────────── -->
@@ -537,6 +601,55 @@ document.getElementById('payConfirmModal').addEventListener('click', function(e)
     <div class="pay-confirm-actions">
       <button class="pay-confirm-cancel" onclick="closePayConfirm()">Cancel</button>
       <button class="pay-confirm-pay" onclick="proceedToPay()">&#128274; Proceed to Pay</button>
+    </div>
+    <p class="pay-confirm-secure">Secured by Razorpay &middot; 256-bit SSL encryption</p>
+  </div>
+</div>
+
+<!-- ── SERVICE-CREDIT CONFIRM / ORDER SUMMARY POPUP ──── -->
+<!-- Subscription's "Get Started" step. Reuses the same .pay-confirm-*
+     classes as the modal above for identical styling/spacing; only the
+     two-column layout (.pay-confirm-columns) is new. -->
+<div class="pay-confirm-modal" id="scConfirmModal">
+  <div class="pay-confirm-box pay-confirm-box--wide">
+    <button class="pay-confirm-close" onclick="closeServiceConfirm()">&#10005;</button>
+    <div class="pay-confirm-icon">&#128274;</div>
+    <div class="pay-confirm-columns">
+      <div class="pay-confirm-col">
+        <h3>Confirm your purchase</h3>
+        <p class="pay-confirm-sub">Review the credits you're about to buy.</p>
+        <div class="pay-confirm-rows" id="scConfirmLines"></div>
+      </div>
+      <div class="pay-confirm-col">
+        <h3>Order Summary</h3>
+        <p class="pay-confirm-sub">Review your order before proceeding to payment.</p>
+        <div class="pay-confirm-rows">
+          <div class="pay-confirm-row">
+            <span class="pay-confirm-label">Name</span>
+            <span class="pay-confirm-val" id="scPcName"></span>
+          </div>
+          <div class="pay-confirm-row">
+            <span class="pay-confirm-label">Email</span>
+            <span class="pay-confirm-val" id="scPcEmail"></span>
+          </div>
+          <div class="pay-confirm-row">
+            <span class="pay-confirm-label">Order ID</span>
+            <span class="pay-confirm-val pay-confirm-mono" id="scPcOrderId"></span>
+          </div>
+          <div class="pay-confirm-row" id="scPcDiscountRow" style="display:none">
+            <span class="pay-confirm-label">Discount</span>
+            <span class="pay-confirm-val" style="color:#007A5E;font-weight:700" id="scPcDiscount"></span>
+          </div>
+          <div class="pay-confirm-row pay-confirm-row--total">
+            <span class="pay-confirm-label">Total</span>
+            <span class="pay-confirm-val" id="scPcAmount"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="pay-confirm-actions">
+      <button class="pay-confirm-cancel" onclick="closeServiceConfirm()">Cancel</button>
+      <button class="pay-confirm-pay" onclick="proceedToServicePay()">&#128274; Proceed to Pay</button>
     </div>
     <p class="pay-confirm-secure">Secured by Razorpay &middot; 256-bit SSL encryption</p>
   </div>
