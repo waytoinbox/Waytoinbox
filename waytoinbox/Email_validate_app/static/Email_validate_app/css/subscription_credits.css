@@ -43,6 +43,16 @@
 }
 
 /* ── Total ────────────────────────────────────────────── */
+/* Wraps #scTotal and its "/mo" label so they sit side by side. The label is
+   a sibling, not a child of #scTotal — buy_credits.js replaces #scTotal's
+   entire textContent on every price update, which would wipe out anything
+   nested inside it. */
+.sc-total-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 4px;
+}
 .sc-total {
   font-family: var(--font-head);
   font-size: clamp(38px, 9vw, 54px);
@@ -54,6 +64,12 @@
   transition: opacity .18s ease;
 }
 .sc-total.is-loading { opacity: .45; }
+.sc-total-period {
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
 
 /* Subtotal / discount breakdown. Present only when the server returns a
    discount, so a full-price cart still shows a single clean number. */

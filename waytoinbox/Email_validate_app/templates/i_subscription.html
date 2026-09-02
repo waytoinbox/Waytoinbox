@@ -215,16 +215,19 @@
         <div class="sc-card-head">
           <p class="sc-eyebrow">Your total</p>
 
-          <div id="scTotal"
-               class="sc-total"
-               role="status"
-               aria-live="polite"
-               aria-atomic="true"
-               aria-label="Order total"
-               data-quote-url="{% url 'subscription_quote' %}"
-               data-order-url="{% url 'subscription_order' %}"
-               data-verify-url="{% url 'subscription_verify' %}"
-               data-self-url="{% url 'subscription' %}#subscription">$0.00</div>
+          <div class="sc-total-row">
+            <div id="scTotal"
+                 class="sc-total"
+                 role="status"
+                 aria-live="polite"
+                 aria-atomic="true"
+                 aria-label="Order total"
+                 data-quote-url="{% url 'subscription_quote' %}"
+                 data-order-url="{% url 'subscription_order' %}"
+                 data-verify-url="{% url 'subscription_verify' %}"
+                 data-self-url="{% url 'subscription' %}#subscription">$0.00</div>
+            <span class="sc-total-period">/mo</span>
+          </div>
 
           <p id="scBreakdown" class="sc-breakdown" hidden></p>
           <p id="scTotalNote" class="sc-total-note"></p>

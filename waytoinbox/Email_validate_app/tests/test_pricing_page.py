@@ -275,3 +275,40 @@ class SubscriptionStickyTotalTests(TestCase):
         # to one column (layout-nav-hero.css), so mobile scrolls normally.
         self.assertIn('@media (max-width: 860px)', css)
         self.assertIn('.sc-summary-card { position: static; }', css)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class SubscriptionTotalPeriodLabelTests(TestCase):
+    """The small "/mo" label beside the total, on both pages. It must be a
+    sibling of #scTotal, never nested inside it — buy_credits.js replaces
+    #scTotal's entire textContent on every price update
+    (setTotal: totalEl.textContent = money(cents)), which would silently
+    delete anything nested inside it on the very first quote response."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_period_label_present_on_both_pages(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('class="sc-total-period"', html, url)
+            self.assertIn('>/mo<', html, url)
+
+    def test_period_label_is_a_sibling_of_sctotal_not_nested_inside_it(self):
+        import re
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            # #scTotal's own element must close (</div>) before the "/mo"
+            # span opens -- i.e. sc-total-period is not inside its tag.
+            m = re.search(r'<div id="scTotal".*?</div>\s*<span class="sc-total-period">/mo</span>',
+                          html, re.S)
+            self.assertIsNotNone(m, f"{url}: /mo label must follow #scTotal's closing tag, not be nested inside it")
+
+    def test_period_label_css_rule_exists(self):
+        from django.contrib.staticfiles.finders import find
+
+        css_path = find('Email_validate_app/css/subscription_credits.css')
+        with open(css_path, encoding='utf-8') as f:
+            css = f.read()
+        self.assertIn('.sc-total-row', css)
+        self.assertIn('.sc-total-period', css)
