@@ -110,68 +110,23 @@
 </div>
 
 <!-- ── SUBSCRIPTION PANEL ─────────────────────────────────── -->
-<!-- Service-credit purchase card. Same markup/behaviour as i_subscription.html
+<!-- Service-credit purchase cards. Same markup/behaviour as i_subscription.html
      (buy_credits.js + subscription_credits.css), embedded here in place of
-     the old Classic/Standard/Advanced plan cards. i_subscription.html itself
+     the old Classic/Standard/Advanced plan cards, in a two-column layout that
+     reuses the PAYG section's own .payg-wrap/.payg-card classes so spacing,
+     padding, gaps and card styling match exactly. i_subscription.html itself
      is untouched and still renders standalone at /subscription/. -->
 <div class="pricing-panel active" id="panel-subscription">
   <div class="container">
 
     {{ pricing_config|json_script:"sc-pricing-config" }}
 
-    <div class="sc-page">
-      <div class="sc-card">
+    <div class="payg-wrap">
 
-        <!-- ── TOTAL ─────────────────────────────────────────── -->
-        <div class="sc-card-head">
-          <p class="sc-eyebrow">Your total</p>
-
-          <div id="scTotal"
-               class="sc-total"
-               role="status"
-               aria-live="polite"
-               aria-atomic="true"
-               aria-label="Order total"
-               data-quote-url="{% url 'subscription_quote' %}"
-               data-order-url="{% url 'subscription_order' %}"
-               data-verify-url="{% url 'subscription_verify' %}"
-               data-self-url="{% url 'pricing' %}#subscription">$0.00</div>
-
-          <p id="scBreakdown" class="sc-breakdown" hidden></p>
-          <p id="scTotalNote" class="sc-total-note"></p>
-
-          <!-- ── PROMO ───────────────────────────────────────── -->
-          <div class="sc-promo">
-            <button type="button"
-                    id="scPromoToggle"
-                    class="sc-promo-toggle"
-                    aria-expanded="false"
-                    aria-controls="scPromoPanel">Have a promo code?</button>
-
-            <div id="scPromoPanel" class="sc-promo-panel" hidden>
-              <input type="text"
-                     id="scPromoInput"
-                     class="sc-promo-input"
-                     placeholder="Enter promo code"
-                     autocomplete="off"
-                     spellcheck="false"
-                     maxlength="50"
-                     aria-label="Promo code"/>
-              <button type="button" id="scPromoApply" class="sc-promo-apply">Apply</button>
-            </div>
-
-            <p id="scPromoMsg" class="sc-promo-msg" role="status" aria-live="polite"></p>
-          </div>
-
-          <!-- ── GET STARTED ─────────────────────────────────── -->
-          <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
-          <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
-        </div>
-
-        <hr class="sc-divider"/>
-
-        <!-- ── SERVICE QUANTITY ROWS ─────────────────────────── -->
-        <p class="sc-rows-label">Choose your credits</p>
+      <!-- ── LEFT: choose your credits ────────────────────── -->
+      <div class="payg-card">
+        <h2>Choose your credits</h2>
+        <p>Pick a quantity for each service you want to add.</p>
 
         <div class="sc-rows">
           {% for service in services %}
@@ -238,9 +193,57 @@
           Credits you buy here never expire.
         </div>
         {% endif %}
-
       </div>
-    </div><!-- /.sc-page -->
+
+      <!-- ── RIGHT: total / promo / checkout ──────────────── -->
+      <div class="payg-card">
+        <div class="sc-card-head">
+          <p class="sc-eyebrow">Your total</p>
+
+          <div id="scTotal"
+               class="sc-total"
+               role="status"
+               aria-live="polite"
+               aria-atomic="true"
+               aria-label="Order total"
+               data-quote-url="{% url 'subscription_quote' %}"
+               data-order-url="{% url 'subscription_order' %}"
+               data-verify-url="{% url 'subscription_verify' %}"
+               data-self-url="{% url 'pricing' %}#subscription">$0.00</div>
+
+          <p id="scBreakdown" class="sc-breakdown" hidden></p>
+          <p id="scTotalNote" class="sc-total-note"></p>
+
+          <!-- ── PROMO ───────────────────────────────────────── -->
+          <div class="sc-promo">
+            <button type="button"
+                    id="scPromoToggle"
+                    class="sc-promo-toggle"
+                    aria-expanded="false"
+                    aria-controls="scPromoPanel">Have a promo code?</button>
+
+            <div id="scPromoPanel" class="sc-promo-panel" hidden>
+              <input type="text"
+                     id="scPromoInput"
+                     class="sc-promo-input"
+                     placeholder="Enter promo code"
+                     autocomplete="off"
+                     spellcheck="false"
+                     maxlength="50"
+                     aria-label="Promo code"/>
+              <button type="button" id="scPromoApply" class="sc-promo-apply">Apply</button>
+            </div>
+
+            <p id="scPromoMsg" class="sc-promo-msg" role="status" aria-live="polite"></p>
+          </div>
+
+          <!-- ── GET STARTED ─────────────────────────────────── -->
+          <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
+          <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
+        </div>
+      </div>
+
+    </div><!-- /.payg-wrap -->
 
     <!-- ── CONFIRMATION MODAL ──────────────────────────────── -->
     <div class="sc-modal" id="scModal" role="dialog" aria-modal="true" aria-labelledby="scModalTitle">

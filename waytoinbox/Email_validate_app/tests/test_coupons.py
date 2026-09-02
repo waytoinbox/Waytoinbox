@@ -328,13 +328,14 @@ class CouponCheckoutTests(TestCase):
         self.assertFalse(ServiceOrder.objects.exists())
 
     def test_coupon_cannot_bypass_the_minimum_credit_quantity(self):
-        """A 100%-off coupon still cannot make a sub-250 quantity purchasable
-        -- the floor is on the quantity, checked in quote_cart() before any
-        discount is even looked at, so no discount can waive it."""
+        """A 100%-off coupon still cannot make a below-minimum quantity
+        purchasable -- the floor is on the quantity, checked in quote_cart()
+        before any discount is even looked at, so no discount can waive it.
+        Email Validation's minimum is 1,000; 249 is well below it."""
         make_coupon('FREE100', discount_type='percentage', discount_value=Decimal('100'))
-        r, rz = self._order({'sales_outreach': 249}, promo='FREE100')
+        r, rz = self._order({'email_validation': 249}, promo='FREE100')
         self.assertEqual(r.status_code, 400)
-        self.assertIn('250', r.json()['message'])
+        self.assertIn('1,000', r.json()['message'])
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
 

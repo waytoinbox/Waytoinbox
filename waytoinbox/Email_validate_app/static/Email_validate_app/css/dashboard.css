@@ -238,6 +238,14 @@ body { background: var(--bg-2); overflow-x: hidden; }
 .sidebar.collapsed ~ .dash-main { margin-left: 64px; }
 .main-content { padding: calc(var(--nav-h) + 32px) 32px 48px; }
 
+/* ── NO-SIDEBAR PAGE VARIANT ─────────────────────────────
+   Opt-in via body.no-sidebar (set through i_index.html's body_class block).
+   The sidebar element stays in the DOM — its own JS keeps working — it is
+   just hidden, and the content area reclaims the space it would have taken. */
+body.no-sidebar .sidebar   { display: none; }
+body.no-sidebar .dash-main { margin-left: 0; }
+body.no-sidebar .topbar    { left: 0; }
+
 /* ── MOBILE OVERLAY ──────────────────────────────────── */
 .sidebar-overlay {
   display: none; position: fixed; inset: 0;

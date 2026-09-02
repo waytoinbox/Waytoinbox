@@ -291,10 +291,14 @@ class ServiceCheckoutTests(TestCase):
     RAZORPAY_KEY_ID='rzp_test_key', RAZORPAY_KEY_SECRET='rzp_test_secret',
 )
 class MinimumPurchaseEndpointTests(TestCase):
-    """The 250-credit floor as seen by an actual (mocked) browser request —
-    not just the pricing.quote_cart() unit tests. A request forged to carry
-    249 must be rejected identically to one built by a tampered client, since
-    quote/order never trust anything but the quantities themselves."""
+    """The per-service credit floor as seen by an actual (mocked) browser
+    request — not just the pricing.quote_cart() unit tests. A request forged
+    to carry a below-minimum quantity for a bulk service (Email Validation /
+    Email Marketing, 1,000 minimum) must be rejected identically to one built
+    by a tampered client, since quote/order never trust anything but the
+    quantities themselves. The five per-unit services (Sales Outreach and the
+    four analysis/monitoring services) have a minimum of 1, so any positive
+    quantity is valid for them."""
 
     def setUp(self):
         self.user = make_user('minqty@example.com')
@@ -307,43 +311,57 @@ class MinimumPurchaseEndpointTests(TestCase):
         return self.client.post(url, data=json.dumps(payload),
                                 content_type='application/json')
 
-    def test_quote_rejects_249(self):
-        r = self._json('/subscription/quote/', {'cart': {'email_validation': 249}})
+    def test_quote_rejects_999_for_a_bulk_service(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 999}})
         self.assertEqual(r.status_code, 400)
-        self.assertIn('250', r.json()['message'])
+        self.assertIn('1,000', r.json()['message'])
 
-    def test_quote_accepts_250(self):
-        r = self._json('/subscription/quote/', {'cart': {'email_validation': 250}})
+    def test_quote_accepts_1000(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 1000}})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['status'], 'ok')
 
-    def test_quote_accepts_251(self):
-        r = self._json('/subscription/quote/', {'cart': {'email_validation': 251}})
+    def test_quote_accepts_1001(self):
+        r = self._json('/subscription/quote/', {'cart': {'email_validation': 1001}})
         self.assertEqual(r.status_code, 200)
 
-    def test_order_rejects_249_and_creates_nothing(self):
+    def test_quote_accepts_a_single_unit_for_per_unit_services(self):
+        for service in ('sales_outreach', 'reputation', 'header_analysis',
+                        'ip_blocklist', 'domain_blocklist'):
+            r = self._json('/subscription/quote/', {'cart': {service: 1}})
+            self.assertEqual(r.status_code, 200, service)
+
+    def test_order_rejects_999_for_a_bulk_service_and_creates_nothing(self):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
-            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 249}})
+            r = self._json('/subscription/order/', {'cart': {'email_marketing': 999}})
         self.assertEqual(r.status_code, 400)
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
 
-    def test_order_accepts_250(self):
+    def test_order_accepts_1000_for_a_bulk_service(self):
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):
-            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 250}})
+            r = self._json('/subscription/order/', {'cart': {'email_marketing': 1000}})
         self.assertEqual(r.status_code, 200, r.content)
         order = ServiceOrder.objects.get()
-        self.assertEqual(order.cart_json, {'sales_outreach': 250})
+        self.assertEqual(order.cart_json, {'email_marketing': 1000})
 
-    def test_one_undersized_line_blocks_a_request_with_other_valid_lines(self):
-        """A manipulated request cannot smuggle a sub-250 line through by
-        pairing it with a legitimately large one."""
+    def test_order_accepts_a_single_account_for_sales_outreach(self):
+        with patch('Email_validate_app.views.credits._razorpay_client',
+                   return_value=fake_razorpay()):
+            r = self._json('/subscription/order/', {'cart': {'sales_outreach': 1}})
+        self.assertEqual(r.status_code, 200, r.content)
+        order = ServiceOrder.objects.get()
+        self.assertEqual(order.cart_json, {'sales_outreach': 1})
+
+    def test_one_undersized_bulk_line_blocks_a_request_with_other_valid_lines(self):
+        """A manipulated request cannot smuggle a below-minimum bulk-service
+        line through by pairing it with a legitimately sized one."""
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
             r = self._json('/subscription/order/', {'cart': {
-                'email_validation': 100_000, 'reputation': 10}})
+                'sales_outreach': 5, 'email_marketing': 10}})
         self.assertEqual(r.status_code, 400)
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
@@ -354,7 +372,7 @@ class MinimumPurchaseEndpointTests(TestCase):
         used to POST directly) — the server must still hold the line."""
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()) as rz:
-            r = self._json('/subscription/order/', {'cart': {'email_marketing': 1}})
+            r = self._json('/subscription/order/', {'cart': {'email_validation': 1}})
         self.assertEqual(r.status_code, 400)
-        self.assertIn('250', r.json()['message'])
+        self.assertIn('1,000', r.json()['message'])
         rz.return_value.order.create.assert_not_called()

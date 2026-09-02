@@ -2,7 +2,7 @@
 {% load static %}
 
 {% comment %}
-  Service-credit purchase card.
+  Service-credit purchase cards, standalone page.
 
   Replaces the Classic / Standard / Advanced plan cards that used to live here.
   Only the customer-facing purchase UI changed: SubsPayment, create_subscription,
@@ -17,7 +17,14 @@
     2. Legacy Analysis Credits are rendered ONCE, as a single shared figure.
        That balance is one pool drawn on by four services, so showing it on
        four rows would tell a user with 100 AC that they have 400.
+
+  Styled to match i_pricing.html's page chrome exactly (notice bar, hero,
+  two-column card layout reusing .payg-wrap/.payg-card, footer) so this reads
+  as the same page family, minus the sidebar (body_class below) and minus the
+  Pay-As-You-Go tab, since there is nothing to toggle to here.
 {% endcomment %}
+
+{% block body_class %}no-sidebar{% endblock %}
 
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/subscription_credits.css' %}"/>
@@ -28,125 +35,146 @@
 
 {{ pricing_config|json_script:"sc-pricing-config" }}
 
-<div class="sc-page">
-  <div class="sc-card">
+<!-- ── NOTICE BAR ──────────────────────────────────────── -->
+<div class="notice-bar" style="margin-top:0">
+  <p>🎉 Every verification gives you a clear result — valid, invalid, or risky. No guesswork, just clean data.</p>
+</div>
 
-    <!-- ── TOTAL ─────────────────────────────────────────── -->
-    <div class="sc-card-head">
-      <p class="sc-eyebrow">Your total</p>
+<!-- ── HERO ─────────────────────────────────────────────── -->
+<div class="pricing-hero">
+  <div class="container">
+    <div class="section-label">Pricing</div>
+    <h1>Simple, transparent pricing</h1>
+    <p>Only pay for what you use. No hidden fees, no surprises — transparent credit-based pricing.</p>
+  </div>
+</div>
 
-      <div id="scTotal"
-           class="sc-total"
-           role="status"
-           aria-live="polite"
-           aria-atomic="true"
-           aria-label="Order total"
-           data-quote-url="{% url 'subscription_quote' %}"
-           data-order-url="{% url 'subscription_order' %}"
-           data-verify-url="{% url 'subscription_verify' %}"
-           data-self-url="{% url 'subscription' %}">$0.00</div>
+<div class="pricing-panel active">
+  <div class="container">
 
-      <p id="scBreakdown" class="sc-breakdown" hidden></p>
-      <p id="scTotalNote" class="sc-total-note"></p>
+    <div class="payg-wrap">
 
-      <!-- ── PROMO ───────────────────────────────────────── -->
-      <div class="sc-promo">
-        <button type="button"
-                id="scPromoToggle"
-                class="sc-promo-toggle"
-                aria-expanded="false"
-                aria-controls="scPromoPanel">Have a promo code?</button>
+      <!-- ── LEFT: choose your credits ────────────────────── -->
+      <div class="payg-card">
+        <h2>Choose your credits</h2>
+        <p>Pick a quantity for each service you want to add.</p>
 
-        <div id="scPromoPanel" class="sc-promo-panel" hidden>
-          <input type="text"
-                 id="scPromoInput"
-                 class="sc-promo-input"
-                 placeholder="Enter promo code"
-                 autocomplete="off"
-                 spellcheck="false"
-                 maxlength="50"
-                 aria-label="Promo code"/>
-          <button type="button" id="scPromoApply" class="sc-promo-apply">Apply</button>
+        <div class="sc-rows">
+          {% for service in services %}
+          <div class="sc-row" data-service="{{ service.key }}">
+            <input type="text"
+                   class="sc-qty"
+                   inputmode="numeric"
+                   autocomplete="off"
+                   value="0"
+                   aria-label="{{ service.label }} quantity"/>
+
+            <span class="sc-name">
+              {{ service.label }}
+              {% if service.balance %}
+                <span class="sc-balance">{{ service.balance|floatformat:0 }} available</span>
+              {% endif %}
+              <span class="sc-min-hint">{{ service.min_qty|floatformat:0 }} minimum</span>
+            </span>
+
+            <span class="sc-arrows">
+              <button type="button"
+                      class="sc-up"
+                      aria-label="Increase {{ service.label }} by one"><i class="fas fa-caret-up" aria-hidden="true"></i></button>
+              <button type="button"
+                      class="sc-down"
+                      aria-label="Decrease {{ service.label }} by one"
+                      disabled><i class="fas fa-caret-down" aria-hidden="true"></i></button>
+            </span>
+          </div>
+          {% endfor %}
         </div>
 
-        <p id="scPromoMsg" class="sc-promo-msg" role="status" aria-live="polite"></p>
-      </div>
-
-      <!-- ── GET STARTED ─────────────────────────────────── -->
-      <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
-      <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
-    </div>
-
-    <hr class="sc-divider"/>
-
-    <!-- ── SERVICE QUANTITY ROWS ─────────────────────────── -->
-    <p class="sc-rows-label">Choose your credits</p>
-
-    <div class="sc-rows">
-      {% for service in services %}
-      <div class="sc-row" data-service="{{ service.key }}">
-        <input type="text"
-               class="sc-qty"
-               inputmode="numeric"
-               autocomplete="off"
-               value="0"
-               aria-label="{{ service.label }} quantity"/>
-
-        <span class="sc-name">
-          {{ service.label }}
-          {% if service.balance %}
-            <span class="sc-balance">{{ service.balance|floatformat:0 }} available</span>
+        <!-- ── EXISTING BALANCES ─────────────────────────────── -->
+        {% if legacy_shared.ac or legacy_shared.vc or legacy_shared.cc %}
+        <div class="sc-legacy">
+          <p class="sc-legacy-title">Credits from earlier purchases</p>
+          <div class="sc-legacy-chips">
+            {% if legacy_shared.vc %}
+              <span class="sc-legacy-chip">Email Validation <b>{{ legacy_shared.vc }}</b></span>
+            {% endif %}
+            {% if legacy_shared.cc %}
+              <span class="sc-legacy-chip">Email Marketing <b>{{ legacy_shared.cc }}</b></span>
+            {% endif %}
+            {% if legacy_shared.ac %}
+              {% comment %}
+                ONE chip, not four. This single pool backs Reputation Analysis,
+                Email Header Analyzer, IP Blocklist and Domain Blocklist.
+              {% endcomment %}
+              <span class="sc-legacy-chip">Shared Analysis Credits <b>{{ legacy_shared.ac }}</b></span>
+            {% endif %}
+          </div>
+          {% if legacy_shared.ac %}
+          <p class="sc-legacy-note">
+            Shared Analysis Credits are one balance used by Reputation Analysis,
+            Email Header Analyzer, IP Blocklist Monitor and Domain Blocklist Monitor.
+          </p>
           {% endif %}
-          <span class="sc-min-hint">{{ service.min_qty|floatformat:0 }} minimum</span>
-        </span>
-
-        <span class="sc-arrows">
-          <button type="button"
-                  class="sc-up"
-                  aria-label="Increase {{ service.label }} by one"><i class="fas fa-caret-up" aria-hidden="true"></i></button>
-          <button type="button"
-                  class="sc-down"
-                  aria-label="Decrease {{ service.label }} by one"
-                  disabled><i class="fas fa-caret-down" aria-hidden="true"></i></button>
-        </span>
-      </div>
-      {% endfor %}
-    </div>
-
-    <!-- ── EXISTING BALANCES ─────────────────────────────── -->
-    {% if legacy_shared.ac or legacy_shared.vc or legacy_shared.cc %}
-    <div class="sc-legacy">
-      <p class="sc-legacy-title">Credits from earlier purchases</p>
-      <div class="sc-legacy-chips">
-        {% if legacy_shared.vc %}
-          <span class="sc-legacy-chip">Email Validation <b>{{ legacy_shared.vc }}</b></span>
+        </div>
         {% endif %}
-        {% if legacy_shared.cc %}
-          <span class="sc-legacy-chip">Email Marketing <b>{{ legacy_shared.cc }}</b></span>
-        {% endif %}
-        {% if legacy_shared.ac %}
-          {% comment %}
-            ONE chip, not four. This single pool backs Reputation Analysis,
-            Email Header Analyzer, IP Blocklist and Domain Blocklist.
-          {% endcomment %}
-          <span class="sc-legacy-chip">Shared Analysis Credits <b>{{ legacy_shared.ac }}</b></span>
+
+        {% if active_plan %}
+        <div class="sc-active-plan">
+          Your {{ active_plan.subs_plan }} plan is active until {{ active_plan.valid_time|date:"d M Y" }}.
+          Credits you buy here never expire.
+        </div>
         {% endif %}
       </div>
-      {% if legacy_shared.ac %}
-      <p class="sc-legacy-note">
-        Shared Analysis Credits are one balance used by Reputation Analysis,
-        Email Header Analyzer, IP Blocklist Monitor and Domain Blocklist Monitor.
-      </p>
-      {% endif %}
-    </div>
-    {% endif %}
 
-    {% if active_plan %}
-    <div class="sc-active-plan">
-      Your {{ active_plan.subs_plan }} plan is active until {{ active_plan.valid_time|date:"d M Y" }}.
-      Credits you buy here never expire.
-    </div>
-    {% endif %}
+      <!-- ── RIGHT: total / promo / checkout ──────────────── -->
+      <div class="payg-card">
+        <div class="sc-card-head">
+          <p class="sc-eyebrow">Your total</p>
+
+          <div id="scTotal"
+               class="sc-total"
+               role="status"
+               aria-live="polite"
+               aria-atomic="true"
+               aria-label="Order total"
+               data-quote-url="{% url 'subscription_quote' %}"
+               data-order-url="{% url 'subscription_order' %}"
+               data-verify-url="{% url 'subscription_verify' %}"
+               data-self-url="{% url 'subscription' %}">$0.00</div>
+
+          <p id="scBreakdown" class="sc-breakdown" hidden></p>
+          <p id="scTotalNote" class="sc-total-note"></p>
+
+          <!-- ── PROMO ───────────────────────────────────────── -->
+          <div class="sc-promo">
+            <button type="button"
+                    id="scPromoToggle"
+                    class="sc-promo-toggle"
+                    aria-expanded="false"
+                    aria-controls="scPromoPanel">Have a promo code?</button>
+
+            <div id="scPromoPanel" class="sc-promo-panel" hidden>
+              <input type="text"
+                     id="scPromoInput"
+                     class="sc-promo-input"
+                     placeholder="Enter promo code"
+                     autocomplete="off"
+                     spellcheck="false"
+                     maxlength="50"
+                     aria-label="Promo code"/>
+              <button type="button" id="scPromoApply" class="sc-promo-apply">Apply</button>
+            </div>
+
+            <p id="scPromoMsg" class="sc-promo-msg" role="status" aria-live="polite"></p>
+          </div>
+
+          <!-- ── GET STARTED ─────────────────────────────────── -->
+          <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
+          <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
+        </div>
+      </div>
+
+    </div><!-- /.payg-wrap -->
 
   </div>
 </div>
@@ -163,6 +191,20 @@
     </div>
   </div>
 </div>
+
+<!-- ── FOOTER ─────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer-bottom">
+      <span class="footer-copy">© 2026 Waytoinbox — All rights reserved.</span>
+      <div class="footer-legal">
+        <a href="#">Privacy Policy</a>
+        <a href="#">Terms of Service</a>
+        <a href="#">Cookie Policy</a>
+      </div>
+    </div>
+  </div>
+</footer>
 {% endblock %}
 
 {% block extra_js %}

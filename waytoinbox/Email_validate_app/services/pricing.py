@@ -38,7 +38,20 @@ SERVICE_LABELS = dict(SERVICE_CHOICES)
 # and future per-unit displays all rely on that), and MIN_ORDER_CENTS in
 # views/credits.py is a separate, unrelated $1.00 Razorpay floor on the
 # order's total price, not a credit-quantity floor.
-MIN_QTY_PER_SERVICE = 250
+#
+# Minimums are per service, not a flat number: Email Validation and Email
+# Marketing are bought in bulk (1,000 minimum), while the per-unit services
+# (Sales Outreach accounts, monitoring/analysis credits) have no meaningful
+# minimum beyond "more than zero", which normalize_quantity already enforces.
+SERVICE_MIN_QTY = {
+    'email_validation': 1000,
+    'email_marketing':  1000,
+    'sales_outreach':   1,
+    'reputation':        1,
+    'header_analysis':   1,
+    'ip_blocklist':      1,
+    'domain_blocklist':  1,
+}
 
 # Unit noun per service, for UI copy ("25,000 emails", "10 accounts").
 SERVICE_UNITS = {
@@ -188,10 +201,11 @@ def quote_cart(cart: dict, currency: str = 'USD') -> Quote:
         qty = normalize_quantity(service, cart[service])
         if qty == 0:
             continue
-        if qty < MIN_QTY_PER_SERVICE:
+        min_qty = SERVICE_MIN_QTY[service]
+        if qty < min_qty:
             raise PricingError(
                 f"Minimum purchase for {SERVICE_LABELS[service]} is "
-                f"{MIN_QTY_PER_SERVICE:,} credits."
+                f"{min_qty:,} credits."
             )
         price_cents, tier_label = quote_service(service, qty)
         lines.append(QuoteLine(
@@ -221,7 +235,7 @@ def public_config() -> dict:
             'label':   SERVICE_LABELS[service],
             'unit':    SERVICE_UNITS.get(service, 'credits'),
             'mode':    packages[0].mode,
-            'min_qty': MIN_QTY_PER_SERVICE,
+            'min_qty': SERVICE_MIN_QTY[service],
         }
         if packages[0].mode == CreditPackage.MODE_BLOCK:
             entry['block_size'] = packages[0].block_size or 1

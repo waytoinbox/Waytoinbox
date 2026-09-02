@@ -13,7 +13,7 @@ from Email_validate_app.models import (
 )
 from Email_validate_app.services.pricing import (
     quote_service, quote_cart, public_config, validate_pricing_table, PricingError,
-    MIN_QTY_PER_SERVICE, SERVICE_KEYS as PRICING_SERVICE_KEYS,
+    SERVICE_MIN_QTY,
 )
 from Email_validate_app.services.credit_manager import (
     add_service_credits, deduct_service_credits, ensure_service_credits,
@@ -94,8 +94,6 @@ class PricingValidationTests(TestCase):
             quote_cart({'warp_drive': 10})
 
     def test_spec_cart_example_totals_correctly(self):
-        # sales_outreach bumped to the 250-credit minimum (below it, the cart
-        # would be rejected outright — see PricingMinimumQuantityTests).
         q = quote_cart({'email_validation': 25_000,
                         'email_marketing': 5_000,
                         'sales_outreach': 250})
@@ -118,30 +116,45 @@ class PricingValidationTests(TestCase):
 # ── Phase 7: minimum purchase quantity ──────────────────────────────────────
 
 class PricingMinimumQuantityTests(TestCase):
-    """A selected service line must be purchased at MIN_QTY_PER_SERVICE (250)
+    """A selected service line must be purchased at its own SERVICE_MIN_QTY
     or more. 0 is unaffected — it means "not selected", not "buy zero".
+
+    Minimums are per service: Email Validation and Email Marketing are bulk
+    services (1,000 minimum); the other five (Sales Outreach, and the four
+    analysis/monitoring services) have a minimum of 1, i.e. no effective
+    floor beyond what normalize_quantity already enforces (qty must be a
+    positive integer).
 
     This is a quote_cart() rule, not a quote_service() one: quote_service
     stays a pure per-unit pricing primitive (PricingTierTests/PricingBlockTests
-    above price quantities well under 250 directly through it), while
-    quote_cart is the single funnel every real checkout entry point
-    (subscription_quote / subscription_order) uses.
+    above price quantities well under any of these floors directly through
+    it), while quote_cart is the single funnel every real checkout entry
+    point (subscription_quote / subscription_order) uses.
     """
 
-    def test_249_is_rejected_for_every_service(self):
-        for service in PRICING_SERVICE_KEYS:
+    BULK_SERVICES = ('email_validation', 'email_marketing')
+    UNIT_SERVICES = ('sales_outreach', 'reputation', 'header_analysis',
+                     'ip_blocklist', 'domain_blocklist')
+
+    def test_below_minimum_is_rejected_for_bulk_services(self):
+        for service in self.BULK_SERVICES:
             with self.assertRaises(PricingError, msg=service):
-                quote_cart({service: MIN_QTY_PER_SERVICE - 1})
+                quote_cart({service: SERVICE_MIN_QTY[service] - 1})
 
-    def test_250_is_accepted_for_every_service(self):
-        for service in PRICING_SERVICE_KEYS:
-            q = quote_cart({service: MIN_QTY_PER_SERVICE})
-            self.assertEqual(len(q.lines), 1, service)
-            self.assertEqual(q.lines[0].quantity, MIN_QTY_PER_SERVICE, service)
+    def test_minimum_and_above_are_accepted_for_bulk_services(self):
+        for service in self.BULK_SERVICES:
+            for qty in (SERVICE_MIN_QTY[service], SERVICE_MIN_QTY[service] + 1):
+                q = quote_cart({service: qty})
+                self.assertEqual(len(q.lines), 1, service)
+                self.assertEqual(q.lines[0].quantity, qty, service)
 
-    def test_251_is_accepted(self):
-        q = quote_cart({'email_validation': MIN_QTY_PER_SERVICE + 1})
-        self.assertEqual(q.lines[0].quantity, 251)
+    def test_any_positive_quantity_is_accepted_for_unit_services(self):
+        # Their minimum is 1, so there is no rejectable "below the floor"
+        # positive quantity — 1 itself is already the floor.
+        for service in self.UNIT_SERVICES:
+            self.assertEqual(SERVICE_MIN_QTY[service], 1, service)
+            q = quote_cart({service: 1})
+            self.assertEqual(q.lines[0].quantity, 1, service)
 
     def test_zero_is_still_not_selected_not_a_minimum_violation(self):
         q = quote_cart({'email_validation': 0, 'sales_outreach': 0})
@@ -150,25 +163,25 @@ class PricingMinimumQuantityTests(TestCase):
 
     def test_one_bad_line_rejects_the_whole_cart(self):
         with self.assertRaises(PricingError):
-            quote_cart({'email_validation': 25_000, 'sales_outreach': 1})
+            quote_cart({'sales_outreach': 5, 'email_marketing': 5})
 
     def test_error_message_names_the_service_and_the_floor(self):
         with self.assertRaises(PricingError) as ctx:
-            quote_cart({'sales_outreach': 100})
+            quote_cart({'email_validation': 100})
         msg = str(ctx.exception)
-        self.assertIn('Sales Outreach', msg)
-        self.assertIn('250', msg)
+        self.assertIn('Email Validation', msg)
+        self.assertIn('1,000', msg)
 
     def test_quote_service_itself_is_unaffected_by_the_cart_minimum(self):
         # The per-unit pricing primitive still prices any positive quantity —
-        # only quote_cart (the checkout funnel) enforces the 250 floor.
+        # only quote_cart (the checkout funnel) enforces the per-service floor.
         price_cents, _ = quote_service('email_validation', 1)
         self.assertEqual(price_cents, 3900)
 
-    def test_public_config_exposes_the_minimum_for_every_service(self):
+    def test_public_config_exposes_the_correct_minimum_per_service(self):
         cfg = public_config()
         for service, entry in cfg.items():
-            self.assertEqual(entry['min_qty'], MIN_QTY_PER_SERVICE, service)
+            self.assertEqual(entry['min_qty'], SERVICE_MIN_QTY[service], service)
 
 
 # ── New wallets ───────────────────────────────────────────────────────────

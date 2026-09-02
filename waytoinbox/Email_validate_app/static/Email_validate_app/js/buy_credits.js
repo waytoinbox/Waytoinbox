@@ -17,7 +17,12 @@
 
   var DEBOUNCE_MS = 350;
   var MAX_QTY = 1000000000;   // guards against pasted nonsense, not a price cap
-  var MIN_QTY = 250;          // server default; a row's own config.min_qty wins if present
+  // Minimums differ per service (e.g. 1,000 for bulk services, 1 for
+  // per-unit ones) and come from each row's own config.min_qty. This is only
+  // the defensive fallback for the (should-never-happen) case where the
+  // config JSON failed to load for a row — the server re-validates the real
+  // per-service minimum regardless (services/pricing.py::quote_cart).
+  var MIN_QTY_FALLBACK = 1;
 
   var cfgEl  = document.getElementById('sc-pricing-config');
   var config = {};
@@ -271,7 +276,7 @@
     var input  = row.querySelector('.sc-qty');
     var up     = row.querySelector('.sc-up');
     var down   = row.querySelector('.sc-down');
-    var minQty = (config[key] && config[key].min_qty) || MIN_QTY;
+    var minQty = (config[key] && config[key].min_qty) || MIN_QTY_FALLBACK;
 
     quantities[key] = 0;
     paintRow(row, input, 0, false);
