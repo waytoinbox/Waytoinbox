@@ -19,23 +19,14 @@ from Email_validate_app.models import (
     DomainBlocklist, DomainBlacklistListed, DomainBlacklistStatus, DomainBlacklists,
 )
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
+from Email_validate_app.services.monitor import (
+    ip_blacklists, domain_blacklists, AlreadyMonitored,
+)
 from Email_validate_app.services.credit_manager import (
     get_effective_balance, deduct_service_credits, InsufficientCredits,
 )
 
 from .billing import get_current_credit
-
-
-class _AlreadyMonitored(Exception):
-    """Raised inside the add transaction when a concurrent request created
-    the same monitor first. Rolls the transaction back so nothing is
-    created and nothing is charged; the caller reports the usual
-    'already monitored' result.
-
-    Deliberately not a ValueError: the surrounding handler treats those as
-    'No Analysis Credits left'.
-    """
 
 logger = logging.getLogger(__name__)
 
@@ -452,7 +443,7 @@ def check_domain_blocklist(request):
             if DomainBlocklist.objects.filter(
                 user=user, domain=domain_s, is_hidden=False,
             ).exists():
-                raise _AlreadyMonitored(domain_s)
+                raise AlreadyMonitored(domain_s)
 
             new_entry = DomainBlocklist.objects.create(
                 user=user,
@@ -466,7 +457,7 @@ def check_domain_blocklist(request):
                 ref_type='ip_check', ref_id=domain_s,
                 description='Domain Blocklist Check',
             )
-    except _AlreadyMonitored:
+    except AlreadyMonitored:
         # A concurrent request created it first — same result the pre-check
         # above produces.
         messages.warning(request, f"Domain '{domain_s}' already exists.")
@@ -572,7 +563,7 @@ def add_to_monitors(request):
                     if DomainBlocklist.objects.filter(
                         user=user, domain=domain_s, is_hidden=False,
                     ).exists():
-                        raise _AlreadyMonitored(domain_s)
+                        raise AlreadyMonitored(domain_s)
 
                     entry = DomainBlocklist.objects.create(
                         user=user, domain=domain_s,
@@ -602,7 +593,7 @@ def add_to_monitors(request):
                 DomainBlocklist.objects.filter(domain_id=entry.domain_id).update(listed_count=listed_count, last_monitor_date=current_datetime)
                 credits_used += 1
                 domain_result = {'status': 'added', 'message': "'" + domain_s + "' added to Domain Monitor", 'listed_count': listed_count}
-            except _AlreadyMonitored:
+            except AlreadyMonitored:
                 # A concurrent request won the race and created it first.
                 domain_result = {'status': 'duplicate', 'message': "'" + domain_s + "' is already monitored"}
             except ValueError:
@@ -633,7 +624,7 @@ def add_to_monitors(request):
                         if BlocklistMonitor.objects.filter(
                             user=user, ips=ip_s, is_hidden=False,
                         ).exists():
-                            raise _AlreadyMonitored(ip_s)
+                            raise AlreadyMonitored(ip_s)
 
                         entry = BlocklistMonitor.objects.create(
                             user=user, ips=ip_s,
@@ -660,7 +651,7 @@ def add_to_monitors(request):
                     BlocklistMonitor.objects.filter(ip_id=entry.ip_id).update(listed_count=str(listed_count), last_monitor_date=current_datetime)
                     credits_used += 1
                     ip_result = {'status': 'added', 'message': "'" + ip_s + "' added to IP Monitor", 'listed_count': listed_count}
-                except _AlreadyMonitored:
+                except AlreadyMonitored:
                     # A concurrent request won the race and created it first.
                     # Same result the pre-check above would have produced.
                     ip_result = {'status': 'duplicate', 'message': "'" + ip_s + "' is already monitored"}

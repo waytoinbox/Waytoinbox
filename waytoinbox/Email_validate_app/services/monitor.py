@@ -14,6 +14,22 @@ from Email_validate_app.models import (
 )
 
 
+class AlreadyMonitored(Exception):
+    """Raised inside a monitor-add transaction when a concurrent request
+    created the same monitor first. Rolling back leaves nothing created and
+    nothing charged; the caller then reports its usual "already monitored"
+    result.
+
+    Deliberately NOT a ValueError: the add paths treat ValueError (which
+    InsufficientCredits subclasses) as "No Analysis Credits left", so making
+    this one would report a duplicate as a billing failure.
+
+    Lives here rather than in views/blocklist.py because both the web and API
+    add paths raise it, and views importing from one another is the kind of
+    coupling that makes a view module hard to move.
+    """
+
+
 def get_blacklist_notifications():
     last_24_hours = timezone.now() - timedelta(hours=96)
 

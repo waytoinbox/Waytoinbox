@@ -49,8 +49,9 @@ def _drop_win_table(table_name: str) -> None:
 # generate_receipt_id). Phase 6 commit 8 dropped seven imports that were dead
 # both locally and as re-exports: get_vc_current_credit, get_ip_current_credit,
 # update_or_insert_current_credit, insert_ip_credits, and the three
-# deduct_vc/ac/cc_credits. The functions themselves are deliberately kept in
-# credit_manager.
+# deduct_vc/ac/cc_credits. Commit 11 then deleted
+# update_or_insert_current_credit and insert_ip_credits outright, having
+# confirmed zero references repo-wide; the deduct_* trio is kept.
 from Email_validate_app.services.credit_manager import (
     generate_receipt_id,
     get_current_credit, get_ac_current_credit,

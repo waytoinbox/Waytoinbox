@@ -60,12 +60,6 @@ def get_ip_current_credit(user_id):
     return get_ac_current_credit(user_id)
 
 
-def update_or_insert_current_credit(user_id, current_credit):
-    obj, _ = CurrentCredits.objects.get_or_create(user_id=user_id)
-    obj.vc_current_credits = current_credit
-    obj.save()
-
-
 # ── Credit inserters ──────────────────────────────────────────────────────────
 
 def insert_vc_credits(request, user_id, amount, ref_type='payg', ref_id=''):
@@ -160,10 +154,6 @@ def insert_cc_credits(request, user_id, amount, ref_type='', ref_id=''):
 # Backward-compat aliases
 def insert_credits(request, user_id, credit):
     return insert_vc_credits(request, user_id, int(credit) if credit else 0, ref_type='payg')
-
-
-def insert_ip_credits(request, user_id, ip_credit):
-    return insert_ac_credits(request, user_id, ip_credit, ref_type='subscription')
 
 
 # ── Credit deductors (atomic, select_for_update) ──────────────────────────────

@@ -23,13 +23,13 @@ from Email_validate_app.models import (
     DomainBlocklist, DomainBlacklistStatus, DomainBlacklistListed,
 )
 from Email_validate_app.services.api_auth import api_key_required
-from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
+from Email_validate_app.services.monitor import (
+    ip_blacklists, domain_blacklists, AlreadyMonitored,
+)
 from Email_validate_app.services.email_analyzer import ProfessionalEmailAnalyzer
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.views.blocklist import _AlreadyMonitored
 from Email_validate_app.services.credit_manager import (
-    get_vc_current_credit, get_effective_balance,
-    deduct_service_credits, InsufficientCredits,
+    get_effective_balance, deduct_service_credits, InsufficientCredits,
 )
 from Email_validate_app.views import get_current_credit, core_validate_email, check_spf, check_dmarc, check_dkim
 from Email_validate_app.tasks.verify_emails import (
@@ -288,14 +288,14 @@ def ip_blocklist_check_api(request):
             ).first()
 
             if BlocklistMonitor.objects.filter(user=user, ips=ip_s, is_hidden=False).exists():
-                raise _AlreadyMonitored(ip_s)
+                raise AlreadyMonitored(ip_s)
 
             new_entry = BlocklistMonitor.objects.create(
                 user=user, ips=ip_s, created_date=current_datetime)
             deduct_service_credits(user_id, 'ip_blocklist', 1,
                                    ref_type='ip_check', ref_id=ip_s,
                                    description='IP Blocklist Check')
-    except _AlreadyMonitored:
+    except AlreadyMonitored:
         return JsonResponse({"status": "warning", "message": f"IP '{ip_s}' is already being monitored."})
     except CurrentCredits.DoesNotExist:
         return JsonResponse({"status": "error", "message": "Credits not found for your account"}, status=402)
@@ -405,7 +405,7 @@ def domain_blocklist_check_api(request):
             if DomainBlocklist.objects.filter(
                 user=user, domain=domain_s, is_hidden=False,
             ).exists():
-                raise _AlreadyMonitored(domain_s)
+                raise AlreadyMonitored(domain_s)
 
             new_entry = DomainBlocklist.objects.create(
                 user=user, domain=domain_s,
@@ -414,7 +414,7 @@ def domain_blocklist_check_api(request):
             deduct_service_credits(user_id, 'domain_blocklist', 1,
                                    ref_type='ip_check', ref_id=domain_s,
                                    description='Domain Blocklist Check')
-    except _AlreadyMonitored:
+    except AlreadyMonitored:
         return JsonResponse({"status": "warning", "message": f"Domain '{domain_s}' is already being monitored."})
     except CurrentCredits.DoesNotExist:
         return JsonResponse({"status": "error", "message": "Credits not found for your account"}, status=402)
