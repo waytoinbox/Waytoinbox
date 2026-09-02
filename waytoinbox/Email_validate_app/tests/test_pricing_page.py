@@ -113,9 +113,10 @@ class PricingPageTests(TestCase):
         self.assertEqual(r.status_code, 200)
         html = r.content.decode()
         self.assertIn('id="scTotal"', html)
-        # i_subscription.html has no tab bar / panel wrapper of its own.
-        self.assertNotIn('id="panel-subscription"', html)
-        self.assertNotIn('id="panel-payg"', html)
+        # i_subscription.html now mirrors i_pricing.html's full tab structure
+        # (see SubscriptionPageChromeTests), so both panels exist here too.
+        self.assertIn('id="panel-subscription"', html)
+        self.assertIn('id="panel-payg"', html)
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
@@ -147,7 +148,12 @@ class SubscriptionCardsLayoutTests(TestCase):
     def test_standalone_subscription_page_uses_the_two_column_payg_classes(self):
         r = self.client.get('/subscription/')
         html = r.content.decode()
-        self.assertIn('<div class="payg-wrap">', html)
+        # Once for the PAYG tab, once for the Subscription tab's two-column
+        # layout — same as i_pricing.html.
+        self.assertEqual(html.count('class="payg-wrap"'), 2)
+        # Exactly the two Subscription-tab columns; the PAYG calculator card
+        # carries an extra "fade-up" class and is not counted by this exact
+        # match (see the analogous i_pricing.html assertion above).
         self.assertEqual(html.count('class="payg-card"'), 2)
         self.assertNotIn('class="sc-page"', html)
         self.assertNotIn('class="sc-card"', html)
@@ -163,9 +169,10 @@ class SubscriptionCardsLayoutTests(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class SubscriptionPageChromeTests(TestCase):
-    """i_subscription.html should look like i_pricing.html (notice bar, hero,
-    footer) but without the sidebar; i_pricing.html and every other page must
-    keep showing their sidebar exactly as before."""
+    """i_subscription.html should look and behave exactly like i_pricing.html
+    (notice bar, hero, both tabs including Pay-As-You-Go, footer) with the
+    one deliberate difference being no sidebar; i_pricing.html and every
+    other page must keep showing their sidebar exactly as before."""
 
     def setUp(self):
         self.client = Client(SERVER_NAME='127.0.0.1')
@@ -177,10 +184,32 @@ class SubscriptionPageChromeTests(TestCase):
         self.assertIn('class="footer"', html)
         self.assertIn('Waytoinbox — All rights reserved', html)
 
-    def test_subscription_page_has_no_payg_tab_toggle(self):
+    def test_subscription_page_has_the_same_payg_tab_as_pricing(self):
         html = self.client.get('/subscription/').content.decode()
-        self.assertNotIn('pricing-toggle', html)
-        self.assertNotIn("switchPricingTab", html)
+        self.assertIn('pricing-toggle', html)
+        self.assertIn("switchPricingTab('subscription'", html)
+        self.assertIn("switchPricingTab('payg'", html)
+        self.assertIn('How many emails do you have?', html)
+        self.assertIn('id="paygForm"', html)
+        self.assertIn('Volume pricing tiers', html)
+        self.assertIn('id="emailCount"', html)
+        # Same tab order and default-active tab as i_pricing.html.
+        sub_pos  = html.index("switchPricingTab('subscription'")
+        payg_pos = html.index("switchPricingTab('payg'")
+        self.assertLess(sub_pos, payg_pos)
+        self.assertIn('class="pricing-panel active" id="panel-subscription"', html)
+        self.assertIn('class="pricing-panel" id="panel-payg"', html)
+
+    def test_subscription_page_has_the_payg_checkout_infrastructure(self):
+        """The PAYG (and legacy-plan) checkout flow needs its own supporting
+        elements/JS, which the old sidebar-only page never needed to bring in
+        on its own — confirms they were ported, not just the visible tab."""
+        html = self.client.get('/subscription/').content.decode()
+        self.assertIn('id="sub-alert-area"', html)
+        self.assertIn('id="payConfirmModal"', html)
+        self.assertIn('function openRazorpay(order)', html)
+        self.assertIn('function openPayConfirm(order)', html)
+        self.assertIn('order_payment', html)
 
     def test_subscription_page_body_is_marked_no_sidebar(self):
         html = self.client.get('/subscription/').content.decode()
