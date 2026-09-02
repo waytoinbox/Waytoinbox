@@ -2,12 +2,14 @@
  *
  * Seven independent quantity steppers, one server-priced total.
  *
- * The rule this file exists to respect: **the server owns the price.** The
- * client mirror below (pricingConfig) only paints an instant figure while the
- * debounced /subscription/quote/ request is in flight; every authoritative
- * number — the quote, the order amount, the credits granted — comes from the
- * server, and /subscription/order/ re-quotes from scratch regardless of
- * anything this page sends.
+ * The rule this file exists to respect: **the server owns the price.** There
+ * is no client-side price estimate at all — pricing is per-credit and some
+ * rates are sub-cent, so only the server's exact Decimal math
+ * (/subscription/quote/) may compute a total; this file just shows a loading
+ * state until the debounced response arrives. pricingConfig (window.config
+ * below) carries only label/unit/min_qty for rendering the rows, never a
+ * price. /subscription/order/ re-quotes from scratch regardless of anything
+ * this page sends.
  *
  * Stepper pattern follows so_campaign.js::stepFormat: real <button>s, a
  * clamped step, and the display mirrored back after every change.
@@ -95,38 +97,6 @@
 
   function cartIsEmpty() { return Object.keys(buildCart()).length === 0; }
 
-  /* Display-only mirror of the server ladders. Returns null whenever it is
-     not completely sure, so the UI falls back to "…" rather than showing a
-     number the server might disagree with. */
-  function mirrorTotalCents() {
-    var cart = buildCart();
-    var keys = Object.keys(cart);
-    if (!keys.length) { return 0; }
-
-    var total = 0;
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i], qty = cart[key], entry = config[key];
-      if (!entry) { return null; }
-
-      if (entry.mode === 'block') {
-        var block = entry.block_size || 1;
-        total += Math.ceil(qty / block) * entry.block_price_cents;
-      } else {
-        var tiers = entry.tiers || [], matched = null;
-        for (var t = 0; t < tiers.length; t++) {
-          var lo = tiers[t].min, hi = tiers[t].max;
-          if (qty >= lo && (hi === null || hi === undefined || qty <= hi)) {
-            matched = tiers[t];
-            break;
-          }
-        }
-        if (!matched) { return null; }   // above the top band: server decides
-        total += matched.price_cents;
-      }
-    }
-    return total;
-  }
-
   /* ── rendering ───────────────────────────────────────── */
 
   function setTotal(cents, loading) {
@@ -183,12 +153,11 @@
       return;
     }
 
-    // Paint the mirror immediately so the number never sits stale, then let
-    // the server confirm it.
-    var hasPromo = promoInput && promoInput.value.trim() !== '';
-    var guess = hasPromo ? null : mirrorTotalCents();
-    if (guess !== null) { setTotal(guess, true); }
-    else { totalEl.classList.add('is-loading'); }
+    // No safe client-side estimate: pricing is per-credit and some rates are
+    // sub-cent, so only the server's exact Decimal math (subscription_quote)
+    // may compute a total. Keep whatever total was last shown, dimmed, until
+    // the debounced response replaces it.
+    totalEl.classList.add('is-loading');
     setNote('Updating total…');
 
     debounceId = window.setTimeout(requestQuote, DEBOUNCE_MS);

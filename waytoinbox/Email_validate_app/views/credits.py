@@ -123,10 +123,15 @@ def subscription_quote(request):
 
     Returns the same numbers /subscription/order/ will use, so the total the
     user sees is the total they are charged.
+
+    Deliberately does NOT require login: seeing a price must never depend on
+    being signed in — only actually starting checkout (subscription_order)
+    does. user_id is still resolved (possibly None) so a signed-in user's
+    own promo-code usage limits are honoured; _quote_discount()/
+    validate_coupon() already treat a None user as "skip the per-user check"
+    rather than erroring.
     """
     user_id = get_user_id(request)
-    if not user_id:
-        return JsonResponse({"status": "error", "message": "Not authenticated."}, status=401)
 
     try:
         cart, promo_code = _read_cart(request)

@@ -5,16 +5,21 @@ quantities and nothing else — never a price, never a credit amount. Every
 entry point (the live quote endpoint, order creation, and post-payment
 fulfilment) funnels through quote_cart() so all three can never disagree.
 
-Pricing data lives in the CreditPackage table (seeded by migration 0130), not
-in this file, so prices can be corrected by an admin without a deploy.
+Pricing data lives in the CreditPackage table (seeded by migration 0130,
+corrected to per-credit rates by 0135), not in this file, so prices can be
+corrected by an admin without a deploy.
 
 Two modes:
-  tier  — one flat price for the whole band, matched min_qty <= qty <= max_qty
-          (max_qty NULL = open-ended top band). Bands are contiguous and
-          half-open by construction, so "1-10,000 / 10,001-25,000" resolves
-          deterministically: 10,000 -> $39, 10,001 -> $59.
-  block — ceil(qty / block_size) * price_usd. Email Marketing bills $2 per
-          1,000 emails; Sales Outreach $3 per account.
+  tier  — price_usd is the PER-CREDIT rate for whichever band matches
+          min_qty <= qty <= max_qty (max_qty NULL = open-ended top band);
+          the line total is qty * that band's rate. Bands are contiguous
+          and half-open by construction, so "1-10,000 / 10,001-25,000"
+          resolves deterministically: 10,000 credits price at the first
+          band's rate, 10,001 at the second's.
+  block — ceil(qty / block_size) * price_usd. Sales Outreach bills $3 per
+          account (block_size=1); Email Marketing $0.002 per email
+          (block_size=1, i.e. plain per-credit — block mode with
+          block_size=1 IS per-credit pricing, since ceil(qty/1) == qty).
 
 Money is handled as integer cents end to end. Never float — the existing
 `int(price_ * 100)` on a float in views/billing.py:198 is exactly the class of
@@ -112,11 +117,6 @@ class Quote:
         }
 
 
-def _to_cents(price_usd) -> int:
-    """Decimal dollars -> integer cents, exactly (no float anywhere)."""
-    return int((Decimal(price_usd) * 100).quantize(Decimal('1')))
-
-
 def normalize_quantity(service: str, raw) -> int:
     """Coerce and validate one quantity. Rejects unknown services, negatives,
     non-integers and malformed input. Returns an int >= 0 (0 = not selected)."""
@@ -160,18 +160,30 @@ def quote_service(service: str, qty) -> tuple[int, str]:
         pkg = packages[0]
         block = pkg.block_size or 1
         blocks = -(-qty // block)                  # ceil division, integers only
-        unit_cents = _to_cents(pkg.price_usd)
         label = f"{blocks} × {block:,}" if block > 1 else f"{qty:,}"
-        return blocks * unit_cents, label
+        # Same multiply-then-round-once rule as tier mode: Email Marketing's
+        # $0.002/credit rate is sub-cent, so rounding price_usd to cents
+        # before multiplying by `blocks` would make every purchase free.
+        total_cents = int(
+            (Decimal(blocks) * Decimal(pkg.price_usd) * 100).quantize(Decimal('1'))
+        )
+        return total_cents, label
 
-    # tier mode
+    # tier mode: price_usd is the PER-CREDIT rate for the matched band, so
+    # the total is qty * that rate. Multiply in Decimal dollars first and
+    # convert the TOTAL to cents once at the end — never round the
+    # per-credit rate to cents before multiplying, or a sub-cent rate
+    # (e.g. $0.00016) would collapse to $0 before qty is applied.
     for pkg in packages:
         lo = pkg.min_qty or 1
         hi = pkg.max_qty                            # None = open-ended
         if qty >= lo and (hi is None or qty <= hi):
             hi_label = f"{hi:,}" if hi is not None else f"{lo:,}+"
             label = f"{lo:,} – {hi_label}" if hi is not None else hi_label
-            return _to_cents(pkg.price_usd), label
+            total_cents = int(
+                (Decimal(qty) * Decimal(pkg.price_usd) * 100).quantize(Decimal('1'))
+            )
+            return total_cents, label
 
     raise PricingError(
         f"{qty:,} is above the largest available {SERVICE_LABELS[service]} package. "
@@ -218,39 +230,25 @@ def quote_cart(cart: dict, currency: str = 'USD') -> Quote:
 
 
 def public_config() -> dict:
-    """Everything the browser needs to mirror the pricing maths for an instant
-    total. Display-only — the server re-quotes at order time regardless.
+    """Everything the browser needs to render the service rows (label, unit
+    noun, minimum quantity) without needing to know anything about pricing.
 
-    Deliberately does NOT expose any per-credit rate; the UI must never show
-    "$0.002 / credit". Only whole-package prices are sent.
+    Deliberately does NOT expose any per-credit rate or package pricing —
+    the UI must never show "$0.002 / credit". Pricing is now inherently
+    per-credit rather than a flat total per band (see quote_service), so
+    there is no whole-package price left that could safely be sent for a
+    client-side estimate either; the total always comes from the server
+    (subscription_quote), never a client-side mirror.
     """
     config = {}
     for service in SERVICE_KEYS:
-        packages = list(
-            CreditPackage.objects.filter(service=service, is_active=True).order_by('sort_order')
-        )
-        if not packages:
+        if not CreditPackage.objects.filter(service=service, is_active=True).exists():
             continue
-        entry = {
+        config[service] = {
             'label':   SERVICE_LABELS[service],
             'unit':    SERVICE_UNITS.get(service, 'credits'),
-            'mode':    packages[0].mode,
             'min_qty': SERVICE_MIN_QTY[service],
         }
-        if packages[0].mode == CreditPackage.MODE_BLOCK:
-            entry['block_size'] = packages[0].block_size or 1
-            entry['block_price_cents'] = _to_cents(packages[0].price_usd)
-        else:
-            entry['tiers'] = [
-                {
-                    'min': p.min_qty or 1,
-                    'max': p.max_qty,               # None = open-ended
-                    'price_cents': _to_cents(p.price_usd),
-                }
-                for p in packages
-            ]
-            entry['max_qty'] = packages[-1].max_qty  # None = unbounded
-        config[service] = entry
     return config
 
 
@@ -258,11 +256,10 @@ def validate_pricing_table() -> list[str]:
     """Sanity-check the seeded ladders. Returns a list of human-readable
     warnings; an empty list means the table is well formed.
 
-    Hard problems (gaps, overlaps, descending bands) and soft ones
-    (non-monotonic prices — buying more costing less) are both reported. This
-    is a diagnostic for admins, never an auto-corrector: the supplied ladders
-    contain deliberate anomalies that must be preserved until a human decides
-    otherwise.
+    Hard problems (gaps/overlaps between bands) and soft ones (a larger band
+    charging a HIGHER per-credit rate than a smaller one — the opposite of a
+    volume discount) are both reported. This is a diagnostic for admins,
+    never an auto-corrector.
     """
     warnings = []
     for service in SERVICE_KEYS:
@@ -277,7 +274,7 @@ def validate_pricing_table() -> list[str]:
                 warnings.append(f"{service}: block mode with no block_size")
             continue
 
-        prev_max, prev_price = 0, None
+        prev_max, prev_rate = 0, None
         for p in packages:
             lo, hi = p.min_qty or 1, p.max_qty
             if lo != prev_max + 1:
@@ -285,15 +282,22 @@ def validate_pricing_table() -> list[str]:
                     f"{service}: band starting {lo:,} leaves a gap/overlap "
                     f"after {prev_max:,}"
                 )
-            price = _to_cents(p.price_usd)
-            if prev_price is not None and price < prev_price:
+            # Compare the raw per-credit rate, not a cents-rounded one:
+            # several rates are sub-cent (e.g. $0.00016), which would all
+            # round to $0.00 and make this comparison blind. Larger bands
+            # should charge the same or a LOWER rate than smaller ones (a
+            # volume discount) — a higher rate for more credits is the
+            # anomaly worth flagging.
+            rate = Decimal(p.price_usd)
+            if prev_rate is not None and rate > prev_rate:
                 warnings.append(
-                    f"{service}: {lo:,}–{hi if hi else 'open'} costs "
-                    f"${price/100:,.2f} — less than the smaller band above it "
-                    f"(${prev_price/100:,.2f}); the smaller band is dominated"
+                    f"{service}: {lo:,}–{hi if hi else 'open'} charges "
+                    f"${rate}/credit — more than the smaller band above it "
+                    f"(${prev_rate}/credit); larger purchases should not "
+                    f"cost more per credit"
                 )
             prev_max = hi if hi is not None else prev_max
-            prev_price = price
+            prev_rate = rate
             if hi is None:
                 break
     return warnings

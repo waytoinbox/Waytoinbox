@@ -30,44 +30,49 @@ def make_user(email):
 # ── Pricing ───────────────────────────────────────────────────────────────
 
 class PricingTierTests(TestCase):
-    """Boundaries are the whole game here — the source spec's ranges overlap
-    ("1-10,000 / 10,000-25,000") and are resolved as 1-10,000 / 10,001-25,000."""
+    """price_usd is the PER-CREDIT rate for the matched band, so the line
+    total is qty * that band's rate — not a flat amount for the whole band.
+    Boundaries are still the whole game: bands are contiguous by
+    construction, so "1-10,000 / 10,001-25,000" resolves deterministically
+    at 10,000 vs 10,001."""
 
     def test_email_validation_boundaries(self):
         for qty, cents in [
-            (1, 3900), (10_000, 3900), (10_001, 5900), (25_000, 5900),
-            (25_001, 8900), (50_000, 8900), (50_001, 14900),
-            (25_000_001, 849900), (50_000_000, 849900),
+            (1, 0), (10_000, 3900), (10_001, 2360), (25_000, 5900),
+            (25_001, 4450), (50_000, 8900), (50_001, 7450), (100_000, 14900),
+            (100_001, 5900), (500_000, 29500), (500_001, 22000), (1_000_000, 44000),
+            (1_000_001, 39000), (2_000_000, 78000), (2_000_001, 72000), (3_000_000, 108000),
+            (3_000_001, 102000), (4_000_000, 136000), (4_000_001, 124000), (5_000_000, 155000),
+            (5_000_001, 125000), (10_000_000, 250000), (10_000_001, 190000), (25_000_000, 475000),
+            (25_000_001, 400000), (50_000_000, 800000),
         ]:
             self.assertEqual(quote_service('email_validation', qty)[0], cents, qty)
 
     def test_monitor_ladder_shared_by_three_services(self):
         for service in ('ip_blocklist', 'domain_blocklist', 'reputation'):
             for qty, cents in [
-                (1, 10000), (50, 10000), (51, 20000), (100, 20000),
-                (101, 40000), (200, 40000), (201, 50000), (300, 50000),
-                (301, 50000), (500, 50000), (501, 100000), (1_000, 100000),
-                (1_001, 200000), (2_000, 200000), (2_001, 1000000),
+                (1, 200), (300, 60000), (301, 30100), (1_000, 100000), (10_000, 1000000),
             ]:
                 self.assertEqual(quote_service(service, qty)[0], cents,
                                  f"{service} @ {qty}")
 
-    def test_header_analysis_including_the_dominated_band(self):
-        # 51-100 costs $40 while 101-200 costs $35 — buying more costs less.
-        # Supplied as-is and deliberately preserved, not auto-corrected.
-        for qty, cents in [(50, 2000), (51, 4000), (100, 4000),
-                           (101, 3500), (200, 3500), (201, 4500), (2_001, 100000)]:
+    def test_header_analysis_boundaries(self):
+        for qty, cents in [(1, 40), (100, 4000), (101, 1768), (200, 3500),
+                           (201, 3015), (300, 4500), (301, 3010), (2_001, 20010)]:
             self.assertEqual(quote_service('header_analysis', qty)[0], cents, qty)
 
     def test_open_ended_top_band_has_no_upper_limit(self):
-        self.assertEqual(quote_service('email_validation', 999_999_999)[0], 849900)
-        self.assertEqual(quote_service('ip_blocklist', 5_000_000)[0], 1000000)
+        self.assertEqual(quote_service('email_validation', 999_999_999)[0], 16000000)
+        self.assertEqual(quote_service('ip_blocklist', 5_000_000)[0], 500000000)
 
 
 class PricingBlockTests(TestCase):
-    def test_email_marketing_is_two_dollars_per_thousand(self):
-        for qty, cents in [(1, 200), (999, 200), (1_000, 200), (1_001, 400),
-                           (2_000, 400), (2_001, 600), (5_000, 1000), (10_000, 2000)]:
+    def test_email_marketing_is_point_zero_zero_two_dollars_per_credit(self):
+        # block_size=1 is plain per-credit pricing (ceil(qty/1) == qty), so
+        # unlike the old $2-per-1,000-block rule, a purchase under 1,000
+        # scales down linearly rather than being rounded up to a full block.
+        for qty, cents in [(1, 0), (999, 200), (1_000, 200), (1_001, 200),
+                           (5_000, 1000), (10_000, 2000)]:
             self.assertEqual(quote_service('email_marketing', qty)[0], cents, qty)
 
     def test_sales_outreach_is_three_dollars_per_account(self):
@@ -111,6 +116,26 @@ class PricingValidationTests(TestCase):
     def test_seeded_ladders_are_gapless(self):
         gaps = [w for w in validate_pricing_table() if 'gap/overlap' in w]
         self.assertEqual(gaps, [], f"pricing ladders have gaps: {gaps}")
+
+    def test_seeded_ladders_have_no_warnings_at_all(self):
+        # Unlike the old table (which had deliberately-preserved anomalies),
+        # the new per-credit rates are monotonically non-increasing per
+        # service with contiguous bands, so this should now be completely
+        # clean — zero warnings of any kind, not just no gaps.
+        warnings = validate_pricing_table()
+        self.assertEqual(warnings, [])
+
+    def test_every_service_is_priceable_at_its_minimum_quantity(self):
+        """Regression guard for the "No pricing is configured for X" bug:
+        every one of the 7 services must have active CreditPackage rows
+        covering at least its own minimum purchasable quantity."""
+        for service, min_qty in SERVICE_MIN_QTY.items():
+            try:
+                price_cents, _ = quote_service(service, min_qty)
+            except PricingError as e:
+                self.fail(f"{service} raised at its own minimum ({min_qty}): {e}")
+            self.assertGreater(price_cents, 0,
+                               f"{service} priced at $0.00 for its minimum quantity")
 
 
 # ── Phase 7: minimum purchase quantity ──────────────────────────────────────
@@ -173,10 +198,11 @@ class PricingMinimumQuantityTests(TestCase):
         self.assertIn('1,000', msg)
 
     def test_quote_service_itself_is_unaffected_by_the_cart_minimum(self):
-        # The per-unit pricing primitive still prices any positive quantity —
-        # only quote_cart (the checkout funnel) enforces the per-service floor.
-        price_cents, _ = quote_service('email_validation', 1)
-        self.assertEqual(price_cents, 3900)
+        # The per-unit pricing primitive still prices any positive quantity
+        # (500 is below email_validation's 1,000 cart minimum) — only
+        # quote_cart (the checkout funnel) enforces the per-service floor.
+        price_cents, _ = quote_service('email_validation', 500)
+        self.assertEqual(price_cents, 195)   # 500 * $0.0039
 
     def test_public_config_exposes_the_correct_minimum_per_service(self):
         cfg = public_config()

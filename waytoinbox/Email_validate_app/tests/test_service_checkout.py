@@ -82,10 +82,44 @@ class ServiceCheckoutTests(TestCase):
             r = self._json('/subscription/quote/', {'cart': cart})
             self.assertEqual(r.status_code, 400, f"accepted {cart!r}")
 
-    def test_quote_requires_login(self):
+    def test_quote_does_not_require_login(self):
+        """Seeing a price must never depend on being signed in — only
+        starting checkout (subscription_order) does. See
+        test_order_requires_login / test_verify_requires_login below."""
         r = Client(SERVER_NAME='127.0.0.1').post(
-            '/subscription/quote/', data=json.dumps({'cart': {}}),
+            '/subscription/quote/', data=json.dumps({'cart': {'email_validation': 25_000}}),
             content_type='application/json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['total_cents'], 5900)
+
+    def test_quote_prices_every_service_for_an_anonymous_user(self):
+        """Regression guard for the reported bug: an anonymous request must
+        get neither "Not authenticated" (401) nor "No pricing is configured"
+        (400) for any of the 7 services, and must return a nonzero total."""
+        from Email_validate_app.services.pricing import SERVICE_MIN_QTY
+
+        anon = Client(SERVER_NAME='127.0.0.1')
+        for service, min_qty in SERVICE_MIN_QTY.items():
+            r = anon.post('/subscription/quote/',
+                          data=json.dumps({'cart': {service: min_qty}}),
+                          content_type='application/json')
+            self.assertEqual(r.status_code, 200, f"{service}: {r.content}")
+            body = r.json()
+            self.assertEqual(body['status'], 'ok', service)
+            self.assertGreater(body['total_cents'], 0, service)
+
+    def test_order_requires_login(self):
+        r = Client(SERVER_NAME='127.0.0.1').post(
+            '/subscription/order/', data=json.dumps({'cart': {'email_validation': 25_000}}),
+            content_type='application/json')
+        self.assertEqual(r.status_code, 401)
+
+    def test_verify_requires_login(self):
+        r = Client(SERVER_NAME='127.0.0.1').post(
+            '/subscription/verify/', data=json.dumps({
+                'razorpay_order_id': 'order_x', 'razorpay_payment_id': 'pay_x',
+                'razorpay_signature': 'sig',
+            }), content_type='application/json')
         self.assertEqual(r.status_code, 401)
 
     # -- order ---------------------------------------------------------------

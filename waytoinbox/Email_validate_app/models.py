@@ -328,14 +328,22 @@ class ServiceCredit(models.Model):
 
 class CreditPackage(models.Model):
     """Server-side pricing catalogue. DB-backed so prices can be corrected
-    without a deploy (the supplied ladders contain deliberate anomalies —
-    see the seed migration).
+    without a deploy.
 
     Two pricing modes:
-      tier  — flat price for the whole band. Matched as min_qty <= qty <= max_qty
-              (max_qty NULL = open-ended top band).
+      tier  — price_usd is the PER-CREDIT rate for the band. Matched as
+              min_qty <= qty <= max_qty (max_qty NULL = open-ended top
+              band); the line total is qty * price_usd.
       block — price_usd per block_size units, charged as
-              ceil(qty / block_size) * price_usd.
+              ceil(qty / block_size) * price_usd (block_size=1 is plain
+              per-credit pricing, since ceil(qty/1) == qty).
+
+    price_usd needs decimal_places=6 (not the more usual 2) because several
+    per-credit rates are sub-cent (e.g. $0.00016) — rounding the rate itself
+    to whole cents before multiplying by quantity would collapse it to $0
+    before a single credit's cost is ever applied. See
+    services/pricing.py::quote_service for the multiply-then-round-once
+    calculation this precision exists to support.
     """
     MODE_TIER  = 'tier'
     MODE_BLOCK = 'block'
@@ -346,7 +354,7 @@ class CreditPackage(models.Model):
     min_qty    = models.BigIntegerField(null=True, blank=True)   # tier mode
     max_qty    = models.BigIntegerField(null=True, blank=True)   # tier mode; NULL = open-ended
     block_size = models.BigIntegerField(null=True, blank=True)   # block mode
-    price_usd  = models.DecimalField(max_digits=10, decimal_places=2)
+    price_usd  = models.DecimalField(max_digits=12, decimal_places=6)
     is_active  = models.BooleanField(default=True)
     sort_order = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
