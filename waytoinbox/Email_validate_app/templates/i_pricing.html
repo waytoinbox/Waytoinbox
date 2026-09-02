@@ -1,5 +1,10 @@
 ﻿{% extends 'i_index.html' %}
 {% load static %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/subscription_credits.css' %}"/>
+{% endblock %}
+
 {% block content %}
 
 <!-- ── NOTICE BAR ──────────────────────────────────────── -->
@@ -18,15 +23,15 @@
 
     <div class="pricing-toggle">
       <div class="pricing-toggle-inner">
-        <button class="ptab active" onclick="switchPricingTab('payg', this)">Pay-As-You-Go</button>
-        <button class="ptab" onclick="switchPricingTab('subscription', this)">Subscription</button>
+        <button class="ptab active" onclick="switchPricingTab('subscription', this)">Subscription</button>
+        <button class="ptab" onclick="switchPricingTab('payg', this)">Pay-As-You-Go</button>
       </div>
     </div>
   </div>
 </div>
 
 <!-- ── PAY-AS-YOU-GO PANEL ───────────────────────────────── -->
-<div class="pricing-panel active" id="panel-payg">
+<div class="pricing-panel" id="panel-payg">
   <div class="container">
     <div class="payg-wrap">
 
@@ -105,137 +110,150 @@
 </div>
 
 <!-- ── SUBSCRIPTION PANEL ─────────────────────────────────── -->
-<div class="pricing-panel" id="panel-subscription">
+<!-- Service-credit purchase card. Same markup/behaviour as i_subscription.html
+     (buy_credits.js + subscription_credits.css), embedded here in place of
+     the old Classic/Standard/Advanced plan cards. i_subscription.html itself
+     is untouched and still renders standalone at /subscription/. -->
+<div class="pricing-panel active" id="panel-subscription">
   <div class="container">
 
-    <div class="ccs-wrap fade-up">
+    {{ pricing_config|json_script:"sc-pricing-config" }}
 
-      <!-- Billing toggle -->
-      <div class="ccs-billing-toggle">
-        <button class="ccs-btab active" id="ccsBtnMonthly" onclick="ccsBilling('monthly',this)">Monthly</button>
-        <button class="ccs-btab" id="ccsBtnYearly" onclick="ccsBilling('yearly',this)">
-          Yearly <span class="ccs-save-chip">Save 17%</span>
-        </button>
-      </div>
+    <div class="sc-page">
+      <div class="sc-card">
 
-      <!-- Slider box -->
-      <div class="ccs-slider-box">
-        <div class="ccs-contact-display"><span id="ccsContactLabel">10,000</span> contacts</div>
-        <input type="range" id="ccsSlider" class="ccs-slider" min="0" max="8" step="1" value="3">
-        <div class="ccs-ticks" id="ccsTicks"></div>
-      </div>
+        <!-- ── TOTAL ─────────────────────────────────────────── -->
+        <div class="sc-card-head">
+          <p class="sc-eyebrow">Your total</p>
 
-      <!-- 3 plan cards — prices update on slider change -->
-      <div class="sub-grid" id="ccsPlansGrid">
+          <div id="scTotal"
+               class="sc-total"
+               role="status"
+               aria-live="polite"
+               aria-atomic="true"
+               aria-label="Order total"
+               data-quote-url="{% url 'subscription_quote' %}"
+               data-order-url="{% url 'subscription_order' %}"
+               data-verify-url="{% url 'subscription_verify' %}"
+               data-self-url="{% url 'pricing' %}#subscription">$0.00</div>
 
-        <!-- Classic -->
-        <div class="sub-card {% if active_plan and active_plan.subs_plan == 'Classic' %}active-plan{% endif %} fade-up">
-          {% if active_plan and active_plan.subs_plan == 'Classic' %}
-            <div class="active-badge">&#10003; Current Plan</div>
-          {% endif %}
-          <div class="sub-plan-name plan-classic">Classic</div>
-          <div class="sub-price"><span id="ccsClassicPrice" class="ccs-price-val">$50</span><span id="ccsClassicPeriod"> /mo</span></div>
-          <div class="ccs-card-yearly" id="ccsClassicYearly" style="display:none">Billed annually — save <strong id="ccsClassicSave"></strong>/yr</div>
-          <div class="sub-desc">Great for freelancers &amp; individuals.</div>
-          {% if active_plan and active_plan.subs_plan == 'Classic' %}
-            <div class="btn-active">Active plan<small>Valid till <span class="local-dt" data-utc="{{ active_plan.valid_time|date:'c' }}" data-format="date">{{ active_plan.valid_time|date:"M d, Y" }}</span></small></div>
-          {% else %}
-            <button class="btn btn-primary sub-btn" id="ccsClassicBtn">Get Classic &#8594;</button>
-          {% endif %}
-          <div class="sub-features" id="ccsClassicFeatureList">
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>Unlimited Contact Lists</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>Unlimited Email Campaigns</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>100 Email Validations / month</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>10 Free Single Email Validations</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>IP Monitoring — up to 2 IPs</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>Domain Monitoring — up to 2 domains</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>Reputation Analysis — up to 1 domain</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>Header Analysis — up to 10 headers</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-classic">&#10003;</span>2% Discount on Email Validation</div>
-          </div>
-        </div>
+          <p id="scBreakdown" class="sc-breakdown" hidden></p>
+          <p id="scTotalNote" class="sc-total-note"></p>
 
-        <!-- Standard -->
-        <div class="sub-card popular {% if active_plan and active_plan.subs_plan == 'Standard' %}active-plan{% endif %} fade-up" style="transition-delay:.08s">
-          {% if active_plan and active_plan.subs_plan == 'Standard' %}
-            <div class="active-badge">&#10003; Current Plan</div>
-          {% else %}
-            <div class="popular-badge">Most Popular</div>
-          {% endif %}
-          <div class="sub-plan-name plan-standard">Standard</div>
-          <div class="sub-price"><span id="ccsStandardPrice" class="ccs-price-val">$75</span><span id="ccsStandardPeriod"> /mo</span></div>
-          <div class="ccs-card-yearly" id="ccsStandardYearly" style="display:none">Billed annually — save <strong id="ccsStandardSave"></strong>/yr</div>
-          <div class="sub-desc">Perfect for startups &amp; small teams.</div>
-          {% if active_plan and active_plan.subs_plan == 'Standard' %}
-            <div class="btn-active">Active plan<small>Valid till <span class="local-dt" data-utc="{{ active_plan.valid_time|date:'c' }}" data-format="date">{{ active_plan.valid_time|date:"M d, Y" }}</span></small></div>
-          {% else %}
-            <button class="btn btn-primary sub-btn" id="ccsStandardBtn">Get Standard &#8594;</button>
-          {% endif %}
-          <div class="sub-features" id="ccsStandardFeatureList">
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>Unlimited Contact Lists</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>Unlimited Email Campaigns</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>200 Email Validations / month</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>20 Free Single Email Validations</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>IP Monitoring — up to 3 IPs</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>Domain Monitoring — up to 3 domains</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>Reputation Analysis — up to 2 domains</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>Header Analysis — up to 20 headers</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-standard">&#10003;</span>4% Discount on Email Validation</div>
-          </div>
-        </div>
+          <!-- ── PROMO ───────────────────────────────────────── -->
+          <div class="sc-promo">
+            <button type="button"
+                    id="scPromoToggle"
+                    class="sc-promo-toggle"
+                    aria-expanded="false"
+                    aria-controls="scPromoPanel">Have a promo code?</button>
 
-        <!-- Advanced -->
-        <div class="sub-card {% if active_plan and active_plan.subs_plan == 'Advanced' %}active-plan{% endif %} fade-up" style="transition-delay:.16s">
-          {% if active_plan and active_plan.subs_plan == 'Advanced' %}
-            <div class="active-badge">&#10003; Current Plan</div>
-          {% endif %}
-          <div class="sub-plan-name plan-advanced">Advanced</div>
-          <div class="sub-price"><span id="ccsAdvancedPrice" class="ccs-price-val">$100</span><span id="ccsAdvancedPeriod"> /mo</span></div>
-          <div class="ccs-card-yearly" id="ccsAdvancedYearly" style="display:none">Billed annually — save <strong id="ccsAdvancedSave"></strong>/yr</div>
-          <div class="sub-desc">Built for growing businesses.</div>
-          {% if active_plan and active_plan.subs_plan == 'Advanced' %}
-            <div class="btn-active">Active plan<small>Valid till <span class="local-dt" data-utc="{{ active_plan.valid_time|date:'c' }}" data-format="date">{{ active_plan.valid_time|date:"M d, Y" }}</span></small></div>
-          {% else %}
-            <button class="btn btn-primary sub-btn" id="ccsAdvancedBtn">Get Advanced &#8594;</button>
-          {% endif %}
-          <div class="sub-features" id="ccsAdvancedFeatureList">
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>Unlimited Contact Lists</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>Unlimited Email Campaigns</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>500 Email Validations / month</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>50 Free Single Email Validations</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>IP Monitoring — up to 5 IPs</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>Domain Monitoring — up to 5 domains</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>Reputation Analysis — up to 4 domains</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>Header Analysis — up to 50 headers</div>
-            <div class="sub-feature"><span class="sub-feature-icon icon-advanced">&#10003;</span>6% Discount on Email Validation</div>
-          </div>
-        </div>
-
-      </div><!-- /#ccsPlansGrid -->
-
-      <!-- Enterprise panel — shown only at 1,000,000 contacts -->
-      <div id="ccsEnterprisePanel" style="display:none">
-        <div class="ccs-enterprise-card">
-          <div class="ccs-enterprise-left">
-            <div class="sub-plan-name" style="color:var(--ink)">Enterprise</div>
-            <div class="sub-desc">Need more? Let's build a plan for you.</div>
-            <div class="sub-features" style="margin-top:16px">
-              <div class="sub-feature"><span class="sub-feature-icon" style="color:var(--teal)">&#10003;</span>Custom email volume</div>
-              <div class="sub-feature"><span class="sub-feature-icon" style="color:var(--teal)">&#10003;</span>Unlimited IP monitoring</div>
-              <div class="sub-feature"><span class="sub-feature-icon" style="color:var(--teal)">&#10003;</span>Custom discount</div>
-              <div class="sub-feature"><span class="sub-feature-icon" style="color:var(--teal)">&#10003;</span>Dedicated support</div>
-              <div class="sub-feature"><span class="sub-feature-icon" style="color:var(--teal)">&#10003;</span>Priority onboarding</div>
+            <div id="scPromoPanel" class="sc-promo-panel" hidden>
+              <input type="text"
+                     id="scPromoInput"
+                     class="sc-promo-input"
+                     placeholder="Enter promo code"
+                     autocomplete="off"
+                     spellcheck="false"
+                     maxlength="50"
+                     aria-label="Promo code"/>
+              <button type="button" id="scPromoApply" class="sc-promo-apply">Apply</button>
             </div>
+
+            <p id="scPromoMsg" class="sc-promo-msg" role="status" aria-live="polite"></p>
           </div>
-          <div class="ccs-enterprise-right">
-            <div class="ccs-price" style="font-size:28px;color:var(--ink)">Custom</div>
-            <div class="sub-desc" style="margin-top:4px">Pricing</div>
-            <button class="btn btn-primary sub-btn" style="margin-top:20px" onclick="window.location.href='/Contact_Us/'">Contact Sales &#8594;</button>
+
+          <!-- ── GET STARTED ─────────────────────────────────── -->
+          <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
+          <p id="scCtaHint" class="sc-cta-hint">Choose a quantity for at least one service to continue.</p>
+        </div>
+
+        <hr class="sc-divider"/>
+
+        <!-- ── SERVICE QUANTITY ROWS ─────────────────────────── -->
+        <p class="sc-rows-label">Choose your credits</p>
+
+        <div class="sc-rows">
+          {% for service in services %}
+          <div class="sc-row" data-service="{{ service.key }}">
+            <input type="text"
+                   class="sc-qty"
+                   inputmode="numeric"
+                   autocomplete="off"
+                   value="0"
+                   aria-label="{{ service.label }} quantity"/>
+
+            <span class="sc-name">
+              {{ service.label }}
+              {% if service.balance %}
+                <span class="sc-balance">{{ service.balance|floatformat:0 }} available</span>
+              {% endif %}
+              <span class="sc-min-hint">{{ service.min_qty|floatformat:0 }} minimum</span>
+            </span>
+
+            <span class="sc-arrows">
+              <button type="button"
+                      class="sc-up"
+                      aria-label="Increase {{ service.label }} by one"><i class="fas fa-caret-up" aria-hidden="true"></i></button>
+              <button type="button"
+                      class="sc-down"
+                      aria-label="Decrease {{ service.label }} by one"
+                      disabled><i class="fas fa-caret-down" aria-hidden="true"></i></button>
+            </span>
           </div>
+          {% endfor %}
+        </div>
+
+        <!-- ── EXISTING BALANCES ─────────────────────────────── -->
+        {% if legacy_shared.ac or legacy_shared.vc or legacy_shared.cc %}
+        <div class="sc-legacy">
+          <p class="sc-legacy-title">Credits from earlier purchases</p>
+          <div class="sc-legacy-chips">
+            {% if legacy_shared.vc %}
+              <span class="sc-legacy-chip">Email Validation <b>{{ legacy_shared.vc }}</b></span>
+            {% endif %}
+            {% if legacy_shared.cc %}
+              <span class="sc-legacy-chip">Email Marketing <b>{{ legacy_shared.cc }}</b></span>
+            {% endif %}
+            {% if legacy_shared.ac %}
+              {% comment %}
+                ONE chip, not four. This single pool backs Reputation Analysis,
+                Email Header Analyzer, IP Blocklist and Domain Blocklist.
+              {% endcomment %}
+              <span class="sc-legacy-chip">Shared Analysis Credits <b>{{ legacy_shared.ac }}</b></span>
+            {% endif %}
+          </div>
+          {% if legacy_shared.ac %}
+          <p class="sc-legacy-note">
+            Shared Analysis Credits are one balance used by Reputation Analysis,
+            Email Header Analyzer, IP Blocklist Monitor and Domain Blocklist Monitor.
+          </p>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        {% if active_plan %}
+        <div class="sc-active-plan">
+          Your {{ active_plan.subs_plan }} plan is active until {{ active_plan.valid_time|date:"d M Y" }}.
+          Credits you buy here never expire.
+        </div>
+        {% endif %}
+
+      </div>
+    </div><!-- /.sc-page -->
+
+    <!-- ── CONFIRMATION MODAL ──────────────────────────────── -->
+    <div class="sc-modal" id="scModal" role="dialog" aria-modal="true" aria-labelledby="scModalTitle">
+      <div class="sc-modal-box">
+        <h3 class="sc-modal-title" id="scModalTitle">Confirm your purchase</h3>
+        <div class="sc-modal-lines" id="scModalLines"></div>
+        <div class="sc-modal-total" id="scModalTotal"></div>
+        <div class="sc-modal-actions">
+          <button type="button" class="sc-modal-cancel"  id="scModalCancel">Cancel</button>
+          <button type="button" class="sc-modal-confirm" id="scModalConfirm">Pay now</button>
         </div>
       </div>
-
-    </div><!-- /.ccs-wrap -->
+    </div>
 
   </div>
 </div>
@@ -256,6 +274,7 @@
 
 <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
 <script src="{% static 'Email_validate_app/js/checkout.js' %}"></script>
+<script src="{% static 'Email_validate_app/js/buy_credits.js' %}"></script>
 <script>
 /* ── NAV scroll shadow ───────────────────────────────── */
 window.addEventListener('scroll', function() {
@@ -323,40 +342,6 @@ function openRazorpay(order) {
       ? 'Payment successful! Your ' + order.credit + ' plan is now active.'
       : 'Payment successful! Credits have been added to your account.'
   });
-}
-
-/* ── Subscription plan buy ───────────────────────────── */
-async function subBuy(plan, price, btn, billing_cycle) {
-  billing_cycle = billing_cycle || 'monthly';
-  btn.disabled = true;
-  var orig = btn.textContent;
-  btn.innerHTML = '<span class="btn-spinner"></span>';
-
-  var fd = new FormData();
-  fd.append('csrfmiddlewaretoken', getCsrf());
-  fd.append('plan', plan);
-  fd.append('price', price);
-  fd.append('billing_cycle', billing_cycle);
-  fd.append('contacts', ccsContacts);
-
-  try {
-    var res  = await fetch('{% url "create_subscription" %}', {
-      method: 'POST', headers: {'X-Requested-With': 'XMLHttpRequest'}, body: fd
-    });
-    var data = await res.json();
-    if (data.status === 'ok') {
-      data.billing_cycle = billing_cycle;
-      data.contacts = String(ccsContacts);
-      openPayConfirm(data);
-    } else {
-      subShowAlert('error', data.message || 'Could not initiate payment.');
-    }
-  } catch (err) {
-    subShowAlert('error', 'Something went wrong. Please try again.');
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = orig;
-  }
 }
 
 /* ── PAYG calculator ─────────────────────────────────── */
@@ -551,137 +536,6 @@ document.addEventListener('DOMContentLoaded', function() {
     }
   });
 });
-</script>
-
-<script>
-/* ── Contact Count Slider ────────────────────────────── */
-var CCS_TIERS = [
-  {contacts:'500',     classic:5,    standard:7.5,  advanced:10,   group:1},
-  {contacts:'1,000',   classic:10,   standard:15,   advanced:20,   group:1},
-  {contacts:'2,500',   classic:25,   standard:37.5, advanced:50,   group:1},
-  {contacts:'5,000',   classic:50,   standard:75,   advanced:100,  group:1},
-  {contacts:'10,000',  classic:100,  standard:150,  advanced:200,  group:2},
-  {contacts:'25,000',  classic:250,  standard:375,  advanced:500,  group:2},
-  {contacts:'50,000',  classic:500,  standard:750,  advanced:1000, group:3},
-  {contacts:'75,000',  classic:750,  standard:1125, advanced:1500, group:3},
-  {contacts:'100,000', classic:null, standard:null, advanced:null, group:0},
-];
-
-var CCS_FEATURES = {
-  1: {
-    classic:  ['Unlimited Contact Lists','Unlimited Email Campaigns','100 Email Validations / month','10 Free Single Email Validations','IP Monitoring — up to 2 IPs','Domain Monitoring — up to 2 domains','Reputation Analysis — up to 1 domain','Header Analysis — up to 10 headers','2% Discount on Email Validation'],
-    standard: ['Unlimited Contact Lists','Unlimited Email Campaigns','200 Email Validations / month','20 Free Single Email Validations','IP Monitoring — up to 3 IPs','Domain Monitoring — up to 3 domains','Reputation Analysis — up to 2 domains','Header Analysis — up to 20 headers','4% Discount on Email Validation'],
-    advanced: ['Unlimited Contact Lists','Unlimited Email Campaigns','500 Email Validations / month','50 Free Single Email Validations','IP Monitoring — up to 5 IPs','Domain Monitoring — up to 5 domains','Reputation Analysis — up to 4 domains','Header Analysis — up to 50 headers','6% Discount on Email Validation'],
-  },
-  2: {
-    classic:  ['Unlimited Contact Lists','Unlimited Email Campaigns','1,000 Email Validations / month','100 Free Single Email Validations','IP Monitoring — up to 10 IPs','Domain Monitoring — up to 10 domains','Reputation Analysis — up to 6 domains','Header Analysis — up to 70 headers','6% Discount on Email Validation'],
-    standard: ['Unlimited Contact Lists','Unlimited Email Campaigns','2,000 Email Validations / month','200 Free Single Email Validations','IP Monitoring — up to 20 IPs','Domain Monitoring — up to 20 domains','Reputation Analysis — up to 8 domains','Header Analysis — up to 80 headers','7% Discount on Email Validation'],
-    advanced: ['Unlimited Contact Lists','Unlimited Email Campaigns','5,000 Email Validations / month','500 Free Single Email Validations','IP Monitoring — up to 30 IPs','Domain Monitoring — up to 30 domains','Reputation Analysis — up to 10 domains','Header Analysis — up to 90 headers','8% Discount on Email Validation'],
-  },
-  3: {
-    classic:  ['Unlimited Contact Lists','Unlimited Email Campaigns','6,000 Email Validations / month','600 Free Single Email Validations','IP Monitoring — up to 60 IPs','Domain Monitoring — up to 60 domains','Reputation Analysis — up to 15 domains','Header Analysis — up to 100 headers','9% Discount on Email Validation'],
-    standard: ['Unlimited Contact Lists','Unlimited Email Campaigns','2,000 Email Validations / month','200 Free Single Email Validations','IP Monitoring — up to 70 IPs','Domain Monitoring — up to 70 domains','Reputation Analysis — up to 25 domains','Header Analysis — up to 180 headers','10% Discount on Email Validation'],
-    advanced: ['Unlimited Contact Lists','Unlimited Email Campaigns','5,000 Email Validations / month','500 Free Single Email Validations','IP Monitoring — up to 80 IPs','Domain Monitoring — up to 80 domains','Reputation Analysis — up to 30 domains','Header Analysis — up to 190 headers','10% Discount on Email Validation'],
-  },
-};
-
-var CCS_CARDS = [
-  {key:'classic',  priceId:'ccsClassicPrice',  periodId:'ccsClassicPeriod',  yearlyId:'ccsClassicYearly',  saveId:'ccsClassicSave',  btnId:'ccsClassicBtn',  name:'Classic',  featListId:'ccsClassicFeatureList',  iconClass:'icon-classic'},
-  {key:'standard', priceId:'ccsStandardPrice', periodId:'ccsStandardPeriod', yearlyId:'ccsStandardYearly', saveId:'ccsStandardSave', btnId:'ccsStandardBtn', name:'Standard', featListId:'ccsStandardFeatureList', iconClass:'icon-standard'},
-  {key:'advanced', priceId:'ccsAdvancedPrice', periodId:'ccsAdvancedPeriod', yearlyId:'ccsAdvancedYearly', saveId:'ccsAdvancedSave', btnId:'ccsAdvancedBtn', name:'Advanced', featListId:'ccsAdvancedFeatureList', iconClass:'icon-advanced'},
-];
-
-var ccsCycle    = 'monthly';
-var ccsIdx      = 3;
-var ccsContacts = 5000;
-var ACTIVE_PLAN = '{{ active_plan.subs_plan|default:"" }}';
-
-function fmtPrice(v) {
-  if (v === null || v === undefined) return 'Custom';
-  return '$' + (v % 1 === 0 ? v.toString() : v.toFixed(2));
-}
-
-function ccsRender(idx) {
-  ccsIdx = idx;
-  var t = CCS_TIERS[idx];
-  ccsContacts = parseInt(t.contacts.replace(/,/g, ''), 10) || 0;
-
-  document.getElementById('ccsContactLabel').textContent = t.contacts;
-  document.querySelectorAll('.ccs-tick').forEach(function(el, i) {
-    el.classList.toggle('active', i === idx);
-  });
-
-  var isEnterprise = (t.classic === null);
-  document.getElementById('ccsPlansGrid').style.display       = isEnterprise ? 'none' : '';
-  document.getElementById('ccsEnterprisePanel').style.display = isEnterprise ? ''     : 'none';
-  if (isEnterprise) return;
-
-  CCS_CARDS.forEach(function(c) {
-    var monthly  = t[c.key];
-    var priceEl  = document.getElementById(c.priceId);
-    var periodEl = document.getElementById(c.periodId);
-    var yearlyEl = document.getElementById(c.yearlyId);
-    var saveEl   = document.getElementById(c.saveId);
-    var btnEl    = document.getElementById(c.btnId);
-
-    priceEl.textContent  = fmtPrice(monthly);
-    periodEl.textContent = ' /mo';
-
-    if (yearlyEl) {
-      if (ccsCycle === 'yearly') {
-        saveEl.textContent     = fmtPrice(monthly * 2);
-        yearlyEl.style.display = '';
-      } else {
-        yearlyEl.style.display = 'none';
-      }
-    }
-
-    if (btnEl) {
-      btnEl.onclick = (function(planName, mo) {
-        return function() {
-          var price = ccsCycle === 'yearly' ? mo * 10 : mo;
-          subBuy(planName, price, btnEl, ccsCycle);
-        };
-      })(c.name, monthly);
-    }
-  });
-
-  var grpFeats = CCS_FEATURES[t.group];
-  if (grpFeats) {
-    CCS_CARDS.forEach(function(c) {
-      var feats = grpFeats[c.key];
-      var el    = document.getElementById(c.featListId);
-      if (!el || !feats) return;
-      el.innerHTML = feats.map(function(f) {
-        return '<div class="sub-feature"><span class="sub-feature-icon ' + c.iconClass + '">&#10003;</span>' + f + '</div>';
-      }).join('');
-    });
-  }
-}
-
-function ccsBilling(cycle, btn) {
-  ccsCycle = cycle;
-  document.querySelectorAll('.ccs-btab').forEach(function(b) { b.classList.remove('active'); });
-  btn.classList.add('active');
-  ccsRender(ccsIdx);
-}
-
-(function buildTicks() {
-  var box    = document.getElementById('ccsTicks');
-  var labels = ['500','1K','2.5K','5K','10K','25K','50K','75K','100K'];
-  labels.forEach(function(lbl, i) {
-    var span = document.createElement('span');
-    span.className   = 'ccs-tick' + (i === 3 ? ' active' : '');
-    span.textContent = lbl;
-    box.appendChild(span);
-  });
-})();
-
-document.getElementById('ccsSlider').addEventListener('input', function() {
-  ccsRender(parseInt(this.value, 10));
-});
-
-ccsRender(3);
 </script>
 
 {% endblock %}

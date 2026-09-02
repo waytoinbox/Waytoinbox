@@ -114,7 +114,45 @@ def pricing(request):
     else:
         current_credits = None  # no session
 
-    return render(request, "i_pricing.html", {"credits": current_credits, "active_plan": active_plan})
+    # ── Service-credit purchase card (Subscription tab) ─────────────────────
+    # Deliberately duplicated from views/subscription.py::subscription rather
+    # than imported/refactored, so that view and i_subscription.html stay
+    # completely untouched — this page now embeds its own copy of the same
+    # cards. Keep the two in sync by hand if the card's data shape ever
+    # changes.
+    from Email_validate_app.services.credit_manager import get_all_service_balances
+    from Email_validate_app.services.pricing import (
+        SERVICE_LABELS, SERVICE_UNITS, MIN_QTY_PER_SERVICE, public_config,
+    )
+    from Email_validate_app.models import SERVICE_KEYS
+
+    try:
+        balances = get_all_service_balances(user_id) if user_id else None
+    except Exception as e:
+        logger.error("Error fetching service balances: %s", e)
+        balances = None
+
+    new_balances  = (balances or {}).get('services', {})
+    legacy_shared = (balances or {}).get('legacy_shared', {})
+
+    services = [
+        {
+            'key':      key,
+            'label':    SERVICE_LABELS[key],
+            'unit':     SERVICE_UNITS.get(key, 'credits'),
+            'balance':  new_balances.get(key, {}).get('new', 0),
+            'min_qty':  MIN_QTY_PER_SERVICE,
+        }
+        for key in SERVICE_KEYS
+    ]
+
+    return render(request, "i_pricing.html", {
+        "credits": current_credits,
+        "active_plan": active_plan,
+        "services": services,
+        "legacy_shared": legacy_shared,
+        "pricing_config": public_config(),
+    })
 
 
 def order_payment(request):
