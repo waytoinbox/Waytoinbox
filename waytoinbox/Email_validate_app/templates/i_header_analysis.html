@@ -21,8 +21,9 @@
       <div class="hac-bar">
         <i class="fas fa-coins hac-icon"></i>
         <div class="hac-info">
-          <div class="hac-label">Analysis Credits <span id="hacText">{{ ac_current_credits }} / {{ ac_total_credits }}</span></div>
+          <div class="hac-label">Available Credits <span id="hacText">{{ ac_current_credits }}</span></div>
           <div class="hac-track"><div class="hac-fill" id="hacFill"></div></div>
+          <div class="ac-plan-meta"><i class="fas fa-info-circle"></i> Uses shared Analysis Credits when available</div>
           {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
         </div>
         <span class="hac-badge" id="hacBadge"></span>
@@ -107,13 +108,15 @@ var _hacCurrent = {{ ac_current_credits|default:0 }};
 var _hacTotal   = {{ ac_total_credits|default:0 }};
 
 function updateHacBar(current, total) {
+  // `total` used to be a legacy subscription total unrelated to this wallet;
+  // the bar is now a plain has-credits / no-credits indicator.
   _hacCurrent = current; _hacTotal = total;
-  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var pct   = current > 0 ? 100 : 0;
   var fill  = document.getElementById('hacFill');
   var badge = document.getElementById('hacBadge');
   var text  = document.getElementById('hacText');
   var btn   = document.getElementById('analyzeBtn');
-  text.textContent = current + ' / ' + total;
+  text.textContent = current;
   fill.style.width = pct + '%';
   fill.className  = 'hac-fill';
   badge.className = 'hac-badge';

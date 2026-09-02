@@ -33,11 +33,12 @@
       <i class="fas fa-coins ra-credit-icon"></i>
       <div class="ra-credit-info">
         <div class="ra-credit-label">
-          Analysis Credits <span id="raCreditText">{{ ac_current_credits }} / {{ ac_total_credits }}</span>
+          Available Credits <span id="raCreditText">{{ ac_current_credits }}</span>
         </div>
         <div class="ra-credit-track">
           <div class="ra-credit-fill" id="raCreditFill"></div>
         </div>
+        <div class="ac-plan-meta"><i class="fas fa-info-circle"></i> Uses shared Analysis Credits when available</div>
         {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
       </div>
       <span class="ra-credit-badge" id="raCreditBadge"></span>
@@ -195,15 +196,18 @@ var _raCurrent = {{ ac_current_credits|default:0 }};
 var _raTotal   = {{ ac_total_credits|default:0 }};
 
 function updateCreditBar(current, total) {
+  // `total` used to be a legacy subscription total, so "current / total" was
+  // shown as a fraction of a number that had nothing to do with these
+  // credits. The bar is now a plain has-credits / no-credits indicator.
   _raCurrent = current; _raTotal = total;
-  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var pct   = current > 0 ? 100 : 0;
   var fill  = document.getElementById('raCreditFill');
   var badge = document.getElementById('raCreditBadge');
   var text  = document.getElementById('raCreditText');
   var btn   = document.getElementById('raBtn');
   var input = document.getElementById('domain_input');
 
-  text.textContent = current + ' / ' + total;
+  text.textContent = current;
   fill.style.width = pct + '%';
   fill.className  = 'ra-credit-fill';
   badge.className = 'ra-credit-badge';

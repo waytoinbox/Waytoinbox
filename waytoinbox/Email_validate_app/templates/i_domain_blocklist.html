@@ -63,11 +63,12 @@
       <i class="fas fa-coins bl-credit-icon"></i>
       <div class="bl-credit-info">
         <div class="bl-credit-label">
-          Analysis Credits <span id="blCreditText">{{ ac_current_credits }} / {{ ac_total_credits }}</span>
+          Available Credits <span id="blCreditText">{{ ac_current_credits }}</span>
         </div>
         <div class="bl-credit-track">
           <div class="bl-credit-fill" id="blCreditFill"></div>
         </div>
+        <div class="ac-plan-meta"><i class="fas fa-info-circle"></i> Uses shared Analysis Credits when available</div>
         {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
       </div>
       <span class="bl-credit-badge" id="blCreditBadge"></span>
@@ -225,17 +226,19 @@ var _blCreditCurrent = {{ ac_current_credits|default:0 }};
 var _blCreditTotal   = {{ ac_total_credits|default:0 }};
 
 function updateBlCreditBar(current, total) {
+  // `total` used to be a legacy subscription total unrelated to this wallet;
+  // the bar is now a plain has-credits / no-credits indicator.
   _blCreditCurrent = current;
   _blCreditTotal   = total;
 
-  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var pct   = current > 0 ? 100 : 0;
   var fill  = document.getElementById('blCreditFill');
   var badge = document.getElementById('blCreditBadge');
   var text  = document.getElementById('blCreditText');
   var btn   = document.getElementById('blBtn');
   var input = document.getElementById('domain_s');
 
-  text.textContent = current + ' / ' + total;
+  text.textContent = current;
   fill.style.width = pct + '%';
 
   fill.className  = 'bl-credit-fill';

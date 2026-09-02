@@ -22,8 +22,9 @@
     <div class="ipc-bar">
       <i class="fas fa-coins ipc-icon"></i>
       <div class="ipc-info">
-        <div class="ipc-label">Analysis Credits <span id="ipcText">{{ ac_current_credits }} / {{ ac_total_credits }}</span></div>
+        <div class="ipc-label">Available Credits <span id="ipcText">{{ ac_current_credits }}</span></div>
         <div class="ipc-track"><div class="ipc-fill" id="ipcFill"></div></div>
+        <div class="ac-plan-meta"><i class="fas fa-info-circle"></i> Uses shared Analysis Credits when available</div>
         {% if plan_name %}<div class="ac-plan-meta"><i class="fas fa-crown"></i> {{ plan_name }}{% if plan_valid_till %}&nbsp;·&nbsp;Valid till {{ plan_valid_till|date:"d M Y" }}{% endif %}</div>{% endif %}
       </div>
       <span class="ipc-badge" id="ipcBadge"></span>
@@ -225,14 +226,16 @@ var _ipcCurrent = {{ ac_current_credits|default:0 }};
 var _ipcTotal   = {{ ac_total_credits|default:0 }};
 
 function updateIpcBar(current, total) {
+  // `total` used to be a legacy subscription total unrelated to this wallet;
+  // the bar is now a plain has-credits / no-credits indicator.
   _ipcCurrent = current; _ipcTotal = total;
-  var pct   = total > 0 ? Math.min(100, Math.round(current / total * 100)) : 0;
+  var pct   = current > 0 ? 100 : 0;
   var fill  = document.getElementById('ipcFill');
   var badge = document.getElementById('ipcBadge');
   var text  = document.getElementById('ipcText');
   var btn   = document.getElementById('blIpBtn');
   var input = document.getElementById('Ip_s');
-  text.textContent = current + ' / ' + total;
+  text.textContent = current;
   fill.style.width = pct + '%';
   fill.className  = 'ipc-fill';
   badge.className = 'ipc-badge';

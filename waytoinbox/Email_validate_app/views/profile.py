@@ -9,10 +9,37 @@ from Email_validate_app.models import (
     UserTable, CurrentCredits, EmailValidate, ListFiles,
     BlocklistMonitor, DomainBlocklist, EmailHeader, APIKey,
     SubsPayment, Payment, Reputation, Campaign, DMARCAnalysis,
+    SERVICE_KEYS,
 )
 from Email_validate_app.utils import get_user_id
 
 from .billing import get_current_credit, get_ac_current_credit
+
+
+def _service_balance_rows(user_id):
+    """Read-only per-service balance rows for display: label, effective
+    balance (own wallet + legacy fallback), and whether that fallback is the
+    AC pool shared by four services. No deduction, no write, no billing rule —
+    this only reads what deduct_service_credits() already exposes for
+    display via get_all_service_balances().
+    """
+    from Email_validate_app.services.credit_manager import (
+        get_all_service_balances, SERVICE_LEGACY_POOL,
+    )
+    from Email_validate_app.services.pricing import SERVICE_LABELS
+
+    balances = get_all_service_balances(user_id)
+    services = balances['services']
+    rows = [
+        {
+            'key':     key,
+            'label':   SERVICE_LABELS[key],
+            'balance': services[key]['effective'],
+            'shared':  SERVICE_LEGACY_POOL.get(key) == 'ac',
+        }
+        for key in SERVICE_KEYS
+    ]
+    return rows, balances['legacy_shared'].get('ac', 0)
 
 
 def profile(request):
@@ -30,6 +57,10 @@ def profile(request):
     credit_row      = None
     login_logs      = []
     pi_company = pi_role = pi_timezone = pi_website = ''
+    service_balances     = []
+    shared_ac_balance     = 0
+    hero_validation_credits = 0
+    hero_marketing_credits  = 0
 
     if user_id:
         current_credits = get_current_credit(user_id)
@@ -80,6 +111,16 @@ def profile(request):
         except CurrentCredits.DoesNotExist:
             credit_row = None
 
+        # Phase 6 commit 12: read-only, for display. The 7-service credit
+        # balances shown on this page and the two hero-strip figures both come
+        # from get_all_service_balances() — the same source of truth the
+        # purchase page and checkout already use. Nothing here writes a
+        # balance or changes what a service charges.
+        service_balances, shared_ac_balance = _service_balance_rows(user_id)
+        _by_key = {row['key']: row['balance'] for row in service_balances}
+        hero_validation_credits = _by_key.get('email_validation', 0)
+        hero_marketing_credits  = _by_key.get('email_marketing', 0)
+
         from Email_validate_app.models import LoginActivity
         login_logs = LoginActivity.objects.filter(user_id=user_id, status='success')[:5]
 
@@ -116,6 +157,10 @@ def profile(request):
         'plan_group':           plan_group,
         'onetime_payments':     onetime_payments,
         'credit_row':           credit_row,
+        'service_balances':       service_balances,
+        'shared_ac_balance':      shared_ac_balance,
+        'hero_validation_credits': hero_validation_credits,
+        'hero_marketing_credits':  hero_marketing_credits,
         'login_logs':           login_logs,
         'password_changed_at':  getattr(user, 'password_changed_at', None),
     })

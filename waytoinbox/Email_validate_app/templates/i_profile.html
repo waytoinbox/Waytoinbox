@@ -16,10 +16,10 @@
 <div class="content">
   <!-- Tabs -->
   <div class="tabs">
-    <div class="tab active" onclick="switchProfileTab('profile', this)">Profile</div>
-    <div class="tab" onclick="switchProfileTab('security', this)">Security</div>
-    <div class="tab" onclick="switchProfileTab('notifications', this)">Notifications</div>
-    <div class="tab" onclick="switchProfileTab('billing', this)">Billing</div>
+    <div class="tab active" data-tab="profile" onclick="switchProfileTab('profile', this)">Profile</div>
+    <div class="tab" data-tab="security" onclick="switchProfileTab('security', this)">Security</div>
+    <div class="tab" data-tab="notifications" onclick="switchProfileTab('notifications', this)">Notifications</div>
+    <div class="tab" data-tab="billing" onclick="switchProfileTab('billing', this)">Billing</div>
   </div>
 
   <!-- PROFILE TAB -->
@@ -37,20 +37,18 @@
         </div>
       </div>
       <div class="profile-stats">
-        {% with cr=credit_row %}
         <div class="profile-stat">
-          <div class="profile-stat-val">{{ cr.vc_current_credits|default:0|intcomma }}</div>
-          <div class="profile-stat-label">Validation Credits</div>
+          <div class="profile-stat-val">{{ hero_validation_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-label">Email Validation</div>
         </div>
         <div class="profile-stat">
-          <div class="profile-stat-val">{{ cr.ac_current_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-val">{{ shared_ac_balance|default:0|intcomma }}</div>
           <div class="profile-stat-label">Analysis Credits</div>
         </div>
         <div class="profile-stat">
-          <div class="profile-stat-val">{{ cr.cc_current_credits|default:0|intcomma }}</div>
-          <div class="profile-stat-label">Contact Credits</div>
+          <div class="profile-stat-val">{{ hero_marketing_credits|default:0|intcomma }}</div>
+          <div class="profile-stat-label">Email Marketing</div>
         </div>
-        {% endwith %}
       </div>
     </div>
 
@@ -459,62 +457,23 @@
       <div style="display:flex;flex-direction:column;gap:16px;">
         <!-- Credit balance -->
         <div class="card">
-          <div class="card-header" style="margin-bottom:14px;"><span class="card-title">Credit balance</span></div>
+          <div class="card-header" style="margin-bottom:6px;"><span class="card-title">Credit balance</span></div>
+          <p style="font-size:12px;color:var(--muted);margin:0 0 12px;">Credits never expire.</p>
 
-          {% with cr=credit_row %}
-
-          <!-- Validation Credits (VC) -->
-          <div style="margin-bottom:14px;">
-            <div class="usage-label" style="margin-bottom:5px;">
-              <span style="font-size:12px;color:var(--muted);">Validation Credits</span>
-              <span style="font-size:12px;color:var(--muted);">{{ cr.vc_current_credits|default:0|intcomma }} / {{ cr.vc_total_credits|default:0|intcomma }}</span>
-            </div>
-            <div class="usage-bar-wrap">
-              {% if cr.vc_total_credits %}
-                {% widthratio cr.vc_current_credits|default:0 cr.vc_total_credits 100 as vcpct %}
-                <div class="usage-bar" style="width:{{ vcpct }}%;background:var(--teal-dk);transition:width 0.4s;"></div>
-              {% else %}
-                <div class="usage-bar" style="width:0%;background:var(--teal-dk);"></div>
+          {% for row in service_balances %}
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;{% if not forloop.last %}border-bottom:1px solid var(--border);{% endif %}">
+            <div>
+              <div style="font-size:13px;font-weight:600;color:var(--ink);">{{ row.label }}</div>
+              {% if row.shared %}
+                <div style="font-size:11px;color:var(--muted);margin-top:2px;">Uses shared Analysis Credits when available</div>
               {% endif %}
             </div>
-            <div style="font-size:11px;color:var(--teal-dk);margin-top:4px;">{{ cr.vc_current_credits|default:0|intcomma }} remaining</div>
+            <div style="font-size:14px;font-weight:700;color:var(--teal-dk);white-space:nowrap;">
+              {{ row.balance|default:0|intcomma }}
+              <span style="font-size:11px;font-weight:500;color:var(--muted);">credits available</span>
+            </div>
           </div>
-
-          <!-- Analysis Credits (AC) -->
-          <div style="margin-bottom:14px;">
-            <div class="usage-label" style="margin-bottom:5px;">
-              <span style="font-size:12px;color:var(--muted);">Analysis Credits</span>
-              <span style="font-size:12px;color:var(--muted);">{{ cr.ac_current_credits|default:0|intcomma }} / {{ cr.ac_total_credits|default:0|intcomma }}</span>
-            </div>
-            <div class="usage-bar-wrap">
-              {% if cr.ac_total_credits %}
-                {% widthratio cr.ac_current_credits|default:0 cr.ac_total_credits 100 as acpct %}
-                <div class="usage-bar" style="width:{{ acpct }}%;background:#5B21B6;transition:width 0.4s;"></div>
-              {% else %}
-                <div class="usage-bar" style="width:0%;background:#5B21B6;"></div>
-              {% endif %}
-            </div>
-            <div style="font-size:11px;color:#5B21B6;margin-top:4px;">{{ cr.ac_current_credits|default:0|intcomma }} remaining</div>
-          </div>
-
-          <!-- Contact Credits (CC) -->
-          <div>
-            <div class="usage-label" style="margin-bottom:5px;">
-              <span style="font-size:12px;color:var(--muted);">Contact Credits</span>
-              <span style="font-size:12px;color:var(--muted);">{{ cr.cc_current_credits|default:0|intcomma }} / {{ cr.cc_total_credits|default:0|intcomma }}</span>
-            </div>
-            <div class="usage-bar-wrap">
-              {% if cr.cc_total_credits %}
-                {% widthratio cr.cc_current_credits|default:0 cr.cc_total_credits 100 as ccpct %}
-                <div class="usage-bar" style="width:{{ ccpct }}%;background:#F97316;transition:width 0.4s;"></div>
-              {% else %}
-                <div class="usage-bar" style="width:0%;background:#C94A1D;"></div>
-              {% endif %}
-            </div>
-            <div style="font-size:11px;color:#F97316;margin-top:4px;">{{ cr.cc_current_credits|default:0|intcomma }} remaining</div>
-          </div>
-
-          {% endwith %}
+          {% endfor %}
         </div>
 
         <!-- Payment method -->
@@ -633,6 +592,14 @@ document.addEventListener('DOMContentLoaded', function () {
     f.addEventListener('input', checkProfileFields);
     f.addEventListener('change', checkProfileFields);
   });
+
+  // Deep-link support so other pages (e.g. the nav credits link) can open
+  // straight to a tab: /profile/?tab=billing
+  var wantedTab = new URLSearchParams(window.location.search).get('tab');
+  if (wantedTab) {
+    var tabEl = document.querySelector('.tab[data-tab="' + wantedTab + '"]');
+    if (tabEl) switchProfileTab(wantedTab, tabEl);
+  }
 
   document.getElementById('saveProfileBtn').addEventListener('click', function () {
     const btn = this;

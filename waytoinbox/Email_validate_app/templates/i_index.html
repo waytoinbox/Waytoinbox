@@ -293,23 +293,30 @@
       <div class="topbar-right">
         {% if 'logged_in' in request.session %}
           {% block topbar_credit %}
-          <div class="credit-badge-group">
-            <div class="credit-badge credit-badge--vc" title="Validation Credits (Email Verify)">
+          {# Phase 6 commit 12: each service now has its own credit wallet, so
+             the old VC / AC / CC letters no longer name real, independent
+             pools the way they used to. This links to the full per-service
+             breakdown on the Billing tab rather than trying to squeeze all
+             seven balances into the topbar. The Analysis figure is the one
+             shared pool behind Reputation, Header Analyzer, IP Blocklist and
+             Domain Blocklist — shown once here, never once per service. #}
+          <a href="{% url 'profile' %}?tab=billing"
+             class="credit-badge-group"
+             style="text-decoration:none;color:inherit;"
+             title="View your credit balances">
+            <div class="credit-badge credit-badge--vc" title="Email Validation credits">
               <i class="fas fa-envelope-open-text"></i>
-              <span>{{ nav_vc_credits }}</span>
-              <span class="credit-badge-label">VC</span>
+              <span>{{ nav_validation_credits }}</span>
             </div>
-            <div class="credit-badge credit-badge--ac" title="Analysis Credits (IP / Domain / Header)">
+            <div class="credit-badge credit-badge--ac" title="Shared Analysis Credits — used by Reputation, Header Analyzer, IP Blocklist and Domain Blocklist when their own credits run low.">
               <i class="fas fa-shield-alt"></i>
-              <span>{{ nav_ac_credits }}</span>
-              <span class="credit-badge-label">AC</span>
+              <span>{{ nav_shared_analysis_credits }}</span>
             </div>
-            <div class="credit-badge credit-badge--cc" title="Contact Credits (Campaigns)">
+            <div class="credit-badge credit-badge--cc" title="Email Marketing credits">
               <i class="fas fa-paper-plane"></i>
-              <span>{{ nav_cc_credits }}</span>
-              <span class="credit-badge-label">CC</span>
+              <span>{{ nav_marketing_credits }}</span>
             </div>
-          </div>
+          </a>
           {% endblock %}
 
           <!-- Notification bell -->
