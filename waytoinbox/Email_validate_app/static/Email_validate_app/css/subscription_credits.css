@@ -411,6 +411,21 @@
 .sc-modal-confirm:hover { background: var(--teal-dk); }
 .sc-modal-confirm:disabled { opacity: .6; cursor: not-allowed; }
 
+/* ── Sticky total (desktop) ───────────────────────────────
+   The left column can grow taller than the viewport once several services
+   are shown; without this the "Your total" card scrolls out of view along
+   with it. Same pattern as .ha-left elsewhere in the app (components.css).
+   Disabled below 860px, the exact width where .payg-wrap itself collapses
+   to one column (layout-nav-hero.css) — once the columns are stacked,
+   "Your total" scrolls normally with the rest of the page. */
+.sc-summary-card {
+  position: sticky;
+  top: calc(var(--nav-h) + 20px);
+}
+@media (max-width: 860px) {
+  .sc-summary-card { position: static; }
+}
+
 /* ── Responsive ───────────────────────────────────────── */
 @media (max-width: 560px) {
   .sc-page { padding: 18px 12px 52px; }

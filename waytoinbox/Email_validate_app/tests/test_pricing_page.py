@@ -136,10 +136,13 @@ class SubscriptionCardsLayoutTests(TestCase):
         # by the explanatory HTML comment above the panel, which also
         # mentions ".payg-wrap"/".payg-card" as plain text.
         self.assertEqual(html.count('class="payg-wrap"'), 2)
-        # Exactly the two new Subscription-tab columns: the original PAYG
-        # card also carries a "fade-up" class, so it renders as
-        # class="payg-card fade-up" and is not counted by this exact match.
-        self.assertEqual(html.count('class="payg-card"'), 2)
+        # The left ("Choose your credits") column, bare payg-card; the
+        # original PAYG card also carries a "fade-up" class, so it renders
+        # as class="payg-card fade-up" and is not counted by this exact match.
+        self.assertEqual(html.count('class="payg-card"'), 1)
+        # The right ("Your total") column additionally carries the sticky
+        # class (see SubscriptionStickyTotalTests).
+        self.assertEqual(html.count('class="payg-card sc-summary-card"'), 1)
         # The old single-card wrapper is gone from the subscription markup.
         self.assertNotIn('class="sc-page"', html)
         self.assertNotIn('class="sc-card"', html)
@@ -151,10 +154,8 @@ class SubscriptionCardsLayoutTests(TestCase):
         # Once for the PAYG tab, once for the Subscription tab's two-column
         # layout — same as i_pricing.html.
         self.assertEqual(html.count('class="payg-wrap"'), 2)
-        # Exactly the two Subscription-tab columns; the PAYG calculator card
-        # carries an extra "fade-up" class and is not counted by this exact
-        # match (see the analogous i_pricing.html assertion above).
-        self.assertEqual(html.count('class="payg-card"'), 2)
+        self.assertEqual(html.count('class="payg-card"'), 1)
+        self.assertEqual(html.count('class="payg-card sc-summary-card"'), 1)
         self.assertNotIn('class="sc-page"', html)
         self.assertNotIn('class="sc-card"', html)
 
@@ -240,3 +241,37 @@ class SubscriptionPageChromeTests(TestCase):
         html = r.content.decode()
         self.assertIn('<body class="">', html)
         self.assertNotIn('no-sidebar', html)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class SubscriptionStickyTotalTests(TestCase):
+    """The "Your total" card stays visible on desktop while the (potentially
+    taller) "Choose your credits" column scrolls past it, without touching
+    the two-column layout, spacing or the PAYG tab's own cards."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def test_only_the_total_card_carries_the_sticky_class_on_both_pages(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            # Exactly one card is marked sticky: the right ("Your total")
+            # column. The left ("Choose your credits") column and both
+            # PAYG-tab cards keep their plain, unmodified classes.
+            self.assertEqual(html.count('sc-summary-card'), 1, url)
+            self.assertIn('class="payg-card sc-summary-card"', html, url)
+
+    def test_sticky_css_rule_exists_and_is_disabled_below_the_payg_wrap_breakpoint(self):
+        from django.contrib.staticfiles.finders import find
+
+        css_path = find('Email_validate_app/css/subscription_credits.css')
+        self.assertIsNotNone(css_path, 'subscription_credits.css not found by staticfiles finders')
+        with open(css_path, encoding='utf-8') as f:
+            css = f.read()
+        self.assertIn('.sc-summary-card', css)
+        self.assertIn('position: sticky', css)
+        self.assertIn('top: calc(var(--nav-h)', css)
+        # Disabled at the same breakpoint where .payg-wrap itself collapses
+        # to one column (layout-nav-hero.css), so mobile scrolls normally.
+        self.assertIn('@media (max-width: 860px)', css)
+        self.assertIn('.sc-summary-card { position: static; }', css)
