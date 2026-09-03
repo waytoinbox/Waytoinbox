@@ -124,6 +124,7 @@ def pricing(request):
     from Email_validate_app.services.pricing import (
         SERVICE_LABELS, SERVICE_UNITS, SERVICE_MIN_QTY, public_config,
     )
+    from Email_validate_app.services.trial_manager import TRIAL_LIMITS
     from Email_validate_app.models import SERVICE_KEYS
 
     try:
@@ -137,11 +138,14 @@ def pricing(request):
 
     services = [
         {
-            'key':      key,
-            'label':    SERVICE_LABELS[key],
-            'unit':     SERVICE_UNITS.get(key, 'credits'),
-            'balance':  new_balances.get(key, {}).get('new', 0),
-            'min_qty':  SERVICE_MIN_QTY[key],
+            'key':         key,
+            'label':       SERVICE_LABELS[key],
+            'unit':        SERVICE_UNITS.get(key, 'credits'),
+            'balance':     new_balances.get(key, {}).get('new', 0),
+            'min_qty':     SERVICE_MIN_QTY[key],
+            # For the free-trial popup's limits list -- not the purchase
+            # card, which never shows a trial figure of its own.
+            'trial_limit': TRIAL_LIMITS[key],
         }
         for key in SERVICE_KEYS
     ]
@@ -206,6 +210,14 @@ def order_payment(request):
             if is_ajax:
                 return JsonResponse({"status": "error", "message": "User not found. Please log in."}, status=404)
             messages.error(request, "User not found. Please log in.")
+            return redirect('subscription')
+
+        if not user_data.is_verified:
+            if is_ajax:
+                return JsonResponse({"status": "error",
+                                     "message": "Please verify your email before purchasing.",
+                                     "reason": "not_verified"}, status=403)
+            messages.error(request, "Please verify your email before purchasing.")
             return redirect('subscription')
 
         # Fetch user's subscription plan
@@ -484,6 +496,11 @@ def download_results(request):
                 user_data = UserTable.objects.get(id=user_id)
             except UserTable.DoesNotExist:
                 return JsonResponse({"status": "error", "message": "User not found."}, status=404)
+
+            if not user_data.is_verified:
+                return JsonResponse(
+                    {"status": "error", "message": "Please verify your email before purchasing.",
+                     "reason": "not_verified"}, status=403)
 
             receipt_id = generate_receipt_id("Asia/Kolkata")
             client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))

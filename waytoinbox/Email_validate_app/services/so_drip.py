@@ -244,22 +244,32 @@ def _next_utc_midnight():
 
 
 def _reserve_quota_slot(account):
-    """Atomically claim one of `account`'s remaining sends for today.
+    """Atomically claim one of `account`'s remaining sends for today, capped
+    at min(account.daily_limit, 7) while the account's owning user has an
+    active free trial -- a trial only ever narrows the cap, never widens it
+    past the account's own configured capacity.
 
     Same conditional-UPDATE claim pattern already used to claim due contacts
     (so_dispatch_due_sequence_steps) — the WHERE clause is evaluated against the
     row's current committed value under MySQL/InnoDB row locking, so two
-    concurrent callers for the same account cannot both succeed. Returns whether
-    this call claimed a slot.
+    concurrent callers for the same account cannot both succeed.
+
+    Returns (claimed, effective_limit) — effective_limit lets the caller log
+    what cap was actually enforced, which matters when a trial is deferring
+    sends well below the account's own daily_limit.
     """
     from Email_validate_app.models import SOEmailAccountDailyUsage
+    from Email_validate_app.services.trial_manager import sales_outreach_daily_send_cap
 
     today = now().date()
+    trial_cap = sales_outreach_daily_send_cap(account.user_id)
+    effective_limit = min(account.daily_limit, trial_cap) if trial_cap is not None else account.daily_limit
+
     SOEmailAccountDailyUsage.objects.get_or_create(account=account, date=today, defaults={'sent_count': 0})
     updated = SOEmailAccountDailyUsage.objects.filter(
-        account=account, date=today, sent_count__lt=account.daily_limit,
+        account=account, date=today, sent_count__lt=effective_limit,
     ).update(sent_count=F('sent_count') + 1)
-    return bool(updated)
+    return bool(updated), effective_limit
 
 
 def _release_quota_slot(account):
@@ -428,11 +438,12 @@ def send_next_step(cc):
             )
         return False
 
-    if not _reserve_quota_slot(account):
+    claimed, effective_limit = _reserve_quota_slot(account)
+    if not claimed:
         next_at = _next_utc_midnight()
         logger.info(
             'so_drip: campaign %s contact %s deferred — account %s (%s) at daily_limit=%s, retrying at %s',
-            campaign.id, cc.id, account.id, account.email, account.daily_limit, next_at.isoformat(),
+            campaign.id, cc.id, account.id, account.email, effective_limit, next_at.isoformat(),
         )
         SOCampaignContact.objects.filter(id=cc.id, status='sending').update(
             status='active', next_action_at=next_at,

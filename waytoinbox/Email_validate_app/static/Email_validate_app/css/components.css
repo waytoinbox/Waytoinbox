@@ -913,6 +913,7 @@
    duplicated 4x across both modals/both templates); a real token reads as
    "savings" without inventing an unrelated color. */
 .pay-confirm-discount { color: var(--mint); font-weight: 700; }
+.pay-confirm-error { color: var(--warn); font-size: 12px; text-align: center; margin: -6px 0 4px; }
 /* Rows are toggled via the native `hidden` attribute (this codebase's
    established pattern — see so_inbox.css, so_campaign.css etc. — not
    style.display), which needs an explicit override since .pay-confirm-row's

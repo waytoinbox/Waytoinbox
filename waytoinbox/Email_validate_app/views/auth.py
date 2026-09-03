@@ -161,6 +161,15 @@ def signup(request):
         existing = UserTable.objects.filter(user_email=email).first()
         if existing:
             if not existing.is_verified:
+                # Same "check your inbox, unverified" moment as a fresh
+                # signup below — give the browser a session here too, so
+                # this path (a repeat signup attempt on an already-pending
+                # account) behaves identically to the first-time path
+                # rather than only sometimes granting the session.
+                request.session.cycle_key()
+                request.session['logged_in'] = existing.user_email
+                request.session.modified = True
+
                 token = default_token_generator.make_token(existing)
                 uid = urlsafe_base64_encode(force_bytes(existing.pk))
                 verification_link = request.build_absolute_uri(reverse('verify_email', args=[uid, token]))
@@ -175,6 +184,21 @@ def signup(request):
             user.set_password(form.cleaned_data['password'])
             user.is_verified = False
             user.save()
+
+            # Give the browser a session immediately, even though
+            # is_verified is still False, so a brand-new signup can reach
+            # session-gated pages (Pricing/Subscription, and the trial
+            # popup on them) in this same tab without waiting on email
+            # verification. Mirrors login()'s own session-setup lines.
+            # login()'s own verified-only gate is untouched: a later login
+            # attempt (a different browser/device, or after this session
+            # expires/is cleared) still requires verification first,
+            # exactly as before. Purchase endpoints separately re-check
+            # is_verified themselves — this session alone grants browsing,
+            # never a purchase or a trial activation.
+            request.session.cycle_key()
+            request.session['logged_in'] = user.user_email
+            request.session.modified = True
 
             token = default_token_generator.make_token(user)
             uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -374,18 +398,10 @@ def verify_email(request, uidb64, token):
         user.is_verified = True
         user.save()
 
-        # 7-Day Free Trial starts the moment the account is actually usable
-        # (verification), not at raw signup. Placed before the two mailer
-        # calls below so trial activation is unaffected if either email
-        # send is slow or fails. Wrapped in its own try/except so a
-        # trial-activation error can never turn a successful verification
-        # into a failure.
-        try:
-            from Email_validate_app.services.trial_manager import activate_trial
-            activate_trial(user)
-        except Exception:
-            logger.exception("Trial activation failed for user_id=%s", user.id)
-
+        # The 7-Day Free Trial does NOT start here. Verifying only unlocks
+        # eligibility to activate it — the user must explicitly click
+        # "Activate Free Trial" (views/credits.py::trial_activate) for the
+        # 7-day clock to actually start. See trial_manager.activate_trial().
         send_welcome_email(user.user_name, user.user_email)
         send_admin_signup_notification(user.user_name, user.user_email)
         messages.success(request, "Your email has been verified! You can now log in.")

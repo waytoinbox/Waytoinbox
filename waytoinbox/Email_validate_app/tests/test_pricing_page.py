@@ -33,9 +33,13 @@ from django.test import TestCase, Client, override_settings
 from Email_validate_app.models import UserTable
 
 
-def make_user(email):
-    return UserTable.objects.create_user(
+def make_user(email, verified=False):
+    user = UserTable.objects.create_user(
         user_name='Pricing Page Test', user_email=email, password='StrongPass123!')
+    if verified:
+        user.is_verified = True
+        user.save(update_fields=['is_verified'])
+    return user
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
@@ -379,7 +383,7 @@ class PaygMinimumOrderTests(TestCase):
     rates a fixed credit count no longer maps to a fixed dollar amount."""
 
     def setUp(self):
-        self.user = make_user('payg_min@example.com')
+        self.user = make_user('payg_min@example.com', verified=True)
         self.client = Client(SERVER_NAME='127.0.0.1')
         session = self.client.session
         session['logged_in'] = self.user.user_email
@@ -614,3 +618,92 @@ class ServiceConfirmPopupTests(TestCase):
         self.assertIn('.pay-confirm-discount', css)
         self.assertIn('.pay-confirm-row[hidden]', css)
         self.assertIn('margin-top: auto', css)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class TrialPopupTests(TestCase):
+    """The 7-Day Free Trial popup on i_pricing.html/i_subscription.html.
+    Never activates automatically -- shown only to an eligible session
+    (never started a trial), with different content for unverified vs
+    verified, and not shown at all once a trial is active or already used."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def _login(self, user):
+        session = self.client.session
+        session['logged_in'] = user.user_email
+        session.save()
+
+    def test_no_popup_for_an_anonymous_visitor(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('trialPopupModal', html, url)
+
+    def test_unverified_eligible_user_sees_verify_message_not_activate_button(self):
+        user = make_user('trial_popup_unverified@example.com', verified=False)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="trialPopupModal"', html, url)
+            self.assertIn('Verify Your Email First', html, url)
+            self.assertNotIn('id="trialActivateBtn"', html, url)
+            self.assertNotIn('function activateTrial', html, url)
+
+    def test_verified_eligible_user_sees_activate_button_and_limits(self):
+        user = make_user('trial_popup_verified@example.com', verified=True)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="trialPopupModal"', html, url)
+            self.assertIn('Activate Your 7-Day Free Trial', html, url)
+            self.assertIn('id="trialActivateBtn"', html, url)
+            self.assertIn('function activateTrial', html, url)
+            self.assertNotIn('Verify Your Email First', html, url)
+            start = html.index('id="trialPopupModal"')
+            popup_html = html[start:start + 3000]
+            # New limits: Email Validation 50, Email Marketing 50,
+            # Sales Outreach 1, Reputation 1, Header Analyzer 10,
+            # IP Blocklist 1, Domain Blocklist 1.
+            self.assertIn('50 emails', popup_html, url)
+            self.assertIn('10 headers', popup_html, url)
+
+    def test_activate_button_posts_to_the_trial_activate_endpoint(self):
+        user = make_user('trial_popup_endpoint@example.com', verified=True)
+        self._login(user)
+        html = self.client.get('/pricing/').content.decode()
+        self.assertIn("fetch('/trial/activate/'", html)
+        self.assertIn('WTICheckout.csrfToken()', html)
+
+    def test_no_popup_once_a_trial_is_active(self):
+        from Email_validate_app.services.trial_manager import activate_trial
+        user = make_user('trial_popup_active@example.com', verified=True)
+        activate_trial(user)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('trialPopupModal', html, url)
+
+    def test_no_popup_once_a_trial_is_already_used_and_expired(self):
+        from datetime import timedelta
+        from django.utils.timezone import now
+        from Email_validate_app.services.trial_manager import activate_trial
+
+        user = make_user('trial_popup_expired@example.com', verified=True)
+        activate_trial(user)
+        started = now() - timedelta(days=8)
+        user.trial_started_at = started
+        user.trial_ends_at = started + timedelta(days=7)
+        user.save(update_fields=['trial_started_at', 'trial_ends_at'])
+        self._login(user)
+
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('trialPopupModal', html, url)
+
+    def test_close_button_and_backdrop_click_handler_present(self):
+        user = make_user('trial_popup_close@example.com', verified=True)
+        self._login(user)
+        html = self.client.get('/pricing/').content.decode()
+        self.assertIn('function closeTrialPopup', html)
+        self.assertIn("addEventListener('click'", html)

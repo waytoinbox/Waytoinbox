@@ -27,8 +27,14 @@ from Email_validate_app.services.credit_manager import get_service_balance
 
 
 def make_user(email):
-    return UserTable.objects.create_user(
+    # subscription_order() now requires is_verified=True (unverified sessions
+    # can browse but not purchase) -- this file is about coupon/checkout
+    # logic, not verification, so its users are verified by default.
+    user = UserTable.objects.create_user(
         user_name='Coupon Test', user_email=email, password='StrongPass123!')
+    user.is_verified = True
+    user.save(update_fields=['is_verified'])
+    return user
 
 
 def make_coupon(code='SAVE20', **kwargs):

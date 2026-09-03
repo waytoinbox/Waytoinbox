@@ -17,8 +17,18 @@ def nav_credits(request):
     Email Marketing, and the shared Analysis Credits pool on its own — never
     multiplied across the four services that draw on it.
 
-    nav_trial_active/nav_trial_days_left cost nothing extra -- `user` is
-    already loaded below, so these just read fields already on it.
+    nav_trial_active/nav_trial_days_left/nav_is_verified/nav_trial_eligible
+    cost nothing extra -- `user` is already loaded below, so these just read
+    fields already on it. nav_trial_eligible/nav_is_verified drive the
+    trial-activation popup on i_pricing.html/i_subscription.html: eligible
+    (never started a trial) + verified -> "Activate Free Trial"; eligible +
+    unverified -> "verify your email first"; not eligible (active or
+    already used) -> no popup at all.
+
+    Works for a signed-up-but-unverified user too, not just fully logged-in
+    verified ones -- signup() now starts a session immediately (see
+    views/auth.py), so 'logged_in' being in the session no longer implies
+    is_verified.
 
     Display only: no balance is written, no service is charged.
     """
@@ -26,6 +36,8 @@ def nav_credits(request):
         return {}
     try:
         from Email_validate_app.models import UserTable
+        from Email_validate_app.services.trial_manager import is_trial_eligible
+
         email = request.session['logged_in']
         user = UserTable.objects.filter(user_email=email).first()
         if not user:
@@ -40,6 +52,8 @@ def nav_credits(request):
             'nav_marketing_credits':       services['email_marketing']['effective'],
             'nav_trial_active':    trial_active,
             'nav_trial_days_left': max(0, (user.trial_ends_at - now()).days) if trial_active else 0,
+            'nav_is_verified':     user.is_verified,
+            'nav_trial_eligible':  is_trial_eligible(user),
         }
     except Exception:
         return {}

@@ -22,8 +22,14 @@ from Email_validate_app.services.credit_manager import get_service_balance
 
 
 def make_user(email):
-    return UserTable.objects.create_user(
+    # subscription_order() now requires is_verified=True (unverified sessions
+    # can browse but not purchase) -- this file is about the checkout flow
+    # itself, not verification, so its users are verified by default.
+    user = UserTable.objects.create_user(
         user_name='Checkout Test', user_email=email, password='StrongPass123!')
+    user.is_verified = True
+    user.save(update_fields=['is_verified'])
+    return user
 
 
 # subscription_order() now requires all 7 services to be present (each at

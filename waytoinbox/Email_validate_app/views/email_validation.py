@@ -430,6 +430,13 @@ def verify_emails(request):
             if is_ajax:
                 return JsonResponse({"status": "error", "message": "User not found."}, status=404)
             return redirect("services")
+        if not user_data.is_verified:
+            if is_ajax:
+                return JsonResponse({"status": "error",
+                                     "message": "Please verify your email before purchasing.",
+                                     "reason": "not_verified"}, status=403)
+            messages.error(request, "Please verify your email before purchasing.")
+            return redirect("services")
         receipt_id = generate_receipt_id("Asia/Kolkata")
         client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
         payment = client.order.create(data={"amount": int(price * 100), "currency": "USD", "receipt": receipt_id})

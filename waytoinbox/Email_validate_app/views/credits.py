@@ -44,6 +44,10 @@ from Email_validate_app.services.credit_manager import (
     add_service_credits, generate_receipt_id, get_all_service_balances,
 )
 from Email_validate_app.services.mailer import send_payment_success_email
+from Email_validate_app.services.trial_manager import (
+    TRIAL_DURATION_DAYS, TRIAL_LIMITS, SERVICE_LABELS as TRIAL_SERVICE_LABELS,
+    activate_trial, is_trial_eligible,
+)
 from Email_validate_app.utils import get_user_id
 
 logger = logging.getLogger(__name__)
@@ -182,6 +186,11 @@ def subscription_order(request):
         user = UserTable.objects.get(id=user_id)
     except UserTable.DoesNotExist:
         return JsonResponse({"status": "error", "message": "User not found."}, status=404)
+
+    if not user.is_verified:
+        return JsonResponse(
+            {"status": "error", "message": "Please verify your email before purchasing.",
+             "reason": "not_verified"}, status=403)
 
     try:
         cart, promo_code = _read_cart(request)
@@ -433,6 +442,64 @@ def subscription_verify(request):
         "order_id": order_id,
         "amount":   f"${order.amount_cents / 100:,.2f}",
         "balances": get_all_service_balances(user_id),
+    })
+
+
+@require_POST
+def trial_activate(request):
+    """Manually activate the current user's one-time 7-day free trial.
+
+    This is the ONLY way a trial starts — verify_email() no longer calls
+    activate_trial() automatically (see views/auth.py). Two distinct failure
+    reasons are reported ("not_verified" vs "already_used") via a `reason`
+    field alongside distinct HTTP status codes, so the trial popup can show
+    the right copy instead of one generic error.
+    """
+    user_id = get_user_id(request)
+    if not user_id:
+        return JsonResponse(
+            {"status": "error", "message": "Not authenticated.",
+             "reason": "not_authenticated"}, status=401)
+
+    try:
+        user = UserTable.objects.get(id=user_id)
+    except UserTable.DoesNotExist:
+        return JsonResponse(
+            {"status": "error", "message": "User not found.",
+             "reason": "user_not_found"}, status=404)
+
+    if not user.is_verified:
+        return JsonResponse(
+            {"status": "error",
+             "message": "Please verify your email before activating your free trial.",
+             "reason": "not_verified"}, status=403)
+
+    if not is_trial_eligible(user):
+        return JsonResponse(
+            {"status": "error", "message": "You've already used your free trial.",
+             "reason": "already_used"}, status=409)
+
+    if not activate_trial(user):
+        # Lost a race against a concurrent activation (e.g. a double click /
+        # two tabs) — activate_trial() re-checks eligibility under a row
+        # lock, so this is the same outcome as the check just above,
+        # discovered a few milliseconds later.
+        return JsonResponse(
+            {"status": "error", "message": "You've already used your free trial.",
+             "reason": "already_used"}, status=409)
+
+    logger.info("Trial manually activated for user_id=%s", user_id)
+
+    return JsonResponse({
+        "status":  "ok",
+        "message": "Your 7-day free trial has been activated!",
+        "trial_started_at": user.trial_started_at.isoformat(),
+        "trial_ends_at":    user.trial_ends_at.isoformat(),
+        "trial_days":       TRIAL_DURATION_DAYS,
+        "services": [
+            {"service": svc, "label": TRIAL_SERVICE_LABELS[svc], "limit": TRIAL_LIMITS[svc]}
+            for svc in pricing.SERVICE_KEYS
+        ],
     })
 
 

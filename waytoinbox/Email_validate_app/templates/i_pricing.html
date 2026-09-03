@@ -661,6 +661,92 @@ document.getElementById('scConfirmModal').addEventListener('click', function(e) 
   </div>
 </div>
 
+<!-- ── 7-DAY FREE TRIAL POPUP ───────────────────────── -->
+<!-- Server-rendered only for a trial-eligible session (nav_trial_eligible,
+     from context_processors.py::nav_credits — never started a trial and
+     hasn't already used one). Activation is never automatic: this popup is
+     the only way a trial starts, and only once the user is verified and
+     clicks "Activate Free Trial" themselves. An unverified-but-eligible
+     session (signup() now starts a session immediately — see
+     views/auth.py) sees a "verify first" message instead, with no way to
+     activate from here. -->
+{% if nav_trial_eligible %}
+<div class="pay-confirm-modal show" id="trialPopupModal">
+  <div class="pay-confirm-box">
+    <button class="pay-confirm-close" onclick="closeTrialPopup()">&#10005;</button>
+    <div class="pay-confirm-icon">&#127873;</div>
+    {% if nav_is_verified %}
+      <h3>Activate Your 7-Day Free Trial</h3>
+      <p class="pay-confirm-sub">Try every service free for 7 days — no credit card required.</p>
+      <div class="pay-confirm-rows">
+        {% for s in services %}
+        <div class="pay-confirm-row">
+          <span class="pay-confirm-label">{{ s.label }}</span>
+          <span class="pay-confirm-val">{{ s.trial_limit }} {{ s.unit }}</span>
+        </div>
+        {% endfor %}
+      </div>
+      <p class="pay-confirm-error" id="trialActivateError" hidden></p>
+      <div class="pay-confirm-actions">
+        <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Maybe later</button>
+        <button class="pay-confirm-pay" id="trialActivateBtn" onclick="activateTrial()">&#127873; Activate Free Trial</button>
+      </div>
+    {% else %}
+      <h3>Verify Your Email First</h3>
+      <p class="pay-confirm-sub">Please verify your email address to activate your 7-day free trial. Check your inbox (and spam folder) for the verification link we sent you.</p>
+      <div class="pay-confirm-actions">
+        <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Close</button>
+      </div>
+    {% endif %}
+    <p class="pay-confirm-secure">7 days free &middot; No credit card required</p>
+  </div>
+</div>
+<script>
+function closeTrialPopup() {
+  document.getElementById('trialPopupModal').classList.remove('show');
+}
+document.getElementById('trialPopupModal').addEventListener('click', function(e) {
+  if (e.target === this) closeTrialPopup();
+});
+{% if nav_is_verified %}
+function activateTrial() {
+  var btn   = document.getElementById('trialActivateBtn');
+  var errEl = document.getElementById('trialActivateError');
+  errEl.hidden = true;
+  btn.disabled = true;
+  btn.textContent = 'Activating…';
+  fetch('{% url "trial_activate" %}', {
+    method: 'POST',
+    headers: {
+      'X-CSRFToken':      WTICheckout.csrfToken(),
+      'X-Requested-With': 'XMLHttpRequest',
+    },
+  })
+    .then(function (res) {
+      return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+    })
+    .then(function (r) {
+      if (!r.ok || r.data.status !== 'ok') {
+        errEl.textContent = r.data.message || 'Could not activate your trial. Please try again.';
+        errEl.hidden = false;
+        btn.disabled = false;
+        btn.textContent = '\u{1F381} Activate Free Trial';
+        return;
+      }
+      btn.textContent = 'Activated! Reloading…';
+      window.location.reload();
+    })
+    .catch(function () {
+      errEl.textContent = 'Could not reach the server. Please try again.';
+      errEl.hidden = false;
+      btn.disabled = false;
+      btn.textContent = '\u{1F381} Activate Free Trial';
+    });
+}
+{% endif %}
+</script>
+{% endif %}
+
 <script>
 document.addEventListener('DOMContentLoaded', function() {
   document.querySelectorAll('.local-dt').forEach(function(el) {

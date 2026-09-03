@@ -23,6 +23,8 @@ from unittest.mock import MagicMock, patch
 from django.test import TestCase, override_settings
 from django.urls import reverse
 
+from datetime import timedelta
+
 from Email_validate_app.models import (
     UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEmailAccount,
     SOEmailAccountDailyUsage, SOEvent, SOOpenPixel, SOTrackedLink,
@@ -30,6 +32,9 @@ from Email_validate_app.models import (
 )
 from Email_validate_app.services.so_smtp import inject_tracking
 from Email_validate_app.services import so_drip
+from Email_validate_app.services.trial_manager import (
+    SALES_OUTREACH_TRIAL_DAILY_SEND_CAP, activate_trial,
+)
 
 
 def make_user(email):
@@ -201,3 +206,136 @@ class SendNextStepTests(TestCase):
         # No tracking rows, no sent/delivered events.
         self.assertFalse(SOOpenPixel.objects.filter(campaign_contact=self.cc).exists())
         self.assertFalse(SOEvent.objects.filter(campaign=self.campaign, event_type='sent').exists())
+
+
+class TrialSalesOutreachQuotaCapTests(TestCase):
+    """so_drip._reserve_quota_slot() during an active free trial: capped at
+    min(account.daily_limit, 7), reverting to account.daily_limit once the
+    trial expires. See test_trial_system.py::SalesOutreachDailySendCapTests
+    for the underlying trial_manager.sales_outreach_daily_send_cap() unit
+    tests -- these cover the so_drip.py integration specifically."""
+
+    def _make_account(self, daily_limit):
+        self.user = make_user(f'so_trial_cap_{daily_limit}@example.com')
+        self.account = SOEmailAccount.objects.create(
+            user_id=self.user.id, provider='google', display_name='Trial Sender',
+            email=f'trial-sender-{daily_limit}@example.com', smtp_host='smtp.test', smtp_port=587,
+            imap_host='imap.test', imap_port=993, username=f'trial-sender-{daily_limit}@example.com',
+            password='x', daily_limit=daily_limit, status='connected',
+        )
+        return self.account
+
+    def _quota_used(self, account):
+        row = SOEmailAccountDailyUsage.objects.filter(account=account).first()
+        return row.sent_count if row else 0
+
+    def test_reserve_quota_slot_return_signature(self):
+        account = self._make_account(daily_limit=50)
+        result = so_drip._reserve_quota_slot(account)
+        self.assertIsInstance(result, tuple)
+        claimed, effective_limit = result
+        self.assertTrue(claimed)
+        self.assertEqual(effective_limit, 50)  # no trial -> account's own limit
+
+    def test_active_trial_caps_sends_at_seven_when_daily_limit_is_higher(self):
+        account = self._make_account(daily_limit=50)
+        activate_trial(self.user)
+
+        for i in range(SALES_OUTREACH_TRIAL_DAILY_SEND_CAP):
+            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            self.assertTrue(claimed, f"send {i + 1} should have been claimed")
+            self.assertEqual(effective_limit, 7)
+
+        claimed, effective_limit = so_drip._reserve_quota_slot(account)
+        self.assertFalse(claimed, "the 8th send must be refused once the trial cap is hit")
+        self.assertEqual(effective_limit, 7)
+        self.assertEqual(self._quota_used(account), 7)
+
+    def test_active_trial_does_not_raise_the_cap_when_daily_limit_is_lower(self):
+        """A trial must never let someone send MORE than their account's own
+        configured capacity -- min(daily_limit, 7), not a flat override."""
+        account = self._make_account(daily_limit=3)
+        activate_trial(self.user)
+
+        for i in range(3):
+            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            self.assertTrue(claimed, f"send {i + 1} should have been claimed")
+            self.assertEqual(effective_limit, 3)
+
+        claimed, effective_limit = so_drip._reserve_quota_slot(account)
+        self.assertFalse(claimed)
+        self.assertEqual(effective_limit, 3)
+
+    def test_no_trial_uses_account_daily_limit_unchanged(self):
+        """Regression guard: a non-trial user is fully unaffected."""
+        account = self._make_account(daily_limit=50)
+
+        for _ in range(50):
+            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            self.assertTrue(claimed)
+            self.assertEqual(effective_limit, 50)
+
+        claimed, _ = so_drip._reserve_quota_slot(account)
+        self.assertFalse(claimed)
+
+    def test_expired_trial_reverts_to_account_daily_limit(self):
+        account = self._make_account(daily_limit=50)
+        activate_trial(self.user)
+        # Backdate into the past — same technique as
+        # test_trial_system.py::_backdate_trial.
+        started = so_drip.now() - timedelta(days=8)
+        self.user.trial_started_at = started
+        self.user.trial_ends_at = started + timedelta(days=7)
+        self.user.save(update_fields=['trial_started_at', 'trial_ends_at'])
+
+        for i in range(50):
+            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            self.assertTrue(claimed, f"send {i + 1} should have been claimed")
+            self.assertEqual(effective_limit, 50, "expired trial must not still cap at 7")
+
+        claimed, _ = so_drip._reserve_quota_slot(account)
+        self.assertFalse(claimed)
+
+    @override_settings(ENABLE_EMAIL_TRACKING=True)
+    def test_send_next_step_defers_to_midnight_when_trial_cap_exhausts_quota(self):
+        """End-to-end: the trial cap (not the account's own higher
+        daily_limit) is what causes send_next_step() to defer -- same
+        deferred-not-failed path as an ordinary daily_limit exhaustion."""
+        account = self._make_account(daily_limit=50)
+        activate_trial(self.user)
+
+        campaign = SOCampaign.objects.create(
+            user_id=self.user.id, name='Trial Cap Campaign', subject='s', html_body='<p>x</p>',
+            status='sending', tracking_enabled=True,
+            send_weekdays='mon,tue,wed,thu,fri,sat,sun',
+            send_hour_start=time(0, 0, 0), send_hour_end=time(23, 59, 59),
+        )
+        step = SOSequenceStep.objects.create(campaign=campaign, order=1, wait_days=0, wait_hours=0)
+        SOSequenceVariant.objects.create(
+            step=step, label='A', subject='Hello', html_body='<p>x</p>', weight=100, is_active=True,
+        )
+
+        # Exhaust the trial's 7/day cap first, with a throwaway contact.
+        for i in range(SALES_OUTREACH_TRIAL_DAILY_SEND_CAP):
+            self.assertTrue(so_drip._reserve_quota_slot(account)[0])
+
+        prospect = SOProspect.objects.create(
+            user_id=self.user.id, email='trial-cap-recipient@example.com',
+            first_name='T', last_name='P', status='subscribed',
+        )
+        cc = SOCampaignContact.objects.create(
+            campaign=campaign, prospect=prospect, email=prospect.email,
+            account=account, status='sending', current_step=1, attempts=0,
+        )
+
+        mock_server = MagicMock()
+        mock_server.sendmail.return_value = {}
+        with patch('Email_validate_app.services.so_smtp.open_smtp', return_value=mock_server):
+            result = so_drip.send_next_step(cc)
+
+        self.assertFalse(result)
+        cc.refresh_from_db()
+        self.assertEqual(cc.status, 'active')  # deferred, not failed
+        self.assertEqual(cc.current_step, 1)   # never advanced
+        self.assertIsNotNone(cc.next_action_at)
+        mock_server.sendmail.assert_not_called()  # never even attempted

@@ -1,9 +1,13 @@
 """Tests for the 7-Day Free Trial system.
 
-Covers: services/trial_manager.py (eligibility/activation/remaining),
+Covers: services/trial_manager.py (eligibility/manual activation/remaining),
 credit_manager.py's trial-aware get_effective_balance()/deduct_service_credits(),
-the views/auth.py::verify_email() activation hook, and
+the manual activation endpoint (views/credits.py::trial_activate), the
+signup()-creates-a-session change (views/auth.py), and
 tasks/scheduler_job.py::trial_expiry_notification_job().
+
+Activation is manual only: verify_email() does NOT activate a trial anymore
+-- only trial_activate() does, and only for a verified, eligible user.
 
 Follows this project's established TestCase conventions (see
 test_service_credits.py, test_expiry_retention.py) -- Django's isolated test
@@ -25,8 +29,9 @@ from Email_validate_app.services.credit_manager import (
     InsufficientCredits, deduct_service_credits, get_effective_balance,
 )
 from Email_validate_app.services.trial_manager import (
-    TRIAL_LIMITS, activate_trial, get_trial_remaining, is_trial_active,
-    is_trial_eligible,
+    TRIAL_LIMITS, SALES_OUTREACH_TRIAL_DAILY_SEND_CAP, activate_trial,
+    get_trial_remaining, is_trial_active, is_trial_eligible,
+    sales_outreach_daily_send_cap,
 )
 from Email_validate_app.tasks.scheduler_job import (
     subscription_expiry_job, trial_expiry_notification_job,
@@ -112,10 +117,48 @@ class ActivateTrialTests(TestCase):
         self.assertFalse(is_trial_eligible(user))
         self.assertFalse(activate_trial(user))
 
+    def test_updated_trial_limits_are_the_new_values(self):
+        """Guard against TRIAL_LIMITS being changed without meaning to."""
+        user = make_user('trial_new_limits@example.com')
+        activate_trial(user)
+        rows = {r.service: r.limit for r in ServiceTrial.objects.filter(user_id=user.id)}
+        self.assertEqual(rows['email_validation'], 50)
+        self.assertEqual(rows['email_marketing'], 50)
+        self.assertEqual(rows['header_analysis'], 10)
+        self.assertEqual(rows['sales_outreach'], 1)
+        self.assertEqual(rows['reputation'], 1)
+        self.assertEqual(rows['ip_blocklist'], 1)
+        self.assertEqual(rows['domain_blocklist'], 1)
+
+
+class SalesOutreachDailySendCapTests(TestCase):
+    """trial_manager.sales_outreach_daily_send_cap() -- the per-sender-
+    account daily send override during an active trial. See
+    test_so_drip_send.py for the so_drip.py integration."""
+
+    def test_no_trial_returns_none(self):
+        user = make_user('so_cap_none@example.com')
+        self.assertIsNone(sales_outreach_daily_send_cap(user.id))
+
+    def test_active_trial_returns_seven(self):
+        user = make_user('so_cap_active@example.com')
+        activate_trial(user)
+        self.assertEqual(sales_outreach_daily_send_cap(user.id), SALES_OUTREACH_TRIAL_DAILY_SEND_CAP)
+        self.assertEqual(sales_outreach_daily_send_cap(user.id), 7)
+
+    def test_expired_trial_returns_none(self):
+        user = make_user('so_cap_expired@example.com')
+        activate_trial(user)
+        _backdate_trial(user)
+        self.assertIsNone(sales_outreach_daily_send_cap(user.id))
+
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
-class VerifyEmailActivatesTrialTests(TestCase):
-    """The real activation hook: views/auth.py::verify_email()."""
+class VerifyEmailNeverActivatesTrialTests(TestCase):
+    """The trial must never activate automatically. Clicking the emailed
+    verification link only unlocks eligibility to activate -- it must not
+    start the trial itself. See TrialActivateEndpointTests for the only
+    real activation path."""
 
     def setUp(self):
         self.client = Client(SERVER_NAME='127.0.0.1')
@@ -125,7 +168,7 @@ class VerifyEmailActivatesTrialTests(TestCase):
         token = default_token_generator.make_token(user)
         return f'/verify/{uidb64}/{token}/'
 
-    def test_clicking_the_verification_link_starts_the_trial(self):
+    def test_clicking_the_verification_link_verifies_but_does_not_start_a_trial(self):
         user = make_user('trial_verify@example.com', verified=False)
         self.assertIsNone(user.trial_started_at)
 
@@ -133,20 +176,161 @@ class VerifyEmailActivatesTrialTests(TestCase):
 
         user.refresh_from_db()
         self.assertTrue(user.is_verified)
-        self.assertIsNotNone(user.trial_started_at)
-        self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 7)
+        self.assertIsNone(user.trial_started_at)
+        self.assertIsNone(user.trial_ends_at)
+        self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 0)
+        self.assertEqual(TrialUsageLog.objects.filter(user_id=user.id).count(), 0)
+        # Still eligible -- verifying only unlocks activation, doesn't spend it.
+        self.assertTrue(is_trial_eligible(user))
 
-    def test_verifying_an_already_verified_user_grants_no_second_trial(self):
+    def test_verifying_an_already_verified_user_still_grants_no_trial(self):
         user = make_user('trial_reverify@example.com', verified=True)
-        activate_trial(user)
-        user.refresh_from_db()
-        first_started = user.trial_started_at
 
         self.client.get(self._verify_url(user))
 
         user.refresh_from_db()
-        self.assertEqual(user.trial_started_at, first_started)
+        self.assertIsNone(user.trial_started_at)
+        self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 0)
+
+
+@override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
+class TrialActivateEndpointTests(TestCase):
+    """POST /trial/activate/ -- the ONLY way a trial starts."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+
+    def _login_session(self, user):
+        session = self.client.session
+        session['logged_in'] = user.user_email
+        session.save()
+
+    def test_not_authenticated_returns_401(self):
+        r = self.client.post('/trial/activate/')
+        self.assertEqual(r.status_code, 401)
+        self.assertEqual(r.json()['reason'], 'not_authenticated')
+
+    def test_unverified_user_returns_403_not_verified(self):
+        user = make_user('trial_ep_unverified@example.com', verified=False)
+        self._login_session(user)
+
+        r = self.client.post('/trial/activate/')
+
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()['reason'], 'not_verified')
+        user.refresh_from_db()
+        self.assertIsNone(user.trial_started_at)
+
+    def test_verified_eligible_user_activates_successfully(self):
+        user = make_user('trial_ep_ok@example.com', verified=True)
+        self._login_session(user)
+
+        r = self.client.post('/trial/activate/')
+
+        self.assertEqual(r.status_code, 200)
+        data = r.json()
+        self.assertEqual(data['status'], 'ok')
+        self.assertIn('trial_ends_at', data)
+        limits = {row['service']: row['limit'] for row in data['services']}
+        self.assertEqual(limits, TRIAL_LIMITS)
         self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 7)
+        user.refresh_from_db()
+        self.assertIsNotNone(user.trial_started_at)
+
+    def test_already_used_returns_409(self):
+        user = make_user('trial_ep_used@example.com', verified=True)
+        activate_trial(user)
+        self._login_session(user)
+
+        r = self.client.post('/trial/activate/')
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()['reason'], 'already_used')
+        self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 7)
+
+    def test_get_method_not_allowed(self):
+        user = make_user('trial_ep_get@example.com', verified=True)
+        self._login_session(user)
+        r = self.client.get('/trial/activate/')
+        self.assertEqual(r.status_code, 405)
+
+
+@override_settings(
+    ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'],
+    EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend',
+)
+class SignupCreatesSessionTests(TestCase):
+    """signup() now starts a session immediately, even while unverified, so
+    an unverified user can reach session-gated pages (the trial popup on
+    Pricing/Subscription) in the same tab. login()'s own verified-only gate
+    is untouched, and trial_activate()/purchase endpoints separately
+    re-check is_verified -- a session alone grants browsing only."""
+
+    def setUp(self):
+        self.client = Client(SERVER_NAME='127.0.0.1')
+        # signup() rate-limits by IP (5 attempts / 10 min, cache-backed, see
+        # views/auth.py::_rate_check) -- this class's several test methods
+        # all POST to /signup/ from the same test-client IP, which would
+        # otherwise trip that limiter partway through this class's own
+        # tests. Clearing the cache is safe and DB-free.
+        from django.core.cache import cache
+        cache.clear()
+
+    def test_signup_response_sets_a_logged_in_session(self):
+        r = self.client.post('/signup/', {
+            'user_name': 'New Signup',
+            'user_email': 'signup_session@example.com',
+            'password': 'StrongPass123!',
+            'confirm_password': 'StrongPass123!',
+        })
+        self.assertEqual(r.json()['status'], 'ok')
+        self.assertEqual(self.client.session.get('logged_in'), 'signup_session@example.com')
+        user = UserTable.objects.get(user_email='signup_session@example.com')
+        self.assertFalse(user.is_verified)
+
+    def test_session_from_signup_grants_access_to_a_gated_page_while_unverified(self):
+        self.client.post('/signup/', {
+            'user_name': 'New Signup',
+            'user_email': 'signup_session_pricing@example.com',
+            'password': 'StrongPass123!',
+            'confirm_password': 'StrongPass123!',
+        })
+        r = self.client.get('/pricing/')
+        self.assertEqual(r.status_code, 200)
+        self.assertNotIn('/login/', getattr(r, 'url', ''))
+
+    def test_trial_activate_still_blocked_for_the_signup_session_until_verified(self):
+        self.client.post('/signup/', {
+            'user_name': 'New Signup',
+            'user_email': 'signup_session_trial@example.com',
+            'password': 'StrongPass123!',
+            'confirm_password': 'StrongPass123!',
+        })
+        r = self.client.post('/trial/activate/')
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()['reason'], 'not_verified')
+
+    def test_resend_verification_branch_also_creates_a_session(self):
+        make_user('signup_resend@example.com', verified=False)
+        r = self.client.post('/signup/', {
+            'user_name': 'Resend',
+            'user_email': 'signup_resend@example.com',
+            'password': 'StrongPass123!',
+        })
+        self.assertEqual(r.json()['status'], 'info')
+        self.assertEqual(self.client.session.get('logged_in'), 'signup_resend@example.com')
+
+    def test_unverified_session_still_blocked_from_purchasing(self):
+        self.client.post('/signup/', {
+            'user_name': 'New Signup',
+            'user_email': 'signup_session_purchase@example.com',
+            'password': 'StrongPass123!',
+            'confirm_password': 'StrongPass123!',
+        })
+        r = self.client.post('/subscription/order/',
+                              data='{"cart": {}}', content_type='application/json')
+        self.assertEqual(r.status_code, 403)
+        self.assertEqual(r.json()['reason'], 'not_verified')
 
 
 class TrialUsageGatingTests(TestCase):
@@ -163,8 +347,8 @@ class TrialUsageGatingTests(TestCase):
         deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='validation')
 
         self.assertEqual(get_trial_remaining(self.user.id, 'sales_outreach'), 0)
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 100)
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_marketing'), 100)
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 50)
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_marketing'), 50)
 
     def test_all_seven_start_at_their_configured_limit(self):
         for service in SERVICE_KEYS:
@@ -173,8 +357,8 @@ class TrialUsageGatingTests(TestCase):
 
     # ── exact boundary behaviour ──────────────────────────────────────────
 
-    def test_hundredth_email_validation_credit_succeeds_101st_fails(self):
-        deduct_service_credits(self.user.id, 'email_validation', 100, ref_type='validation')
+    def test_fiftieth_email_validation_credit_succeeds_51st_fails(self):
+        deduct_service_credits(self.user.id, 'email_validation', 50, ref_type='validation')
         self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 0)
 
         with self.assertRaises(InsufficientCredits) as ctx:
@@ -187,8 +371,8 @@ class TrialUsageGatingTests(TestCase):
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='so_account')
 
-    def test_header_analyzer_five_credit_boundary(self):
-        deduct_service_credits(self.user.id, 'header_analysis', 5, ref_type='ip_check')
+    def test_header_analyzer_ten_credit_boundary(self):
+        deduct_service_credits(self.user.id, 'header_analysis', 10, ref_type='ip_check')
         self.assertEqual(get_trial_remaining(self.user.id, 'header_analysis'), 0)
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(self.user.id, 'header_analysis', 1, ref_type='ip_check')
@@ -196,13 +380,13 @@ class TrialUsageGatingTests(TestCase):
     # ── spend order: trial first, ahead of paid wallet ────────────────────
 
     def test_trial_is_spent_before_the_paid_wallet(self):
-        ServiceCredit.objects.create(user_id=self.user.id, service='email_validation', balance=50)
+        ServiceCredit.objects.create(user_id=self.user.id, service='email_validation', balance=100)
 
         deduct_service_credits(self.user.id, 'email_validation', 30, ref_type='validation')
 
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 70)
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 20)
         self.assertEqual(
-            ServiceCredit.objects.get(user_id=self.user.id, service='email_validation').balance, 50,
+            ServiceCredit.objects.get(user_id=self.user.id, service='email_validation').balance, 100,
             "paid wallet must be untouched while trial still has enough")
 
     def test_falls_through_to_paid_wallet_once_trial_is_exhausted(self):
@@ -256,7 +440,7 @@ class TrialExpiryTests(TestCase):
         # itself isn't zeroed, access is just gated live off trial_ends_at.
         row = ServiceTrial.objects.get(user_id=user.id, service='email_validation')
         self.assertEqual(row.used, 0)
-        self.assertEqual(row.limit, 100)
+        self.assertEqual(row.limit, 50)
 
     def test_deduct_raises_once_expired_rather_than_spending_trial(self):
         user = make_user('trial_expired_spend@example.com')

@@ -2,7 +2,7 @@ from .auth import services, logout, signup, login, forgot_password, reset_passwo
 from .dashboard import home, dashboard, get_data, dashboard_chart_data
 from .billing import pricing, order_payment, payment, manage_credits, download_results, delete_query, receipt_list, hide_billing_row, preview, generate_pdf, contact_us, get_current_credit
 from .subscription import subscription, subscription_success, subscription_cancel, create_subscription, subs_payment
-from .credits import subscription_quote, subscription_order, subscription_verify
+from .credits import subscription_quote, subscription_order, subscription_verify, trial_activate
 from .email_validation import service_validate_emails, run_email_validation, Analyze, single_service, hide_email_history, single_verify, core_validate_email, verify_emails, api_single_validate
 from .blocklist import Blocklist_Monitor, Domain_Blacklist, check_ip_blacklists, get_blocklist_data, blocklist_names, get_domain_blocklist_data, hide_blocklist_row, domain_blocklist_names, check_domain_blocklist, add_to_monitors
 from .dmarc import domain_validate, DMARC_check, check_spf, check_dmarc, check_dkim, check_dkim_auto, Header_Analysis
