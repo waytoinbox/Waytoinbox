@@ -219,6 +219,14 @@ body { background: var(--bg-2); overflow-x: hidden; }
 [data-theme="dark"] .credit-badge--cc {
   background: rgba(201,74,29,.15); border-color: rgba(201,74,29,.28); color: #F4896B;
 }
+/* 7-Day Free Trial chip — same green as this page's existing "Free" nav
+   badge (line ~194) for visual consistency within the same topbar area. */
+.credit-badge--trial {
+  background: #e6f9f3; border-color: rgba(0,198,162,.25); color: #007A5E;
+}
+[data-theme="dark"] .credit-badge--trial {
+  background: rgba(0,198,162,.15); border-color: rgba(0,198,162,.3); color: #4DE8C4;
+}
 
 .topbar-user {
   display: flex; align-items: center; gap: 8px;

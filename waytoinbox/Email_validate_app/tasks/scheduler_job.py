@@ -4,9 +4,11 @@ from celery import shared_task
 from Email_validate_app.tasks.base import LoggedTask
 from django.db import IntegrityError, DatabaseError
 from Email_validate_app.models import BlocklistMonitor, BlacklistStatus, BlacklistListed,DomainBlocklist,DomainBlacklistStatus,DomainBlacklistListed,UserTable,SubsPayment
+from Email_validate_app.models import ServiceTrial, TrialUsageLog
+from Email_validate_app.services.trial_manager import SERVICE_LABELS as TRIAL_SERVICE_LABELS
 from Email_validate_app.services.monitor import get_blacklist_notifications, send_mail_notification
 from Email_validate_app.services.monitor import ip_blacklists, domain_blacklists
-from Email_validate_app.services.mailer import send_subscription_expiry_email, send_job_failure_alert
+from Email_validate_app.services.mailer import send_subscription_expiry_email, send_job_failure_alert, send_trial_expired_email
 from Email_validate_app.services.credit_manager import expire_subscription_credits
 from datetime import datetime
 from django.utils.timezone import make_aware, now
@@ -252,6 +254,70 @@ def subscription_expiry_job():
     except Exception as e:
         logger.error(f"Subscription expiry job error: {e}")
         send_job_failure_alert("Subscription Expiry Check (subscription_expiry_job)", e)
+
+
+@shared_task(name="Email_validate_app.tasks.scheduler_job.trial_expiry_notification_job", base=LoggedTask)
+def trial_expiry_notification_job():
+    """One-time side effects when a 7-day free trial's window elapses.
+
+    Deliberately separate from subscription_expiry_job/expire_subscription_credits
+    above -- different query (UserTable.trial_* vs SubsPayment.plan_status), no
+    shared code path, so the existing paid-subscription expiry flow is untouched.
+
+    No stored "expired" flag drives access anywhere -- trial_manager's
+    get_trial_remaining()/credit_manager's deduct_service_credits() already
+    self-expire correctly by comparing trial_ends_at to now() live, with or
+    without this job ever running. This job's only job is the one-time
+    notification + audit trail, guarded by trial_expiry_notified_at so a
+    user is never notified twice.
+    """
+    logger.info("Trial expiry notification check triggered")
+    try:
+        expired_users = UserTable.objects.filter(
+            trial_started_at__isnull=False,
+            trial_ends_at__lt=now(),
+            trial_expiry_notified_at__isnull=True,
+        )
+
+        notified = 0
+        for user in expired_users:
+            try:
+                UserTable.objects.filter(pk=user.pk).update(trial_expiry_notified_at=now())
+
+                # Audit: log whatever unused allowance was forfeited, per service.
+                for row in ServiceTrial.objects.filter(user_id=user.id):
+                    remaining = row.limit - row.used
+                    if remaining > 0:
+                        TrialUsageLog.objects.create(
+                            user_id=user.id, service=row.service, entry_type='expired',
+                            amount=-remaining, balance_before=remaining, balance_after=0,
+                            ref_type='trial_expiry',
+                            description=(f"Trial expired: {remaining} unused "
+                                        f"{TRIAL_SERVICE_LABELS.get(row.service, row.service)} "
+                                        f"credits forfeited"),
+                        )
+
+                try:
+                    from Email_validate_app.utils import create_notification
+                    create_notification(user.id, 'expiry',
+                        "Your 7-day free trial has ended", url='/pricing/')
+                except Exception as e:
+                    logger.error(f"Trial expiry notification failed for {user.user_email}: {e}")
+
+                if getattr(user, 'notify_expiry', True):
+                    try:
+                        send_trial_expired_email(user.user_name, user.user_email, user.trial_ends_at)
+                    except Exception as e:
+                        logger.error(f"Trial expiry email failed for {user.user_email}: {e}")
+
+                notified += 1
+            except Exception as e:
+                logger.error(f"Trial expiry job failed for user {user.user_email}: {e}")
+
+        logger.info(f"Trial expiry job: {notified} users notified.")
+    except Exception as e:
+        logger.error(f"Trial expiry job error: {e}")
+        send_job_failure_alert("Trial Expiry Notification (trial_expiry_notification_job)", e)
 
 
 @shared_task(name="Email_validate_app.tasks.scheduler_job.bl_notification_job", base=LoggedTask)

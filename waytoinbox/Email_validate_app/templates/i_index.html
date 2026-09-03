@@ -316,6 +316,12 @@
               <i class="fas fa-paper-plane"></i>
               <span>{{ nav_marketing_credits }}</span>
             </div>
+            {% if nav_trial_active %}
+            <div class="credit-badge credit-badge--trial" title="Your 7-day free trial is still active — trial credits are included in the balances above.">
+              <i class="fas fa-hourglass-half"></i>
+              <span>Trial: {{ nav_trial_days_left }}d left</span>
+            </div>
+            {% endif %}
           </a>
           {% endblock %}
 

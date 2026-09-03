@@ -18,8 +18,9 @@ from .billing import get_current_credit, get_ac_current_credit
 
 def _service_balance_rows(user_id):
     """Read-only per-service balance rows for display: label, effective
-    balance (own wallet + legacy fallback), and whether that fallback is the
-    AC pool shared by four services. No deduction, no write, no billing rule —
+    balance (own wallet + legacy fallback + trial), whether that fallback is
+    the AC pool shared by four services, and any trial allowance still
+    included in that balance. No deduction, no write, no billing rule —
     this only reads what deduct_service_credits() already exposes for
     display via get_all_service_balances().
     """
@@ -32,14 +33,16 @@ def _service_balance_rows(user_id):
     services = balances['services']
     rows = [
         {
-            'key':     key,
-            'label':   SERVICE_LABELS[key],
-            'balance': services[key]['effective'],
-            'shared':  SERVICE_LEGACY_POOL.get(key) == 'ac',
+            'key':             key,
+            'label':           SERVICE_LABELS[key],
+            'balance':         services[key]['effective'],
+            'shared':          SERVICE_LEGACY_POOL.get(key) == 'ac',
+            'trial_remaining': services[key]['trial'],
         }
         for key in SERVICE_KEYS
     ]
-    return rows, balances['legacy_shared'].get('ac', 0)
+    return (rows, balances['legacy_shared'].get('ac', 0),
+            balances['trial_active'], balances['trial_ends_at'])
 
 
 def profile(request):
@@ -59,6 +62,8 @@ def profile(request):
     pi_company = pi_role = pi_timezone = pi_website = ''
     service_balances     = []
     shared_ac_balance     = 0
+    trial_active          = False
+    trial_ends_at         = None
     hero_validation_credits = 0
     hero_marketing_credits  = 0
 
@@ -116,7 +121,8 @@ def profile(request):
         # from get_all_service_balances() — the same source of truth the
         # purchase page and checkout already use. Nothing here writes a
         # balance or changes what a service charges.
-        service_balances, shared_ac_balance = _service_balance_rows(user_id)
+        service_balances, shared_ac_balance, trial_active, trial_ends_at = \
+            _service_balance_rows(user_id)
         _by_key = {row['key']: row['balance'] for row in service_balances}
         hero_validation_credits = _by_key.get('email_validation', 0)
         hero_marketing_credits  = _by_key.get('email_marketing', 0)
@@ -159,6 +165,8 @@ def profile(request):
         'credit_row':           credit_row,
         'service_balances':       service_balances,
         'shared_ac_balance':      shared_ac_balance,
+        'trial_active':           trial_active,
+        'trial_ends_at':          trial_ends_at,
         'hero_validation_credits': hero_validation_credits,
         'hero_marketing_credits':  hero_marketing_credits,
         'login_logs':           login_logs,

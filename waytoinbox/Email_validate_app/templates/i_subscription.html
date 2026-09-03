@@ -477,14 +477,14 @@ function openPayConfirm(order) {
     // coupon's discount is not generally a clean percentage the way
     // Pay-As-You-Go's plan discounts are.
     document.getElementById('pcDiscount').textContent = order.discount_label;
-    discRow.style.display = '';
+    discRow.hidden = false;
   } else {
     var disc = order.discount_percentage ? parseInt(order.discount_percentage) : 0;
     if (disc > 0) {
       document.getElementById('pcDiscount').textContent = disc + '% off';
-      discRow.style.display = '';
+      discRow.hidden = false;
     } else {
-      discRow.style.display = 'none';
+      discRow.hidden = true;
     }
   }
   // amount_cents (service-credit orders) is always a genuine integer;
@@ -544,9 +544,9 @@ function openServiceConfirm(order) {
   var discRow = document.getElementById('scPcDiscountRow');
   if (order.discount_label) {
     document.getElementById('scPcDiscount').textContent = order.discount_label;
-    discRow.style.display = '';
+    discRow.hidden = false;
   } else {
-    discRow.style.display = 'none';
+    discRow.hidden = true;
   }
 
   // amount_cents is always a genuine integer; order.amount is a
@@ -600,9 +600,9 @@ document.getElementById('scConfirmModal').addEventListener('click', function(e) 
         <span class="pay-confirm-label" id="pcPlanLabel">Plan</span>
         <span class="pay-confirm-val" id="pcPlan"></span>
       </div>
-      <div class="pay-confirm-row" id="pcDiscountRow" style="display:none">
+      <div class="pay-confirm-row" id="pcDiscountRow" hidden>
         <span class="pay-confirm-label">Discount</span>
-        <span class="pay-confirm-val" style="color:#007A5E;font-weight:700" id="pcDiscount"></span>
+        <span class="pay-confirm-val pay-confirm-discount" id="pcDiscount"></span>
       </div>
       <div class="pay-confirm-row pay-confirm-row--total">
         <span class="pay-confirm-label">Total</span>
@@ -647,9 +647,15 @@ document.getElementById('scConfirmModal').addEventListener('click', function(e) 
             <span class="pay-confirm-label">Order ID</span>
             <span class="pay-confirm-val pay-confirm-mono" id="scPcOrderId"></span>
           </div>
-          <div class="pay-confirm-row" id="scPcDiscountRow" style="display:none">
+        </div>
+        <!-- Pinned to the bottom of this column (margin-top:auto) so the
+             cost summary fills the space left over next to column 1's now-
+             always-7-row line-item list, instead of trailing off with bare
+             whitespace under a 3-row identity block. -->
+        <div class="pay-confirm-summary-block">
+          <div class="pay-confirm-row" id="scPcDiscountRow" hidden>
             <span class="pay-confirm-label">Discount</span>
-            <span class="pay-confirm-val" style="color:#007A5E;font-weight:700" id="scPcDiscount"></span>
+            <span class="pay-confirm-val pay-confirm-discount" id="scPcDiscount"></span>
           </div>
           <div class="pay-confirm-row pay-confirm-row--total">
             <span class="pay-confirm-label">Total</span>

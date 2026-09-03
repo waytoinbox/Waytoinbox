@@ -120,6 +120,27 @@ def send_subscription_expiry_email(user_name, user_email, plan, expired_on):
         logger.error("Expiry email error for %s: %s", user_email, e)
 
 
+def send_trial_expired_email(user_name, user_email, expired_on):
+    subject = "Your Waytoinbox Free Trial Has Ended"
+    expired_str = expired_on.strftime('%d %b %Y') if expired_on else 'N/A'
+    message = (
+        f"Hi {user_name},\n\n"
+        f"Your 7-day free trial ended on {expired_str}.\n\n"
+        f"To keep using Email Validation, Email Marketing, Sales Outreach, "
+        f"Reputation Analysis, Email Header Analyzer, IP Blocklist Monitor and "
+        f"Domain Blocklist Monitor, please choose a paid plan or buy credits.\n\n"
+        f"👉 See plans: https://waytoinbox.com/pricing/\n\n"
+        f"If you have any questions, reply to this email — we're happy to help.\n\n"
+        f"— The Waytoinbox Team\n"
+        f"support@waytoinbox.com\n"
+    )
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [user_email])
+        logger.info("Trial expiry email sent to %s", user_email)
+    except Exception as e:
+        logger.error("Trial expiry email error for %s: %s", user_email, e)
+
+
 def send_payment_success_email(user_name, user_email, amount, currency, order_id, payment_time, extra):
     """
     extra = {'type': 'payg', 'credits': 500}

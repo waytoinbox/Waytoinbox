@@ -567,3 +567,50 @@ class ServiceConfirmPopupTests(TestCase):
             self.assertIn('function openPayConfirm', html, url)
             self.assertIn('function closePayConfirm', html, url)
             self.assertIn('function proceedToPay', html, url)
+
+    def test_popup_styling_is_tokenized_not_inline(self):
+        """The discount color and the discount row's visibility used to be a
+        hardcoded inline style (#007A5E, style="display:none") duplicated 4x
+        across both modals/both templates -- now a real CSS class plus the
+        native `hidden` attribute, matching this codebase's established
+        [hidden]-attribute pattern (so_inbox.css, so_campaign.css, etc.)
+        rather than JS-driven style.display."""
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            # Scope to the two payment modals themselves (payConfirmModal
+            # through the end of scConfirmModal) -- the page elsewhere
+            # legitimately uses #007A5E for an unrelated "Free" nav badge
+            # (i_index.html), which this test must not false-positive on.
+            start = html.index('id="payConfirmModal"')
+            modals_html = html[start:start + 3700]
+            self.assertNotIn('#007A5E', modals_html, url)
+            self.assertNotIn('style="display:none"', modals_html, url)
+            self.assertIn('pay-confirm-discount', modals_html, url)
+            self.assertIn('id="scPcDiscountRow" hidden', modals_html, url)
+            self.assertIn('id="pcDiscountRow" hidden', modals_html, url)
+            self.assertIn('discRow.hidden = false', html, url)
+            self.assertIn('discRow.hidden = true', html, url)
+            self.assertNotIn('discRow.style.display', html, url)
+
+    def test_popup_summary_block_balances_the_two_columns(self):
+        """Column 1 always renders exactly 7 rows now (every service is
+        required); Discount+Total are grouped into their own block in
+        column 2 so it reads as complete rather than sparse next to it."""
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            start = html.index('id="scConfirmModal"')
+            popup_html = html[start:start + 4300]
+            self.assertIn('pay-confirm-summary-block', popup_html, url)
+            self.assertIn('id="scPcDiscountRow"', popup_html, url)
+            self.assertIn('id="scPcAmount"', popup_html, url)
+
+    def test_summary_block_css_exists(self):
+        from django.contrib.staticfiles.finders import find
+
+        css_path = find('Email_validate_app/css/components.css')
+        with open(css_path, encoding='utf-8') as f:
+            css = f.read()
+        self.assertIn('.pay-confirm-summary-block', css)
+        self.assertIn('.pay-confirm-discount', css)
+        self.assertIn('.pay-confirm-row[hidden]', css)
+        self.assertIn('margin-top: auto', css)

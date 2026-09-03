@@ -533,7 +533,29 @@ class CouponCheckoutTests(TestCase):
 )
 class CouponConcurrencyTests(TransactionTestCase):
     """TransactionTestCase, not TestCase: real threads need real committed
-    transactions, which the usual wrapping rollback would hide."""
+    transactions, which the usual wrapping rollback would hide.
+
+    serialized_rollback = True: without it, this test's teardown flushes
+    every Django-managed table (including migration-seeded data, e.g.
+    CreditPackage's pricing rows from 0135_fix_credit_package_pricing) and
+    never restores it -- a data migration's RunPython does not re-run on an
+    already-migrated database. This flag has Django re-seed that data from a
+    snapshot taken when the ISOLATED TEST database (never the real one --
+    this class always runs via `manage.py test`, never `manage.py shell`)
+    was built, which protects any test that runs afterward IN THE SAME
+    `manage.py test` invocation (the common case, and the only one this
+    project's default test ordering relies on).
+
+    Known remaining gap, confirmed by testing it directly: `--keepdb` does
+    NOT re-take that snapshot when it reuses an already-existing test
+    database, so a `--keepdb` run immediately after one where this class's
+    flush already fired will NOT have its data restored, and subsequent
+    pricing-dependent tests will fail with "No pricing is configured" until
+    the test database is rebuilt fresh. Verification / CI runs should build
+    the test database fresh (no `--keepdb`) rather than rely on this flag to
+    make repeated `--keepdb` reuse safe.
+    """
+    serialized_rollback = True
 
     def test_two_simultaneous_redemptions_cannot_overrun_max_uses(self):
         import threading

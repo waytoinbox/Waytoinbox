@@ -41,6 +41,23 @@ class UserTable(AbstractBaseUser, PermissionsMixin):
     is_verified = models.BooleanField(default=False)
     created_date = models.DateTimeField(default=now)
     updated_date = models.DateTimeField(auto_now=True)
+
+    # 7-Day Free Trial. trial_started_at IS the "used their lifetime trial"
+    # marker -- set exactly once, in trial_manager.activate_trial(), never
+    # cleared by anything (including a paid subscription being cancelled,
+    # expired, or changed -- subscription_expiry_job never touches these
+    # fields). NULL means "still eligible, never started"; no separate
+    # boolean is needed since the timestamp already is one, one-way, by
+    # construction. trial_ends_at is stored rather than derived so expiry
+    # is a plain indexed comparison and a future change to
+    # trial_manager.TRIAL_DURATION_DAYS can never reshape an
+    # already-granted trial. See services/trial_manager.py.
+    trial_started_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    trial_ends_at    = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Idempotency guard for the trial-expiry notification job -- there is no
+    # plan_status-style flag that would otherwise drop an expired-trial user
+    # out of that job's query on its own.
+    trial_expiry_notified_at = models.DateTimeField(null=True, blank=True)
     reset_token = models.CharField(max_length=225, null=True, blank=True, db_index=True)
     reset_token_expiry = models.DateTimeField(null=True, blank=True)
 
@@ -324,6 +341,85 @@ class ServiceCredit(models.Model):
 
     def __str__(self):
         return f"{self.user_id} | {self.service} | {self.balance}"
+
+
+class ServiceTrial(models.Model):
+    """One free-trial allowance per (user, service), created EAGERLY (all 7
+    at once) by trial_manager.activate_trial() -- unlike ServiceCredit,
+    which is created lazily on first purchase/spend. Eager creation lets
+    deduct_service_credits() do a plain locked SELECT (no get_or_create)
+    when checking trial: a user who never trialed costs one cheap query
+    that returns nothing, rather than materialising trial rows for
+    non-trial users.
+
+    `limit` is a snapshot of trial_manager.TRIAL_LIMITS[service] taken at
+    grant time, not read live -- so a future change to the advertised trial
+    limits never silently changes what an already-granted trial allows,
+    mirroring why ServiceCredit.balance is real stored state rather than
+    derived. `remaining` (limit - used) is never stored; there is nothing to
+    reconcile at trial expiry because access is gated live from
+    UserTable.trial_ends_at, not from any flag on this row.
+    """
+    user       = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                    related_name='service_trials')
+    service    = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+    limit      = models.BigIntegerField(default=0)
+    used       = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'service_trials'
+        constraints = [
+            models.UniqueConstraint(fields=['user', 'service'],
+                                    name='uniq_service_trial_user_service'),
+            models.CheckConstraint(condition=models.Q(used__gte=0),
+                                   name='service_trial_used_nonneg'),
+            models.CheckConstraint(condition=models.Q(used__lte=models.F('limit')),
+                                   name='service_trial_used_lte_limit'),
+        ]
+        indexes = [models.Index(fields=['user'], name='svc_trial_user_idx')]
+
+    def __str__(self):
+        return f"{self.user_id} | {self.service} | {self.used}/{self.limit}"
+
+
+class TrialUsageLog(models.Model):
+    """Audit trail for trial grants/spends/expiry -- deliberately a SEPARATE
+    table from CreditAuditLog rather than widening that one's closed
+    credit_type/ref_type choice lists again. CreditAuditLog's
+    balance_before/after fields are shaped around real monetary wallet
+    balances; a trial allowance is a free, time-boxed counter, not a
+    balance in that sense. Purely an audit trail -- access-gating never
+    reads this table, only UserTable.trial_ends_at and ServiceTrial.used.
+    """
+    ENTRY_TYPES = [
+        ('granted', 'Trial Granted'),
+        ('debit',   'Trial Credit Used'),
+        ('expired', 'Trial Expired (unused allowance forfeited)'),
+    ]
+
+    user           = models.ForeignKey(UserTable, on_delete=models.CASCADE)
+    service        = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+    entry_type     = models.CharField(max_length=10, choices=ENTRY_TYPES)
+    amount         = models.IntegerField()
+    balance_before = models.IntegerField(default=0)
+    balance_after  = models.IntegerField(default=0)
+    ref_type       = models.CharField(max_length=30, blank=True)
+    ref_id         = models.CharField(max_length=225, blank=True)
+    description    = models.CharField(max_length=500, blank=True)
+    created_at     = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'trial_usage_log'
+        indexes = [
+            models.Index(fields=['user', 'service', 'created_at']),
+            models.Index(fields=['entry_type']),
+        ]
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.user_id} | {self.service} | {self.entry_type} | {self.amount}"
 
 
 class CreditPackage(models.Model):

@@ -909,6 +909,15 @@
 .pay-confirm-row--total .pay-confirm-val {
   font-family: var(--font-head); font-size: 17px; font-weight: 800; color: var(--teal-dk);
 }
+/* Discount amount — was an inline style="color:#007A5E" (an off-token green
+   duplicated 4x across both modals/both templates); a real token reads as
+   "savings" without inventing an unrelated color. */
+.pay-confirm-discount { color: var(--mint); font-weight: 700; }
+/* Rows are toggled via the native `hidden` attribute (this codebase's
+   established pattern — see so_inbox.css, so_campaign.css etc. — not
+   style.display), which needs an explicit override since .pay-confirm-row's
+   own display:flex ties [hidden]'s specificity. */
+.pay-confirm-row[hidden] { display: none; }
 .pay-confirm-actions { display: flex; gap: 10px; margin-bottom: 14px; }
 .pay-confirm-cancel {
   flex: 1; background: var(--bg-2); border: 1px solid var(--border);
@@ -933,10 +942,30 @@
    above for the shell/rows/buttons so spacing and design stay identical —
    only the two-column grid itself is new. */
 .pay-confirm-box--wide { max-width: 640px; }
-.pay-confirm-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.pay-confirm-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: stretch; }
+/* Column 1 (line items) always renders exactly 7 rows now that every
+   service is required, while column 2 (Name/Email/Order ID/Total) stays a
+   fixed handful — left as a plain block, column 2 would look sparse and
+   unfinished next to it. Making the column itself a flex column and giving
+   the cost summary margin-top:auto pins Discount+Total to the bottom, so
+   the leftover vertical space reads as intentional layout, not empty gap. */
+.pay-confirm-col { display: flex; flex-direction: column; }
 .pay-confirm-col + .pay-confirm-col {
   border-left: 1px solid var(--border);
   padding-left: 28px;
+}
+.pay-confirm-summary-block {
+  margin-top: auto;
+  display: flex; flex-direction: column; gap: 8px;
+  padding: 14px;
+  background: var(--bg-2); border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+/* The discount row sits inside the (already bg-2/bordered) summary block —
+   drop its own row chrome so it doesn't nest a box inside a box. The total
+   row keeps its .pay-confirm-row--total teal-lt highlight untouched. */
+.pay-confirm-summary-block .pay-confirm-row:not(.pay-confirm-row--total) {
+  background: transparent; border: none; padding: 4px 0;
 }
 @media (max-width: 560px) {
   .pay-confirm-box--wide { max-width: 440px; }
@@ -945,6 +974,7 @@
     border-left: none; padding-left: 0;
     border-top: 1px solid var(--border); padding-top: 20px;
   }
+  .pay-confirm-summary-block { margin-top: 12px; }
 }
 
 /* ── RECEIPTS ────────────────────────────────────────── */

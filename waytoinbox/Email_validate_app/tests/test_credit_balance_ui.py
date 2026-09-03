@@ -54,12 +54,20 @@ ALL_SEVEN = ('email_validation', 'email_marketing', 'sales_outreach',
 
 def _canned_balances(overrides=None, ac=0):
     """A get_all_service_balances()-shaped dict with every service at 0
-    except what `overrides` sets, and the shared AC pool at `ac`."""
-    services = {key: {'new': 0, 'legacy': 0, 'effective': 0} for key in ALL_SEVEN}
+    except what `overrides` sets, and the shared AC pool at `ac`. No trial
+    active by default -- 'trial': 0 per service, trial_active False -- these
+    tests are about the wallet/legacy figures, not the trial system (see
+    test_trial_system.py for that)."""
+    services = {key: {'new': 0, 'legacy': 0, 'trial': 0, 'effective': 0} for key in ALL_SEVEN}
     if overrides:
         for key, effective in overrides.items():
             services[key]['effective'] = effective
-    return {'services': services, 'legacy_shared': {'ac': ac, 'vc': 0, 'cc': 0}}
+    return {
+        'services': services,
+        'legacy_shared': {'ac': ac, 'vc': 0, 'cc': 0},
+        'trial_active': False,
+        'trial_ends_at': None,
+    }
 
 
 class FakeRequest:
@@ -94,27 +102,27 @@ class ServiceBalanceRowsLogicTests(SimpleTestCase):
         from Email_validate_app.views.profile import _service_balance_rows
         with patch('Email_validate_app.services.credit_manager.get_all_service_balances',
                    return_value=canned) as mocked:
-            rows, shared_ac = _service_balance_rows(user_id=1)
-            return rows, shared_ac, mocked
+            rows, shared_ac, trial_active, trial_ends_at = _service_balance_rows(user_id=1)
+            return rows, shared_ac, trial_active, trial_ends_at, mocked
 
     def test_all_seven_services_are_returned_in_order(self):
-        rows, _, _ = self._call(_canned_balances())
+        rows, _, _, _, _ = self._call(_canned_balances())
         self.assertEqual(tuple(r['key'] for r in rows), ALL_SEVEN)
 
     def test_labels_are_the_canonical_service_names(self):
         from Email_validate_app.services.pricing import SERVICE_LABELS
-        rows, _, _ = self._call(_canned_balances())
+        rows, _, _, _, _ = self._call(_canned_balances())
         for row in rows:
             self.assertEqual(row['label'], SERVICE_LABELS[row['key']])
 
     def test_zero_balance_is_zero_not_none_or_blank(self):
-        rows, shared_ac, _ = self._call(_canned_balances())
+        rows, shared_ac, _, _, _ = self._call(_canned_balances())
         for row in rows:
             self.assertEqual(row['balance'], 0)
         self.assertEqual(shared_ac, 0)
 
     def test_service_wallet_balance_passes_through(self):
-        rows, _, _ = self._call(_canned_balances({'sales_outreach': 3}))
+        rows, _, _, _, _ = self._call(_canned_balances({'sales_outreach': 3}))
         by_key = {r['key']: r for r in rows}
         self.assertEqual(by_key['sales_outreach']['balance'], 3)
 
@@ -122,12 +130,12 @@ class ServiceBalanceRowsLogicTests(SimpleTestCase):
         # get_all_service_balances() already folds the legacy pool into
         # 'effective' — this asserts the helper passes that through untouched
         # rather than re-deriving or double-counting it.
-        rows, _, _ = self._call(_canned_balances({'email_validation': 42}))
+        rows, _, _, _, _ = self._call(_canned_balances({'email_validation': 42}))
         by_key = {r['key']: r for r in rows}
         self.assertEqual(by_key['email_validation']['balance'], 42)
 
     def test_only_the_four_analysis_services_are_flagged_shared(self):
-        rows, _, _ = self._call(_canned_balances())
+        rows, _, _, _, _ = self._call(_canned_balances())
         by_key = {r['key']: r for r in rows}
         for key in ANALYSIS_SERVICES:
             self.assertTrue(by_key[key]['shared'], f'{key} should be flagged shared')
@@ -135,7 +143,7 @@ class ServiceBalanceRowsLogicTests(SimpleTestCase):
             self.assertFalse(by_key[key]['shared'], f'{key} must not be flagged shared')
 
     def test_shared_ac_pool_is_reported_once_not_per_service(self):
-        rows, shared_ac, _ = self._call(_canned_balances(ac=77))
+        rows, shared_ac, _, _, _ = self._call(_canned_balances(ac=77))
         self.assertEqual(shared_ac, 77)
         # It is a single return value, not one per row — there is no key on
         # any row that could be mistaken for "this service's own copy of AC".
@@ -143,7 +151,7 @@ class ServiceBalanceRowsLogicTests(SimpleTestCase):
             self.assertNotIn('shared_ac', row)
 
     def test_one_services_private_wallet_does_not_change_another_rows_number(self):
-        rows, _, _ = self._call(_canned_balances({'reputation': 50}, ac=10))
+        rows, _, _, _, _ = self._call(_canned_balances({'reputation': 50}, ac=10))
         by_key = {r['key']: r for r in rows}
         self.assertEqual(by_key['reputation']['balance'], 50)
         for key in ('header_analysis', 'ip_blocklist', 'domain_blocklist'):
@@ -152,8 +160,18 @@ class ServiceBalanceRowsLogicTests(SimpleTestCase):
                              f"not reputation's")
 
     def test_the_aggregate_is_fetched_exactly_once(self):
-        _, _, mocked = self._call(_canned_balances())
+        _, _, _, _, mocked = self._call(_canned_balances())
         mocked.assert_called_once_with(1)
+
+    def test_trial_remaining_passes_through_per_service(self):
+        canned = _canned_balances()
+        canned['services']['sales_outreach']['trial'] = 1
+        canned['trial_active'] = True
+        rows, _, trial_active, _, _ = self._call(canned)
+        by_key = {r['key']: r for r in rows}
+        self.assertEqual(by_key['sales_outreach']['trial_remaining'], 1)
+        self.assertEqual(by_key['email_validation']['trial_remaining'], 0)
+        self.assertTrue(trial_active)
 
 
 # ── nav_credits(): the global nav badge context processor ────────────────────
@@ -163,7 +181,12 @@ class NavCreditsContextProcessorLogicTests(SimpleTestCase):
     def _call(self, canned, logged_in='fixture@example.com'):
         from Email_validate_app import context_processors as cp
         request = FakeRequest(logged_in)
-        fake_user = MagicMock(id=1)
+        # trial_started_at/trial_ends_at must be real None, not an
+        # auto-generated MagicMock attribute -- nav_credits() compares
+        # trial_ends_at > now(), and a bare MagicMock has no meaningful
+        # ordering against a datetime (it would raise, which nav_credits'
+        # own try/except would then swallow into an unexpected {}).
+        fake_user = MagicMock(id=1, trial_started_at=None, trial_ends_at=None)
         with patch('Email_validate_app.context_processors.get_all_service_balances',
                    return_value=canned) as balances_mock, \
              patch('Email_validate_app.models.UserTable.objects') as manager_mock:

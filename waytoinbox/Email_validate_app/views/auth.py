@@ -14,7 +14,9 @@ from Email_validate_app.forms import CustomSignupForm
 from django.conf import settings
 import json
 from Email_validate_app.utils import get_user_id
-from Email_validate_app.services.mailer import send_verification_email
+from Email_validate_app.services.mailer import (
+    send_verification_email, send_welcome_email, send_admin_signup_notification,
+)
 from django.utils import timezone
 from datetime import timedelta
 import secrets
@@ -371,6 +373,19 @@ def verify_email(request, uidb64, token):
     if default_token_generator.check_token(user, token):
         user.is_verified = True
         user.save()
+
+        # 7-Day Free Trial starts the moment the account is actually usable
+        # (verification), not at raw signup. Placed before the two mailer
+        # calls below so trial activation is unaffected if either email
+        # send is slow or fails. Wrapped in its own try/except so a
+        # trial-activation error can never turn a successful verification
+        # into a failure.
+        try:
+            from Email_validate_app.services.trial_manager import activate_trial
+            activate_trial(user)
+        except Exception:
+            logger.exception("Trial activation failed for user_id=%s", user.id)
+
         send_welcome_email(user.user_name, user.user_email)
         send_admin_signup_notification(user.user_name, user.user_email)
         messages.success(request, "Your email has been verified! You can now log in.")

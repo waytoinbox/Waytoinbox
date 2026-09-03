@@ -7,10 +7,11 @@ import pytz
 from django.db import transaction
 from django.db.models import F
 from django.db.models.functions import Coalesce
+from django.utils.timezone import now
 
 from Email_validate_app.models import (
     CurrentCredits, TotalCredits, UsedCredits, CreditAuditLog, AllEmails, ListFiles,
-    ServiceCredit, SERVICE_CHOICES, SERVICE_KEYS,
+    ServiceCredit, ServiceTrial, TrialUsageLog, UserTable, SERVICE_CHOICES, SERVICE_KEYS,
 )
 
 logger = logging.getLogger(__name__)
@@ -402,17 +403,28 @@ SERVICE_LEGACY_POOL = {
 
 
 class InsufficientCredits(ValueError):
-    """Not enough credits across the new wallet AND the legacy pool.
+    """Not enough credits across the trial allowance, the new wallet, AND
+    the legacy pool.
 
     Subclasses ValueError deliberately: every existing deduction call site
     already handles ValueError (that is what deduct_vc/ac/cc_credits raise),
     so swapping them onto the new API cannot silently break their error paths.
+
+    trial_active/trial_exhausted are additive, optional attributes (every
+    existing raise site outside deduct_service_credits, e.g.
+    ensure_service_credits, keeps constructing this with just
+    service/needed/available) -- they exist so a caller COULD show a more
+    specific message ("your trial ran out" vs "you have no credits"), but no
+    existing call site's message/response shape is changed to use them.
     """
 
-    def __init__(self, service, needed, available):
+    def __init__(self, service, needed, available, trial_active=False,
+                 trial_exhausted=False):
         self.service   = service
         self.needed    = needed
         self.available = available
+        self.trial_active    = trial_active
+        self.trial_exhausted = trial_exhausted
         super().__init__(
             f"Insufficient {SERVICE_LABELS.get(service, service)} credits: "
             f"need {needed}, have {available}"
@@ -440,31 +452,51 @@ def get_service_balance(user_id, service):
 
 
 def get_effective_balance(user_id, service):
-    """What the user can actually spend right now: new wallet + legacy pool.
+    """What the user can actually spend right now: trial allowance (if
+    active) + new wallet + legacy pool.
 
     This is the number to gate actions on and to show next to a service. Note
     that for the four analysis services the legacy half is SHARED, so summing
     get_effective_balance() across them double-counts — see
     get_all_service_balances(), which reports the shared pool separately.
+
+    Trial is counted first because deduct_service_credits() spends it
+    first (it's free and time-boxed) — if this function didn't also count
+    it first, a call site could see "you have enough" here and then have
+    deduct_service_credits() draw from a different total.
     """
-    return get_service_balance(user_id, service) + _legacy_balance(user_id, service)
+    from Email_validate_app.services.trial_manager import get_trial_remaining
+    return (get_trial_remaining(user_id, service)
+            + get_service_balance(user_id, service)
+            + _legacy_balance(user_id, service))
 
 
 def get_all_service_balances(user_id):
-    """All seven balances in ONE query (plus one for the legacy row).
+    """All seven balances in ONE query (plus one for the legacy row, plus
+    one for the trial window/rows).
 
     Used by the context processor on every authenticated request, so it must
     stay cheap and must never create rows.
 
     Returns:
         {
-          'services': {service: {'new': int, 'legacy': int, 'effective': int}},
+          'services': {service: {'new': int, 'legacy': int, 'trial': int,
+                                  'effective': int}},
           'legacy_shared': {'ac': int, 'vc': int, 'cc': int},
+          'trial_active': bool,
+          'trial_ends_at': datetime | None,
         }
 
     `legacy_shared['ac']` is ONE pool backing four services. The UI must show
     it as a single shared figure, never as four independent balances, or a
     user with 100 AC appears to have 400.
+
+    'effective' is trial-inclusive (trial + new + legacy). The two purchase
+    pages (views/subscription.py, views/billing.py::pricing) deliberately
+    read only ['new'] already (see their own comments on legacy
+    double-counting) and are unaffected by this; context_processors.py and
+    views/profile.py read ['effective'] for display and are the two places
+    meant to pick up trial figures.
     """
     new_balances = dict(
         ServiceCredit.objects.filter(user_id=user_id).values_list('service', 'balance')
@@ -476,14 +508,37 @@ def get_all_service_balances(user_id):
         'cc': (cc.cc_current_credits or 0) if cc else 0,
     }
 
+    window = UserTable.objects.filter(pk=user_id).values(
+        'trial_started_at', 'trial_ends_at').first()
+    trial_active = bool(window and window['trial_started_at']
+                        and window['trial_ends_at']
+                        and window['trial_ends_at'] > now())
+    trial_rows_by_service = {}
+    if trial_active:
+        trial_rows_by_service = {
+            row['service']: row
+            for row in ServiceTrial.objects.filter(user_id=user_id)
+                                            .values('service', 'used', 'limit')
+        }
+
     services = {}
     for service in SERVICE_KEYS:
         pool = SERVICE_LEGACY_POOL.get(service)
         new = new_balances.get(service, 0)
         leg = legacy.get(pool, 0) if pool else 0
-        services[service] = {'new': new, 'legacy': leg, 'effective': new + leg}
+        trial_row = trial_rows_by_service.get(service)
+        trial_rem = max(0, trial_row['limit'] - trial_row['used']) if trial_row else 0
+        services[service] = {
+            'new': new, 'legacy': leg, 'trial': trial_rem,
+            'effective': trial_rem + new + leg,
+        }
 
-    return {'services': services, 'legacy_shared': legacy}
+    return {
+        'services': services,
+        'legacy_shared': legacy,
+        'trial_active': trial_active,
+        'trial_ends_at': window['trial_ends_at'] if window else None,
+    }
 
 
 def add_service_credits(user_id, service, amount, ref_type='service_purchase',
@@ -534,13 +589,14 @@ def ensure_service_credits(user_id, service, count):
 
 def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                            description=''):
-    """Spend `count` credits for `service`: new wallet first, then the legacy
-    pool for any remainder.
+    """Spend `count` credits for `service`: trial allowance first (if
+    active), then the new wallet, then the legacy pool for any remainder.
 
     Worked example from the spec:
         new email_validation = 20, legacy vc = 100, request 50
         -> 20 from new, 30 from legacy
         -> new = 0, legacy = 70
+    (trial is spent first, ahead of both, whenever it's active — see below.)
 
     Atomicity: the whole read-modify-write is inside one transaction with
     select_for_update() on every row it touches, so concurrent spends cannot
@@ -548,9 +604,17 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
     CurrentCredits row, so two of them racing on a shared AC pool serialise
     correctly and cannot both spend the same credit.
 
-    Lock order is fixed at ServiceCredit -> CurrentCredits everywhere in this
-    module. Any future code touching both MUST use the same order or it can
-    deadlock against this.
+    Lock order is fixed at ServiceCredit -> ServiceTrial -> CurrentCredits
+    everywhere in this module. Any future code touching more than one of
+    these MUST use the same order or it can deadlock against this.
+    ServiceCredit stays locked FIRST specifically because reputation.py,
+    so_email_accounts.py, and blocklist.py all pre-lock ServiceCredit
+    themselves before calling this function (their own comments say so, to
+    serialise concurrent adds) — ServiceTrial's lock has to slot in after
+    that external lock, never before it, or those call sites could deadlock
+    against a path that only ever calls this function directly. Spend
+    ORDER (trial -> new -> legacy) is a business-logic decision and is
+    independent of lock ACQUISITION order — the two don't need to match.
 
     Raises InsufficientCredits (a ValueError) without writing anything if the
     combined balance cannot cover the request — never partially deducts.
@@ -565,14 +629,34 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
     now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
 
     with transaction.atomic():
-        # 1. New wallet first.
+        # 1. ServiceCredit — lock position UNCHANGED (see docstring: external
+        #    call sites depend on this being first).
         ServiceCredit.objects.get_or_create(user_id=user_id, service=service)
         row = ServiceCredit.objects.select_for_update().get(
             user_id=user_id, service=service)
-        from_new = min(row.balance, count)
-        remainder = count - from_new
 
-        # 2. Legacy pool covers whatever is left.
+        # 2. ServiceTrial — NEW, locked second. No get_or_create: a missing
+        #    row means "this user never had a trial" (the common case), and
+        #    that must stay a single cheap SELECT, not a row-creating write.
+        window = UserTable.objects.filter(pk=user_id).values(
+            'trial_started_at', 'trial_ends_at').first()
+        trial_active = bool(window and window['trial_started_at']
+                            and window['trial_ends_at']
+                            and window['trial_ends_at'] > now())
+        trial_row = None
+        from_trial = 0
+        if trial_active:
+            trial_row = ServiceTrial.objects.select_for_update().filter(
+                user_id=user_id, service=service).first()
+            if trial_row:
+                trial_remaining = trial_row.limit - trial_row.used
+                from_trial = min(trial_remaining, count)
+
+        remainder = count - from_trial
+        from_new = min(row.balance, remainder) if remainder else 0
+        remainder -= from_new
+
+        # 3. CurrentCredits (legacy) — lock position UNCHANGED, still last.
         cc = None
         from_legacy = 0
         if remainder and pool:
@@ -584,9 +668,28 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
 
         if remainder > 0:
             # Nothing has been written yet — the transaction simply unwinds.
-            raise InsufficientCredits(service, count, from_new + from_legacy)
+            raise InsufficientCredits(
+                service, count, from_trial + from_new + from_legacy,
+                trial_active=trial_active,
+                trial_exhausted=bool(trial_active and trial_row is not None
+                                     and from_trial == 0),
+            )
 
-        # 3. Commit both halves.
+        # 4. Commit trial spend first, then the (unchanged) new-wallet and
+        #    legacy commits.
+        if from_trial:
+            trial_before = trial_row.limit - trial_row.used
+            trial_row.used += from_trial
+            trial_row.save(update_fields=['used', 'updated_at'])
+            TrialUsageLog.objects.create(
+                user_id=user_id, service=service, entry_type='debit',
+                amount=-from_trial, balance_before=trial_before,
+                balance_after=trial_row.limit - trial_row.used,
+                ref_type=ref_type, ref_id=str(ref_id),
+                description=description or
+                    f"Used {from_trial} trial {SERVICE_LABELS[service]} credits",
+            )
+
         if from_new:
             before = row.balance
             row.balance    = before - from_new

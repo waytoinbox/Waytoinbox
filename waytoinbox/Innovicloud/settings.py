@@ -298,6 +298,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "Email_validate_app.tasks.scheduler_job.subscription_expiry_job",
         "schedule": crontab(hour=2, minute=30),      # 2:30 AM UTC
     },
+    "trial_expiry_notification_daily": {
+        "task": "Email_validate_app.tasks.scheduler_job.trial_expiry_notification_job",
+        "schedule": crontab(hour=2, minute=45),      # 2:45 AM UTC
+    },
     "blacklist_notification_daily": {
         "task": "Email_validate_app.tasks.scheduler_job.bl_notification_job",
         "schedule": crontab(hour=3, minute=0),       # 3 AM UTC
