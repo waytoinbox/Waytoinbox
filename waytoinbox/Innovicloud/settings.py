@@ -387,7 +387,7 @@ if ENVIRONMENT == "production":
     if _db_ssl_ca:
         # Merge, don't replace — DATABASES["default"]["OPTIONS"] already carries
         # the utf8mb4 charset setting above.
-        DATABASES["default"]["OPTIONS"]["ssl_ca"] = _db_ssl_ca
+        DATABASES["default"]["OPTIONS"]["ssl"] = {"ca": _db_ssl_ca}
     else:
         import warnings as _warnings
         _warnings.warn(
