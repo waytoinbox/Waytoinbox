@@ -141,6 +141,37 @@ def send_trial_expired_email(user_name, user_email, expired_on):
         logger.error("Trial expiry email error for %s: %s", user_email, e)
 
 
+def send_trial_activated_email(user_name, user_email, trial_ends_at, services):
+    """Sent once, right after views/credits.py::trial_activate() succeeds --
+    the manual-activation confirmation counterpart to send_trial_expired_email
+    above. `services` is the exact list trial_activate() already builds for
+    its own JSON response: [{'service': 'email_validation',
+    'label': 'Email Validation', 'limit': 100}, ...] -- reused here so the
+    per-service limits shown in the email always match what the popup
+    itself displayed."""
+    subject = "Your 7-Day Free Trial Has Started — Waytoinbox"
+    ends_str = trial_ends_at.strftime('%d %b %Y') if trial_ends_at else 'N/A'
+    width = max((len(s['label']) for s in services), default=0)
+    detail = "".join(
+        f"  {s['label']:<{width}} : {s['limit']:,}\n" for s in services
+    ) or "  (no services)\n"
+    message = (
+        f"Hi {user_name},\n\n"
+        f"Your 7-day free trial is now active! It runs until {ends_str}.\n\n"
+        f"Here's what you can try during your trial:\n\n"
+        f"{detail}\n"
+        f"👉 Log in to get started: https://waytoinbox.com/pricing/\n\n"
+        f"If you have any questions, reply to this email — we're happy to help.\n\n"
+        f"— The Waytoinbox Team\n"
+        f"support@waytoinbox.com\n"
+    )
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [user_email])
+        logger.info("Trial activation email sent to %s", user_email)
+    except Exception as e:
+        logger.error("Trial activation email error for %s: %s", user_email, e)
+
+
 def send_payment_success_email(user_name, user_email, amount, currency, order_id, payment_time, extra):
     """
     extra = {'type': 'payg', 'credits': 500}

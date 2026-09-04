@@ -43,7 +43,7 @@ from Email_validate_app.services import coupon_service
 from Email_validate_app.services.credit_manager import (
     add_service_credits, generate_receipt_id, get_all_service_balances,
 )
-from Email_validate_app.services.mailer import send_payment_success_email
+from Email_validate_app.services.mailer import send_payment_success_email, send_trial_activated_email
 from Email_validate_app.services.trial_manager import (
     TRIAL_DURATION_DAYS, TRIAL_LIMITS, SERVICE_LABELS as TRIAL_SERVICE_LABELS,
     activate_trial, has_ever_paid, is_trial_eligible,
@@ -494,16 +494,29 @@ def trial_activate(request):
 
     logger.info("Trial manually activated for user_id=%s", user_id)
 
+    services = [
+        {"service": svc, "label": TRIAL_SERVICE_LABELS[svc], "limit": TRIAL_LIMITS[svc]}
+        for svc in pricing.SERVICE_KEYS
+    ]
+
+    # Best-effort, same pattern as _notify() below for the payment flow —
+    # the trial is already committed, so an email failure must never turn
+    # a successful activation into an error response.
+    try:
+        send_trial_activated_email(
+            user_name=user.user_name, user_email=user.user_email,
+            trial_ends_at=user.trial_ends_at, services=services,
+        )
+    except Exception as e:
+        logger.error("Trial activation email failed for user_id=%s: %s", user_id, e)
+
     return JsonResponse({
         "status":  "ok",
         "message": "Your 7-day free trial has been activated!",
         "trial_started_at": user.trial_started_at.isoformat(),
         "trial_ends_at":    user.trial_ends_at.isoformat(),
         "trial_days":       TRIAL_DURATION_DAYS,
-        "services": [
-            {"service": svc, "label": TRIAL_SERVICE_LABELS[svc], "limit": TRIAL_LIMITS[svc]}
-            for svc in pricing.SERVICE_KEYS
-        ],
+        "services": services,
     })
 
 

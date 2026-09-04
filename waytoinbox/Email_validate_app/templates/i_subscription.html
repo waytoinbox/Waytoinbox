@@ -781,7 +781,10 @@ function activateTrial() {
         return;
       }
       btn.textContent = 'Activated! Reloading…';
-      window.location.reload();
+      if (window.WTI && typeof WTI.toast === 'function') {
+        WTI.toast(r.data.message || 'Your 7-day free trial has been activated!', 'success');
+      }
+      setTimeout(function () { window.location.reload(); }, 1200);
     })
     .catch(function () {
       errEl.textContent = 'Could not reach the server. Please try again.';

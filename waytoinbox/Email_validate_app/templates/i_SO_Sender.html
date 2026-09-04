@@ -3,6 +3,10 @@
 {% block extra_css %}
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
+<!-- Reused here only for its .soea-row-menu* kebab-dropdown component
+     (same one i_SO_Email_Accounts.html uses) — no page-specific
+     .soea-* selector in this file matches anything in this page's DOM. -->
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_email_accounts.css' %}"/>
 {% endblock %}
 {% block content %}
 <div class="so-page">
@@ -93,37 +97,45 @@
                     <i class="fas fa-chart-bar"></i> {% if c.status == 'sent' %}Stats{% else %}View{% endif %}
                   </a>
                 {% endif %}
-                {% if c.status == 'draft' or c.status == 'scheduled' or c.status == 'failed' or c.status == 'cancelled' %}
-                  <a href="{% url 'so_campaign_edit' c.id %}" class="so-icon-btn"><i class="fas fa-pen"></i> Edit</a>
-                {% endif %}
-                {% if c.status == 'scheduled' or c.status == 'sending' %}
-                  <button class="so-icon-btn" onclick="pauseCampaign({{ c.id }})">
-                    <i class="fas fa-pause"></i> Pause
-                  </button>
-                {% endif %}
-                {% if c.status == 'paused' %}
-                  <button class="so-icon-btn" onclick="resumeCampaign({{ c.id }})">
-                    <i class="fas fa-play"></i> Resume
-                  </button>
-                {% endif %}
-                {% if c.status == 'scheduled' or c.status == 'sending' or c.status == 'paused' %}
-                  <button class="so-icon-btn danger" onclick="cancelCampaign({{ c.id }}, this.closest('tr'))">
-                    <i class="fas fa-ban"></i> Cancel
-                  </button>
-                {% endif %}
-                {% if c.failed_count %}
-                  <button class="so-icon-btn" onclick="retryCampaign({{ c.id }})" title="{{ c.failed_count }} failed contact{{ c.failed_count|pluralize }}">
-                    <i class="fas fa-rotate-right"></i> Retry
-                  </button>
-                {% endif %}
-                <button class="so-icon-btn" onclick="duplicateCampaign({{ c.id }})">
-                  <i class="fas fa-copy"></i> Duplicate
-                </button>
-                {% if c.status == 'draft' or c.status == 'failed' or c.status == 'cancelled' %}
-                  <button class="so-icon-btn danger" onclick="deleteCampaign({{ c.id }}, this.closest('tr'))">
-                    <i class="fas fa-trash"></i>
-                  </button>
-                {% endif %}
+                <div class="soea-row-menu-wrap">
+                  <button type="button" class="so-icon-btn soea-row-menu-trigger" title="More actions"><i class="fas fa-ellipsis-v"></i></button>
+                  <div class="soea-row-menu" hidden>
+                    {% if c.status == 'draft' or c.status == 'scheduled' or c.status == 'failed' or c.status == 'cancelled' %}
+                      <a href="{% url 'so_campaign_edit' c.id %}"><i class="fas fa-pen"></i> Edit</a>
+                    {% endif %}
+                    {% if c.status == 'scheduled' or c.status == 'sending' %}
+                      <button type="button" onclick="pauseCampaign({{ c.id }})">
+                        <i class="fas fa-pause"></i> Pause
+                      </button>
+                    {% endif %}
+                    {% if c.status == 'paused' %}
+                      <button type="button" onclick="resumeCampaign({{ c.id }})">
+                        <i class="fas fa-play"></i> Resume
+                      </button>
+                    {% endif %}
+                    {% if c.failed_count %}
+                      <button type="button" onclick="retryCampaign({{ c.id }})" title="{{ c.failed_count }} failed contact{{ c.failed_count|pluralize }}">
+                        <i class="fas fa-rotate-right"></i> Retry
+                      </button>
+                    {% endif %}
+                    <button type="button" onclick="duplicateCampaign({{ c.id }})">
+                      <i class="fas fa-copy"></i> Duplicate
+                    </button>
+                    {% if c.status == 'scheduled' or c.status == 'sending' or c.status == 'paused' or c.status == 'draft' or c.status == 'failed' or c.status == 'cancelled' %}
+                    <hr/>
+                    {% endif %}
+                    {% if c.status == 'scheduled' or c.status == 'sending' or c.status == 'paused' %}
+                      <button type="button" class="soea-menu-danger" onclick="cancelCampaign({{ c.id }}, this.closest('tr'))">
+                        <i class="fas fa-ban"></i> Cancel
+                      </button>
+                    {% endif %}
+                    {% if c.status == 'draft' or c.status == 'failed' or c.status == 'cancelled' %}
+                      <button type="button" class="soea-menu-danger" onclick="deleteCampaign({{ c.id }}, this.closest('tr'))">
+                        <i class="fas fa-trash"></i> Delete
+                      </button>
+                    {% endif %}
+                  </div>
+                </div>
               </div>
             </td>
           </tr>
@@ -179,6 +191,42 @@ document.getElementById('sosePageSize').addEventListener('change', function () {
     document.getElementById('soseFilterForm').submit();
   });
 })();
+/* ── Row action menu (kebab) — same component/behavior as
+   i_SO_Email_Accounts.html: one trigger+menu pair per row, only one open
+   at a time, closes on any outside click, scroll, or once an action
+   inside it is chosen. position:fixed means the menu's top/left have to be
+   computed from the trigger's own bounding rect (see so_email_accounts.css
+   for why position:fixed is required here), clamped so it never renders
+   past the right edge of the viewport. */
+function positionRowMenu(btn, menu) {
+  var rect = btn.getBoundingClientRect();
+  menu.style.top = (rect.bottom + 4) + 'px';
+  var left = rect.right - menu.offsetWidth;
+  left = Math.max(8, left);
+  menu.style.left = left + 'px';
+}
+document.querySelectorAll('.soea-row-menu-trigger').forEach(function (btn) {
+  btn.addEventListener('click', function (e) {
+    e.stopPropagation();
+    var menu = btn.nextElementSibling;
+    var wasHidden = menu.hidden;
+    document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+    if (wasHidden) { menu.hidden = false; positionRowMenu(btn, menu); }
+  });
+});
+document.querySelectorAll('.soea-row-menu').forEach(function (menu) {
+  menu.addEventListener('click', function (e) {
+    e.stopPropagation();
+    if (e.target.closest('button')) menu.hidden = true;
+  });
+});
+document.addEventListener('click', function () {
+  document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+});
+window.addEventListener('scroll', function () {
+  document.querySelectorAll('.soea-row-menu').forEach(function (m) { m.hidden = true; });
+}, true);
+
 function deleteCampaign(id, row) {
   if(!confirm('Delete this campaign? This cannot be undone.')) return;
   fetch('/Sales-Outreach/sender/'+id+'/action/',{method:'POST',headers:{'Content-Type':'application/json','X-CSRFToken':CSRF},
