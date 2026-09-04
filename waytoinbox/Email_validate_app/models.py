@@ -2220,7 +2220,7 @@ class SOConversation(models.Model):
     # Denormalized from campaign_contact for cheap filtering without a join.
     campaign   = models.ForeignKey(SOCampaign, on_delete=models.CASCADE, null=True, blank=True,
                                    related_name='conversations')
-    thread_key = models.CharField(max_length=300, unique=True, db_index=True)
+    thread_key = models.CharField(max_length=255, unique=True)
     prospect = models.ForeignKey(SOProspect, on_delete=models.SET_NULL, null=True, blank=True,
                                  related_name='so_conversations')
     account  = models.ForeignKey(SOEmailAccount, on_delete=models.SET_NULL, null=True, blank=True,
