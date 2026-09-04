@@ -60,10 +60,10 @@ def fake_razorpay(order_id='order_TEST123', raise_signature=False):
     return client
 
 
-# subscription_order() now requires all 7 services to be present (each at or
-# above its own minimum) -- not just a nonempty subset. Same fixture as
-# test_service_checkout.py: every service at exactly its minimum quantity,
-# totalling 1530 cents.
+# subscription_order() accepts any nonempty subset of the 7 services -- a
+# full cart is not required. Same fixture as test_service_checkout.py, used
+# here purely as a convenient, deterministic multi-service cart for coupon
+# tests: every service at exactly its minimum quantity, totalling 1530 cents.
 FULL_CART_AT_MINIMUM = {
     'email_validation': 1000,
     'email_marketing':  1000,
@@ -270,7 +270,8 @@ class CouponCheckoutTests(TestCase):
 
     def _order(self, cart, promo='', order_id='order_TEST123'):
         """cart is filled out to include every service (at its minimum) that
-        isn't already present -- subscription_order now requires all 7."""
+        isn't already present -- not required by subscription_order, just a
+        convenient rich multi-service cart for these coupon tests."""
         cart = dict(FULL_CART_AT_MINIMUM, **cart)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay(order_id)) as rz:

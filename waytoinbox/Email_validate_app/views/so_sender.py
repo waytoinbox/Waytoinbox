@@ -253,10 +253,11 @@ def _new_campaign_context(request, campaign=None):
             'exclude_segment_ids':  list(campaign.exclude_segments.values_list('id', flat=True)),
             'email_account_ids':    list(campaign.account_rotations.order_by('order')
                                          .values_list('account_id', flat=True)),
-            'email_account_weights': {
-                str(rot.account_id): rot.weight
+            'email_account_counts': {
+                str(rot.account_id): rot.daily_send_count
                 for rot in campaign.account_rotations.all()
             },
+            'sender_send_count_enabled': campaign.sender_send_count_enabled,
             'sender_name':          campaign.from_name,
             'reply_to':             campaign.reply_to,
             'tracking_enabled':     campaign.tracking_enabled,
@@ -331,10 +332,22 @@ def so_campaign_detail(request, cid):
     contacts_remaining = SOCampaignContact.objects.filter(
         campaign=campaign, status__in=('active', 'sending'),
     ).count()
-    combined_daily_capacity = sum(
-        r.account.daily_limit for r in campaign.account_rotations.select_related('account')
-        if not r.account.deleted_at
-    )
+    # When Campaign Sending Count is on, THIS campaign's real capacity per
+    # account is capped at its own daily_send_count, not the account's full
+    # (possibly multi-campaign-shared) daily_limit — see
+    # services/so_drip.py::_reserve_quota_slot, which enforces the exact
+    # same min() at send time.
+    if campaign.sender_send_count_enabled:
+        combined_daily_capacity = sum(
+            min(r.daily_send_count, r.account.daily_limit)
+            for r in campaign.account_rotations.select_related('account')
+            if not r.account.deleted_at
+        )
+    else:
+        combined_daily_capacity = sum(
+            r.account.daily_limit for r in campaign.account_rotations.select_related('account')
+            if not r.account.deleted_at
+        )
 
     # ── Per-recipient event journey (mirrors Email Marketing's campaign_detail:
     # one row per enrolled contact, event-presence flags built from SOEvent so
@@ -1103,6 +1116,7 @@ def _duplicate_campaign(campaign, user_id):
         send_hour_start=campaign.send_hour_start,
         send_hour_end=campaign.send_hour_end,
         tracking_enabled=campaign.tracking_enabled,
+        sender_send_count_enabled=campaign.sender_send_count_enabled,
         status='draft',
     )
 
@@ -1202,7 +1216,8 @@ def _duplicate_campaign(campaign, user_id):
 
     for rot in campaign.account_rotations.select_related('account').order_by('order'):
         SOEmailAccountRotation.objects.create(
-            campaign=new_campaign, account=rot.account, weight=rot.weight, order=rot.order,
+            campaign=new_campaign, account=rot.account,
+            daily_send_count=rot.daily_send_count, order=rot.order,
         )
 
     return new_campaign
@@ -1300,27 +1315,57 @@ def _apply_campaign_payload(request, data, strict):
     excl_segs    = [i for i in (data.get('exclude_segment_ids') or []) if i]
     account_ids  = [i for i in (data.get('email_account_ids') or []) if i]
 
-    # Per-account rotation weight — keyed by int account id regardless of
-    # whatever type the client sent (JSON object keys are always strings).
-    # A missing/blank/invalid value falls back to 1, matching the
-    # SOEmailAccountRotation.weight model field's own default; only an
-    # explicit value from the client is ever trusted otherwise. Weight is
-    # validated server-side below (never rely on the client alone) —
-    # 0 is a legal individual value ("configured but disabled"), but if
-    # every selected account ends up at 0 there is no selectable sender.
-    raw_weights = data.get('email_account_weights') or {}
-    account_weights = {}
+    sender_send_count_enabled = bool(data.get('sender_send_count_enabled'))
+
+    # Campaign Sending Count — replaces the removed Weight/Percentage
+    # system. Keyed by int account id regardless of whatever type the
+    # client sent (JSON object keys are always strings). Only validated and
+    # taken from the payload while the toggle is on; while it's off, every
+    # selected account's own SOEmailAccount.daily_limit governs this
+    # campaign's use of it (see so_drip.py::_reserve_quota_slot) and no
+    # per-account count is required — each row is still given a sane stored
+    # value (its account's own daily_limit, clamped to 120) so switching
+    # the toggle back on later starts from a sensible number rather than 0.
+    raw_counts = data.get('email_account_counts') or {}
+    account_ids_int = []
     for acc_id in account_ids:
         try:
-            acc_id_int = int(acc_id)
+            account_ids_int.append(int(acc_id))
         except (TypeError, ValueError):
             continue
-        raw = raw_weights.get(str(acc_id_int))
+    account_limits = dict(
+        SOEmailAccount.objects.filter(id__in=account_ids_int, user_id=user_id)
+        .values_list('id', 'daily_limit'))
+
+    # While the toggle is off, the payload's counts are never even looked
+    # at — every row just stores this account's own ceiling, so a stale or
+    # leftover count in the client's state can't sneak into the database.
+    # While it's on: a MISSING/blank count silently falls back to the same
+    # ceiling — same tolerance the old weight parsing gave a missing weight
+    # (silent fallback to 1) — so an in-progress draft save can never fail
+    # just because a count hasn't been filled in yet. An EXPLICIT
+    # out-of-range/non-numeric value is always rejected, draft or not (same
+    # as the campaign name-too-long check above) — the client always sends
+    # a real number once an account is checked (see so_campaign.js's
+    # accountCounts()), so a malformed one here means a genuinely bad
+    # request, not an unfinished draft.
+    account_counts = {}
+    for acc_id_int in account_ids_int:
+        limit   = account_limits.get(acc_id_int)
+        ceiling = min(120, limit) if limit else 120
+        if not sender_send_count_enabled:
+            account_counts[acc_id_int] = ceiling
+            continue
+        raw = raw_counts.get(str(acc_id_int))
         try:
-            w = max(0, int(raw)) if raw not in (None, '') else 1
+            c = int(raw)
+            if not (1 <= c <= ceiling):
+                raise ValueError
         except (TypeError, ValueError):
-            w = 1
-        account_weights[acc_id_int] = w
+            if raw not in (None, ''):
+                errors['account'] = f'Campaign Sending Count must be between 1 and {ceiling} for each sender account.'
+            c = ceiling
+        account_counts[acc_id_int] = c
 
     steps, seq_errors = _validate_sequence(data.get('sequence'), strict)
     errors.update(seq_errors)
@@ -1339,8 +1384,6 @@ def _apply_campaign_payload(request, data, strict):
             errors['recipients'] = 'Select at least one list or segment.'
         if not account_ids:
             errors['account'] = 'Select an email account to send from.'
-        elif sum(account_weights.values()) <= 0:
-            errors['account'] = 'At least one sender account must have a weight greater than 0.'
 
     schedule_at = None
     schedule_tz = (data.get('schedule_timezone') or 'Asia/Kolkata').strip()
@@ -1379,6 +1422,7 @@ def _apply_campaign_payload(request, data, strict):
     # than silently turning tracking off for a payload that predates this
     # field.
     campaign.tracking_enabled  = bool(data.get('tracking_enabled', True))
+    campaign.sender_send_count_enabled = sender_send_count_enabled
     campaign.schedule_timezone = schedule_tz
     campaign.send_weekdays     = send_weekdays
     campaign.send_hour_start   = send_hour_start
@@ -1425,7 +1469,7 @@ def _apply_campaign_payload(request, data, strict):
     for idx, acc in enumerate(accounts):
         SOEmailAccountRotation.objects.update_or_create(
             campaign=campaign, account=acc,
-            defaults={'weight': account_weights.get(acc.id, 1), 'order': idx},
+            defaults={'daily_send_count': account_counts.get(acc.id, min(120, acc.daily_limit)), 'order': idx},
         )
 
     return campaign, id_map, {}

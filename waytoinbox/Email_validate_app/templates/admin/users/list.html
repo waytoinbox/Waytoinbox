@@ -36,10 +36,16 @@
         <option value="" {% if not params.admin %}selected{% endif %}>All Roles</option>
         <option value="1" {% if params.admin == '1' %}selected{% endif %}>Admins only</option>
       </select>
+      <select name="trial" class="admin-filter-select" onchange="this.form.submit()">
+        <option value="" {% if not params.trial %}selected{% endif %}>All Trial</option>
+        <option value="active" {% if params.trial == 'active' %}selected{% endif %}>Active trial</option>
+        <option value="expired" {% if params.trial == 'expired' %}selected{% endif %}>Trial expired</option>
+        <option value="none" {% if params.trial == 'none' %}selected{% endif %}>Never trialed</option>
+      </select>
       <button type="submit" class="btn-admin btn-admin-primary" style="padding:8px 14px;">
         <i class="fas fa-search"></i> Search
       </button>
-      {% if params.q or params.status or params.verified or params.admin %}
+      {% if params.q or params.status or params.verified or params.admin or params.trial %}
       <a href="{% url 'admin_users' %}" class="btn-admin btn-admin-outline">
         <i class="fas fa-times"></i> Clear
       </a>
@@ -89,6 +95,9 @@
             {% if not user.is_verified %}
               <span class="badge badge-warning" style="margin-left:4px;">Unverified</span>
             {% endif %}
+            {% if user.trial_is_active %}
+              <span class="badge badge-info" style="margin-left:4px;"><i class="fas fa-hourglass-half"></i> Trial</span>
+            {% endif %}
           </td>
           <td>
             <span style="font-weight:600;color:var(--teal);">{{ user.credit_balance }}</span>
@@ -134,7 +143,7 @@
     </span>
     <div class="admin-pagination-pages">
       {% if page_obj.has_previous %}
-        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}page={{ page_obj.previous_page_number }}">
+        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}{% if params.trial %}trial={{ params.trial }}&{% endif %}page={{ page_obj.previous_page_number }}">
           <i class="fas fa-chevron-left"></i>
         </a>
       {% endif %}
@@ -142,11 +151,11 @@
         {% if num == page_obj.number %}
           <span class="pg-current">{{ num }}</span>
         {% elif num >= page_obj.number|add:"-2" and num <= page_obj.number|add:"2" %}
-          <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}page={{ num }}">{{ num }}</a>
+          <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}{% if params.trial %}trial={{ params.trial }}&{% endif %}page={{ num }}">{{ num }}</a>
         {% endif %}
       {% endfor %}
       {% if page_obj.has_next %}
-        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}page={{ page_obj.next_page_number }}">
+        <a href="?{% if params.q %}q={{ params.q }}&{% endif %}{% if params.status %}status={{ params.status }}&{% endif %}{% if params.verified %}verified={{ params.verified }}&{% endif %}{% if params.admin %}admin={{ params.admin }}&{% endif %}{% if params.trial %}trial={{ params.trial }}&{% endif %}page={{ page_obj.next_page_number }}">
           <i class="fas fa-chevron-right"></i>
         </a>
       {% endif %}

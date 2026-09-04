@@ -164,7 +164,7 @@
 /* Start Warmup modal — icon header (like .soea-pwd-modal's) + a boxed ramp
    grid with per-field unit labels + an info-style notice, matching the
    .soc-test-notice callout pattern used on the campaign pages. */
-.soea-warmup-modal { max-width: 460px; }
+.soea-warmup-modal { max-width: 560px; }
 .soea-ramp-grid {
   display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius-md);

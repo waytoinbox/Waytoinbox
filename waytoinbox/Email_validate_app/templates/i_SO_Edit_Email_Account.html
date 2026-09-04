@@ -32,7 +32,8 @@
     <div class="soee-section-title">Sending Settings</div>
     <div class="so-field">
       <label>Daily Sending Limit</label>
-      <input type="number" id="eeaDailyLimit" min="1" step="1" value="{{ acc.daily_limit }}"/>
+      <input type="number" id="eeaDailyLimit" min="1" max="120" step="1" value="{{ acc.daily_limit }}"/>
+      <p class="soee-hint"><i class="fas fa-info-circle"></i> Up to 120 emails per day.</p>
     </div>
 
     <div class="soee-section-title">Warmup Settings</div>
@@ -43,15 +44,18 @@
       </div>
       <div class="so-field">
         <label>Daily Target</label>
-        <input type="number" id="eeaWarmupDailyTarget" min="1" step="1" value="{{ acc.warmup.daily_target }}"/>
+        <input type="number" id="eeaWarmupDailyTarget" min="1" max="40" step="1" value="{{ acc.warmup.daily_target }}"/>
+        <p class="soee-hint"><i class="fas fa-info-circle"></i> Up to 40 emails per day.</p>
       </div>
       <div class="so-field">
         <label>Ramp-up Days</label>
-        <input type="number" id="eeaWarmupRampDays" min="1" step="1" value="{{ acc.warmup.ramp_up_days }}"/>
+        <input type="number" id="eeaWarmupRampDays" min="1" max="30" step="1" value="{{ acc.warmup.ramp_up_days }}"/>
+        <p class="soee-hint"><i class="fas fa-info-circle"></i> Up to 30 days.</p>
       </div>
       <div class="so-field">
-        <label>Daily Increment</label>
-        <input type="number" id="eeaWarmupRampIncrement" min="1" step="1" value="{{ acc.warmup.ramp_up_increment }}"/>
+        <label>Daily Increment (auto)</label>
+        <input type="number" id="eeaWarmupRampIncrement" step="1" value="{{ acc.warmup.ramp_up_increment }}"
+               readonly style="opacity:0.6;cursor:not-allowed;"/>
       </div>
     {% else %}
       <p class="soee-hint"><i class="fas fa-info-circle"></i> Warmup has not been started yet.</p>
@@ -74,6 +78,27 @@ var LIST_URL   = '{% url "so_email_accounts" %}';
 var ACCOUNT_ID = {{ acc.id }};
 var HAS_WARMUP = {% if acc.warmup %}true{% else %}false{% endif %};
 
+/* Daily increment is server-computed (daily_target / ramp_up_days,
+   ceiling) — this mirrors that formula purely for a live preview once the
+   user actually changes one of the other two fields; the server
+   recomputes it independently and this field's own value is never sent
+   (see saveEdit() below). Deliberately NOT run on page load: the field
+   starts pre-populated from the real saved value, which may still reflect
+   whatever was typed before this change shipped -- showing a recomputed
+   "preview" on load would look like it was already saved when it wasn't. */
+if (HAS_WARMUP) {
+  var eeaTargetEl = document.getElementById('eeaWarmupDailyTarget');
+  var eeaDaysEl   = document.getElementById('eeaWarmupRampDays');
+  function recomputeEeaIncrement() {
+    var dt = parseInt(eeaTargetEl.value, 10);
+    var rd = parseInt(eeaDaysEl.value, 10);
+    var el = document.getElementById('eeaWarmupRampIncrement');
+    el.value = (dt > 0 && rd > 0) ? Math.max(1, Math.ceil(dt / rd)) : '';
+  }
+  eeaTargetEl.addEventListener('input', recomputeEeaIncrement);
+  eeaDaysEl.addEventListener('input', recomputeEeaIncrement);
+}
+
 function saveEdit() {
   var err = document.getElementById('eeaErr');
   err.hidden = true;
@@ -86,9 +111,8 @@ function saveEdit() {
   };
   if (HAS_WARMUP) {
     payload.warmup = {
-      daily_target:      document.getElementById('eeaWarmupDailyTarget').value,
-      ramp_up_days:       document.getElementById('eeaWarmupRampDays').value,
-      ramp_up_increment: document.getElementById('eeaWarmupRampIncrement').value,
+      daily_target: document.getElementById('eeaWarmupDailyTarget').value,
+      ramp_up_days: document.getElementById('eeaWarmupRampDays').value,
     };
   }
 

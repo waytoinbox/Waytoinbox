@@ -47,17 +47,40 @@ def warmup_sender_action(request):
         return JsonResponse({'status': 'error', 'message': 'No valid accounts selected.'})
 
     if action == 'start':
-        def _int_or_none(v):
+        # daily_target/ramp_up_days are optional (missing/blank -> None ->
+        # warmup_service's own defaults) but validated against the same
+        # bounds as the Edit flow (views/so_email_accounts.py's warmup
+        # loop) when provided. ramp_up_increment is deliberately never read
+        # from the payload — it's always server-computed (see
+        # services/warmup.py::compute_ramp_increment).
+        errors = {}
+        parsed = {}
+        for key, label, max_val in (
+            ('daily_target', 'Daily target', 40),
+            ('ramp_up_days', 'Ramp-up days', 30),
+        ):
+            raw = data.get(key)
+            if raw in (None, ''):
+                parsed[key] = None
+                continue
             try:
-                return int(v) if v not in (None, '') else None
+                val = int(raw)
+                if val <= 0:
+                    errors[key] = f'{label} must be greater than 0.'
+                elif val > max_val:
+                    errors[key] = f'{label} cannot exceed {max_val}.'
+                else:
+                    parsed[key] = val
             except (TypeError, ValueError):
-                return None
+                errors[key] = f'{label} must be a whole number.'
+
+        if errors:
+            return JsonResponse({'status': 'error', 'errors': errors})
 
         warmup_service.start_warmup(
             valid_ids,
-            daily_target=_int_or_none(data.get('daily_target')),
-            ramp_up_days=_int_or_none(data.get('ramp_up_days')),
-            ramp_up_increment=_int_or_none(data.get('ramp_up_increment')),
+            daily_target=parsed['daily_target'],
+            ramp_up_days=parsed['ramp_up_days'],
         )
         return JsonResponse({'status': 'ok'})
 

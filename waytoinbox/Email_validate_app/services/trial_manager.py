@@ -35,13 +35,13 @@ from Email_validate_app.models import (
 TRIAL_DURATION_DAYS = 7
 
 TRIAL_LIMITS = {
-    'email_validation': 50,
-    'email_marketing':  50,
-    'sales_outreach':     1,
-    'reputation':         1,
-    'header_analysis':   10,
-    'ip_blocklist':       1,
-    'domain_blocklist':   1,
+    'email_validation': 100,
+    'email_marketing':  200,
+    'sales_outreach':     2,
+    'reputation':         2,
+    'header_analysis':   25,
+    'ip_blocklist':       5,
+    'domain_blocklist':   5,
 }
 assert set(TRIAL_LIMITS) == set(SERVICE_KEYS), \
     "TRIAL_LIMITS must cover every SERVICE_KEYS entry"
@@ -60,8 +60,39 @@ SERVICE_LABELS = dict(SERVICE_CHOICES)
 
 def is_trial_eligible(user):
     """Pure, no query -- `user` must be a loaded UserTable instance.
-    True iff this account has never started a trial."""
+    True iff this account has never started a trial. Deliberately does NOT
+    consider payment history -- that is a separate, broader rule (see
+    can_offer_trial() below); this stays the narrow "never activated"
+    check activate_trial() itself relies on for its own idempotency."""
     return user is not None and user.trial_started_at is None
+
+
+def has_ever_paid(user_id):
+    """True iff this user has ever completed a real payment -- any
+    legacy Pay-As-You-Go or service-credit purchase (`Payment`, a row
+    written only on verified payment -- see ServiceOrder's own docstring
+    in models.py) or any subscription plan payment (`SubsPayment`, same:
+    only ever created inside views/subscription.py's payment-verification
+    branch, after Razorpay confirms the charge). Once true, the free
+    trial offer is retired for this user permanently -- even if they
+    never activated a trial at all.
+    """
+    from Email_validate_app.models import Payment, SubsPayment
+    return (Payment.objects.filter(user_id=user_id).exists()
+            or SubsPayment.objects.filter(user_id=user_id).exists())
+
+
+def can_offer_trial(user):
+    """Whether the trial button/popup should be shown, and whether
+    activation should be allowed, at all: never started a trial AND never
+    made a real payment. Broader than is_trial_eligible() alone -- a user
+    who paid for something without ever trialing must not be offered the
+    trial either, per the confirmed product rule ("activated the trial,
+    OR made any payment" both retire the offer). `user` must be a loaded
+    UserTable instance; this does one query (has_ever_paid) beyond what
+    is_trial_eligible() alone needs.
+    """
+    return is_trial_eligible(user) and not has_ever_paid(user.id)
 
 
 def is_trial_active(user):

@@ -37,7 +37,7 @@ def so_send_campaign_task(self, campaign_id):
         SOCampaign, SOCampaignContact, SOListProspect, SOEvent, SOProspect,
     )
     from Email_validate_app.services.so_segment_builder import build_so_segment_queryset
-    from Email_validate_app.services.so_drip import pick_weighted_account
+    from Email_validate_app.services.so_drip import pick_sender_account
 
     lock_key = f'{_LOCK_PREFIX}:{campaign_id}'
     if not cache.add(lock_key, '1', timeout=_LOCK_TIMEOUT):
@@ -65,9 +65,9 @@ def so_send_campaign_task(self, campaign_id):
         # account_rotations was prefetched above; .all() respects the model's
         # default ordering (['order']). Built once, reused both as the
         # "does this campaign have anywhere to send from" gate and as the
-        # pool each new contact is weighted-assigned across below (V2.4.8 —
-        # kept as SOEmailAccountRotation objects, not just .account, so each
-        # one's .weight is available to pick_weighted_account). Only
+        # pool each new contact is assigned across below — kept as
+        # SOEmailAccountRotation objects, not just .account, so each one's
+        # own .daily_send_count is available to pick_sender_account. Only
         # connected accounts participate — a failed/unchecked account must
         # never be handed out to a brand-new contact.
         rotations = [
@@ -155,14 +155,17 @@ def so_send_campaign_task(self, campaign_id):
                 # send time, against its OWN configured weights.
                 variant_label='',
                 next_action_at=start_at,
-                # Sticky weighted assignment (V2.4.8) across the campaign's
-                # selected accounts, deterministic per (campaign, email) so a
-                # retried enrollment lands on the same account rather than
-                # re-rolling it — this recipient's whole sequence then sends
-                # from this same account for every subsequent step (see
+                # Sticky account assignment across the campaign's selected
+                # accounts, deterministic per (campaign, email) so a retried
+                # enrollment lands on the same account rather than re-rolling
+                # it — this recipient's whole sequence then sends from this
+                # same account for every subsequent step (see
                 # so_drip.py::_get_contact_account, which just returns
-                # cc.account once it's set).
-                account=pick_weighted_account(campaign_id, email, rotations),
+                # cc.account once it's set). Weighted by each account's
+                # Campaign Sending Count when the campaign has that toggle
+                # on, uniform otherwise — see pick_sender_account.
+                account=pick_sender_account(
+                    campaign_id, email, rotations, campaign.sender_send_count_enabled),
             ))
         if new_ccs:
             SOCampaignContact.objects.bulk_create(new_ccs, ignore_conflicts=True)

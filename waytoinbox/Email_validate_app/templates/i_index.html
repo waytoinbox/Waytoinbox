@@ -231,34 +231,14 @@
           </ul>
         </li>
 
-        <!-- Account -->
-        <li class="nav-section-label">Account</li>
-        <li class="nav-item" id="payment-menu">
-          <a href="javascript:void(0)" class="nav-link submenu-toggle" data-tooltip="Preferences">
-            <i class="fas fa-user-cog"></i>
-            <span class="nav-link-text">Preferences</span>
-            <i class="fas fa-chevron-right submenu-arrow"></i>
+        <!-- Account: Preferences (Profile/Billing) moved into the topbar's
+             Profile dropdown -- only Pricing stays here, as a direct link. -->
+        <li class="nav-section-label">Purchase</li>     
+        <li class="nav-item">
+          <a href="{% url 'pricing' %}" class="nav-link" data-tooltip="Pricing">
+            <i class="fas fa-wallet"></i>
+            <span class="nav-link-text">Pricing</span>
           </a>
-          <ul class="submenu">
-            <li class="nav-item">
-              <a href="{% url 'profile' %}" class="nav-link" data-tooltip="Profile">
-                <i class="fas fa-id-badge"></i>
-                <span class="nav-link-text">Profile</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="{% url 'receipt_list' %}" class="nav-link" data-tooltip="Receipts">
-                <i class="fas fa-file-invoice-dollar"></i>
-                <span class="nav-link-text">Billing</span>
-              </a>
-            </li>
-            <li class="nav-item">
-              <a href="{% url 'pricing' %}" class="nav-link" data-tooltip="pricing">
-                <i class="fas fa-wallet"></i>
-                <span class="nav-link-text">Pricing</span>
-              </a>
-            </li>
-          </ul>
         </li>
 
        
@@ -293,33 +273,27 @@
       <div class="topbar-right">
         {% if 'logged_in' in request.session %}
           {% block topbar_credit %}
-          <!--{# Phase 6 commit 12: each service now has its own credit wallet, so
-             the old VC / AC / CC letters no longer name real, independent
-             pools the way they used to. This links to the full per-service
-             breakdown on the Billing tab rather than trying to squeeze all
-             seven balances into the topbar. The Analysis figure is the one
-             shared pool behind Reputation, Header Analyzer, IP Blocklist and
-             Domain Blocklist — shown once here, never once per service. #}-->
+          <!-- Replaces the old fixed VC/AC/CC badges (each service has its
+               own credit wallet now, so those 3 letters no longer name real
+               pools) with exactly one badge: the balance for whichever
+               single service the CURRENT PAGE belongs to (nav_current_service,
+               from context_processors.py::nav_credits -- never all 7 shown
+               together). Hidden entirely on a page not tied to one service
+               (dashboard, profile, pricing, etc.) rather than guessing which
+               balance to show. Still links to the full per-service
+               breakdown on the Billing tab, same as before. -->
           <a href="{% url 'profile' %}?tab=billing"
              class="credit-badge-group"
              style="text-decoration:none;color:inherit;"
              title="View your credit balances">
-<!--
-            <div class="credit-badge credit-badge--vc" title="Email Validation credits">
-              <i class="fas fa-envelope-open-text"></i>
-              <span>{{ nav_validation_credits }}</span>
+            {% if nav_current_service %}
+            <div class="credit-badge" title="{{ nav_current_service_label }} credits">
+              <i class="fas {{ nav_current_service_icon }}"></i>
+              <span>{{ nav_current_service_balance }}</span>
             </div>
-            <div class="credit-badge credit-badge--ac" title="Shared Analysis Credits — used by Reputation, Header Analyzer, IP Blocklist and Domain Blocklist when their own credits run low.">
-              <i class="fas fa-shield-alt"></i>
-              <span>{{ nav_shared_analysis_credits }}</span>
-            </div>
-            <div class="credit-badge credit-badge--cc" title="Email Marketing credits">
-              <i class="fas fa-paper-plane"></i>
-              <span>{{ nav_marketing_credits }}</span>
-            </div>
-          -->
+            {% endif %}
             {% if nav_trial_active %}
-            <div class="credit-badge credit-badge--trial" title="Your 7-day free trial is still active — trial credits are included in the balances above.">
+            <div class="credit-badge credit-badge--trial" title="Your 7-day free trial is still active — trial credits are included in the balance above.">
               <i class="fas fa-hourglass-half"></i>
               <span>Trial: {{ nav_trial_days_left }}d left</span>
             </div>
@@ -347,9 +321,32 @@
           <button class="theme-toggle-btn" id="themeToggleBtn" title="Toggle dark / light mode">
             <i class="fas fa-moon" id="themeToggleIcon"></i>
           </button>
-          <a href="{% url 'logout' %}" class="topbar-user">
-            <i class="fas fa-sign-out-alt"></i> Log out
-          </a>
+          <!-- Profile icon, right-side corner of the topbar (same rightmost
+               slot the old bare "Log out" link occupied) -- opens a dropdown
+               with the existing Profile/Billing/Pricing links (same URLs as
+               the sidebar's own Account section) plus Log out, instead of
+               navigating straight to logout. -->
+          <div class="profile-menu-wrap" id="profileMenuWrap">
+            <button class="topbar-user" id="profileMenuBtn" type="button"
+                    title="Account menu" aria-haspopup="true" aria-expanded="false">
+              <i class="fas fa-user-circle"></i>
+            </button>
+            <div class="profile-dropdown" id="profileDropdown">
+              <a href="{% url 'profile' %}" class="profile-dropdown-item">
+                <i class="fas fa-id-badge"></i> Profile
+              </a>
+              <a href="{% url 'receipt_list' %}" class="profile-dropdown-item">
+                <i class="fas fa-file-invoice-dollar"></i> Billing
+              </a>
+              <a href="{% url 'pricing' %}" class="profile-dropdown-item">
+                <i class="fas fa-wallet"></i> Pricing
+              </a>
+              <div class="profile-dropdown-divider"></div>
+              <a href="{% url 'logout' %}" class="profile-dropdown-item">
+                <i class="fas fa-sign-out-alt"></i> Log out
+              </a>
+            </div>
+          </div>
         {% else %}
           <a href="{% url 'login' %}" class="nav-login">Log in</a>
           <a href="{% url 'signup' %}" class="btn btn-primary btn-sm">Sign up</a>
@@ -617,6 +614,30 @@ document.addEventListener('DOMContentLoaded', () => {
   document.addEventListener('click', function(e) {
     if (!document.getElementById('notifBellWrap').contains(e.target)) {
       dropdown.classList.remove('open');
+    }
+  });
+})();
+</script>
+
+<script>
+// ── Profile menu dropdown (Profile / Billing / Pricing / Log out) ────
+(function() {
+  var wrap = document.getElementById('profileMenuWrap');
+  var btn  = document.getElementById('profileMenuBtn');
+  var menu = document.getElementById('profileDropdown');
+  if (!wrap || !btn || !menu) return;
+
+  btn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    var willOpen = !menu.classList.contains('open');
+    menu.classList.toggle('open', willOpen);
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+  });
+
+  document.addEventListener('click', function(e) {
+    if (!wrap.contains(e.target)) {
+      menu.classList.remove('open');
+      btn.setAttribute('aria-expanded', 'false');
     }
   });
 })();

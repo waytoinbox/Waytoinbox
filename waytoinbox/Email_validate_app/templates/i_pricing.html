@@ -21,6 +21,13 @@
     <h1>Simple, transparent pricing</h1>
     <p>Only pay for what you use. No hidden fees, no surprises — transparent credit-based pricing.</p>
 
+    <!-- Always shown (see #trialPopupModal below, which branches on
+         sign-in/eligibility state instead of the button itself being
+         gated). -->
+    <button type="button" class="btn btn-primary" id="trialCtaBtn" onclick="openTrialPopup()" style="margin-top:16px;">
+      &#127873; Start Your 7-Day Free Trial
+    </button>
+
     <div class="pricing-toggle">
       <div class="pricing-toggle-inner">
         <button class="ptab active" onclick="switchPricingTab('subscription', this)">Subscription</button>
@@ -140,9 +147,6 @@
 
             <span class="sc-name">
               {{ service.label }}
-              {% if service.balance %}
-                <span class="sc-balance">{{ service.balance|floatformat:0 }} available</span>
-              {% endif %}
               <span class="sc-min-hint">{{ service.min_qty|floatformat:0 }} minimum</span>
             </span>
 
@@ -242,7 +246,7 @@
 
           <!-- ── GET STARTED ─────────────────────────────────── -->
           <button type="button" id="scGetStarted" class="sc-cta" disabled>Get Started</button>
-          <p id="scCtaHint" class="sc-cta-hint">Select credits for every service to continue.</p>
+          <p id="scCtaHint" class="sc-cta-hint">Select credits for at least one service to continue.</p>
         </div>
       </div>
 
@@ -425,6 +429,12 @@ document.getElementById('paygForm').addEventListener('submit', async function(e)
     var data = await res.json();
     if (data.status === 'ok') {
       openPayConfirm(data);
+    } else if (res.status === 401 || res.status === 404) {
+      // order_payment() returns 401/404 for an anonymous session
+      // (views/billing.py) -- tell the visitor what to do next instead of
+      // an ambiguous "not found"/"not authenticated" message.
+      subShowAlert('error',
+        'Please <a href="{% url "signup" %}">sign up</a> or log in to purchase credits.');
     } else {
       subShowAlert('error', data.message || 'Could not initiate payment.');
     }
@@ -662,53 +672,79 @@ document.getElementById('scConfirmModal').addEventListener('click', function(e) 
 </div>
 
 <!-- ── 7-DAY FREE TRIAL POPUP ───────────────────────── -->
-<!-- Server-rendered only for a trial-eligible session (nav_trial_eligible,
-     from context_processors.py::nav_credits — never started a trial and
-     hasn't already used one). Activation is never automatic: this popup is
-     the only way a trial starts, and only once the user is verified and
-     clicks "Activate Free Trial" themselves. An unverified-but-eligible
-     session (signup() now starts a session immediately — see
-     views/auth.py) sees a "verify first" message instead, with no way to
-     activate from here. -->
-{% if nav_trial_eligible %}
-<div class="pay-confirm-modal show" id="trialPopupModal">
-  <div class="pay-confirm-box">
+<!-- Always in the DOM now (the button above is always shown on this page)
+     -- content branches on sign-in/eligibility state instead of the whole
+     block being server-rendered only for an eligible session:
+       - anonymous (not request.session.logged_in)      -> sign-up prompt
+       - logged in, NOT eligible (used trial or paid)     -> "no longer
+         available" message (can_offer_trial() is False; see
+         trial_manager.py -- also enforced server-side in
+         views/credits.py::trial_activate, not just hidden here)
+       - logged in, eligible, unverified                  -> "verify first"
+       - logged in, eligible, verified                     -> normal
+         activation flow
+     Hidden by default — opened only by the "Start Your 7-Day Free Trial"
+     button via openTrialPopup(), never automatically on page load.
+     Activation itself is also never automatic: only an explicit click on
+     "Activate Free Trial" (verified + eligible branch) starts one. -->
+<div class="pay-confirm-modal" id="trialPopupModal">
+  <div class="pay-confirm-box pay-confirm-box--wide">
     <button class="pay-confirm-close" onclick="closeTrialPopup()">&#10005;</button>
     <div class="pay-confirm-icon">&#127873;</div>
-    {% if nav_is_verified %}
-      <h3>Activate Your 7-Day Free Trial</h3>
-      <p class="pay-confirm-sub">Try every service free for 7 days — no credit card required.</p>
-      <div class="pay-confirm-rows">
-        {% for s in services %}
-        <div class="pay-confirm-row">
-          <span class="pay-confirm-label">{{ s.label }}</span>
-          <span class="pay-confirm-val">{{ s.trial_limit }} {{ s.unit }}</span>
+    {% if request.session.logged_in %}
+      {% if nav_trial_eligible %}
+        {% if nav_is_verified %}
+          <h3>Activate Your 7-Day Free Trial</h3>
+          <p class="pay-confirm-sub">Try every service free for 7 days — no credit card required.</p>
+          <div class="pay-confirm-rows">
+            {% for s in services %}
+            <div class="pay-confirm-row">
+              <span class="pay-confirm-label">{{ s.label }}</span>
+              <span class="pay-confirm-val">{{ s.trial_limit }} {{ s.unit }}</span>
+            </div>
+            {% endfor %}
+          </div>
+          <p class="pay-confirm-error" id="trialActivateError" hidden></p>
+          <div class="pay-confirm-actions">
+            <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Maybe later</button>
+            <button class="pay-confirm-pay" id="trialActivateBtn" onclick="activateTrial()">&#127873; Activate Free Trial</button>
+          </div>
+        {% else %}
+          <h3>Verify Your Email First</h3>
+          <p class="pay-confirm-sub">Please verify your email address to activate your 7-day free trial. Check your inbox (and spam folder) for the verification link we sent you.</p>
+          <div class="pay-confirm-actions">
+            <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Close</button>
+          </div>
+        {% endif %}
+      {% else %}
+        <h3>Free Trial No Longer Available</h3>
+        <p class="pay-confirm-sub">You've already activated your 7-day free trial or made a purchase, so this offer isn't available for your account anymore.</p>
+        <div class="pay-confirm-actions">
+          <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Close</button>
         </div>
-        {% endfor %}
-      </div>
-      <p class="pay-confirm-error" id="trialActivateError" hidden></p>
+      {% endif %}
+    {% else %}
+      <h3>Sign Up to Start Your Free Trial</h3>
+      <p class="pay-confirm-sub">Create a free account to activate your 7-day trial — no credit card required.</p>
       <div class="pay-confirm-actions">
         <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Maybe later</button>
-        <button class="pay-confirm-pay" id="trialActivateBtn" onclick="activateTrial()">&#127873; Activate Free Trial</button>
-      </div>
-    {% else %}
-      <h3>Verify Your Email First</h3>
-      <p class="pay-confirm-sub">Please verify your email address to activate your 7-day free trial. Check your inbox (and spam folder) for the verification link we sent you.</p>
-      <div class="pay-confirm-actions">
-        <button class="pay-confirm-cancel" onclick="closeTrialPopup()">Close</button>
+        <a href="{% url 'signup' %}" class="pay-confirm-pay" style="text-decoration:none;display:inline-flex;align-items:center;justify-content:center;">Sign Up Free</a>
       </div>
     {% endif %}
     <p class="pay-confirm-secure">7 days free &middot; No credit card required</p>
   </div>
 </div>
 <script>
+function openTrialPopup() {
+  document.getElementById('trialPopupModal').classList.add('show');
+}
 function closeTrialPopup() {
   document.getElementById('trialPopupModal').classList.remove('show');
 }
 document.getElementById('trialPopupModal').addEventListener('click', function(e) {
   if (e.target === this) closeTrialPopup();
 });
-{% if nav_is_verified %}
+{% if request.session.logged_in and nav_trial_eligible and nav_is_verified %}
 function activateTrial() {
   var btn   = document.getElementById('trialActivateBtn');
   var errEl = document.getElementById('trialActivateError');
@@ -745,7 +781,6 @@ function activateTrial() {
 }
 {% endif %}
 </script>
-{% endif %}
 
 <script>
 document.addEventListener('DOMContentLoaded', function() {

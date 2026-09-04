@@ -43,6 +43,18 @@
 [data-theme="dark"] .sidebar { background: #091420; }
 [data-theme="dark"] .sidebar-logo { border-bottom-color: rgba(255,255,255,.06); }
 [data-theme="dark"] .sidebar-footer { border-top-color: rgba(255,255,255,.06); }
+/* Collapsed-sidebar flyout submenu + hover tooltip (dashboard.css) both use
+   background: var(--ink) like the sidebar itself above, but --ink is a TEXT
+   token, not a background one — it flips to a light color in dark mode
+   (see dark-mode.css's :root override), which turned the flyout/tooltip
+   light instead of staying dark like the sidebar they float out of. Same
+   fix as the sidebar's own override just above: pin them to that same dark
+   background explicitly. */
+[data-theme="dark"] .sidebar.collapsed .nav-item.open > .submenu,
+[data-theme="dark"] .sidebar.collapsed .nested-nav-item.open > .nested-submenu,
+[data-theme="dark"] .sidebar.collapsed .nav-link::after {
+  background: #091420;
+}
 
 /* ── Theme toggle button ─────────────────────────────── */
 .theme-toggle-btn {

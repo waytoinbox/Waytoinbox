@@ -27,8 +27,8 @@ from datetime import timedelta
 
 from Email_validate_app.models import (
     UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEmailAccount,
-    SOEmailAccountDailyUsage, SOEvent, SOOpenPixel, SOTrackedLink,
-    SOSequenceStep, SOSequenceVariant,
+    SOEmailAccountDailyUsage, SOCampaignAccountDailyUsage, SOEmailAccountRotation,
+    SOEvent, SOOpenPixel, SOTrackedLink, SOSequenceStep, SOSequenceVariant,
 )
 from Email_validate_app.services.so_smtp import inject_tracking
 from Email_validate_app.services import so_drip
@@ -223,6 +223,15 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
             imap_host='imap.test', imap_port=993, username=f'trial-sender-{daily_limit}@example.com',
             password='x', daily_limit=daily_limit, status='connected',
         )
+        # _reserve_quota_slot/_release_quota_slot take a campaign now (for
+        # the Campaign Sending Count enforcement, orthogonal to what this
+        # class tests) — sender_send_count_enabled left at its False
+        # default so every existing assertion here still only exercises the
+        # account-level trial cap.
+        self.campaign = SOCampaign.objects.create(
+            user_id=self.user.id, name=f'Trial Cap Campaign {daily_limit}', subject='s', html_body='<p>x</p>',
+            status='sending',
+        )
         return self.account
 
     def _quota_used(self, account):
@@ -231,7 +240,7 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
 
     def test_reserve_quota_slot_return_signature(self):
         account = self._make_account(daily_limit=50)
-        result = so_drip._reserve_quota_slot(account)
+        result = so_drip._reserve_quota_slot(self.campaign, account)
         self.assertIsInstance(result, tuple)
         claimed, effective_limit = result
         self.assertTrue(claimed)
@@ -242,11 +251,11 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
         activate_trial(self.user)
 
         for i in range(SALES_OUTREACH_TRIAL_DAILY_SEND_CAP):
-            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
             self.assertTrue(claimed, f"send {i + 1} should have been claimed")
             self.assertEqual(effective_limit, 7)
 
-        claimed, effective_limit = so_drip._reserve_quota_slot(account)
+        claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
         self.assertFalse(claimed, "the 8th send must be refused once the trial cap is hit")
         self.assertEqual(effective_limit, 7)
         self.assertEqual(self._quota_used(account), 7)
@@ -258,11 +267,11 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
         activate_trial(self.user)
 
         for i in range(3):
-            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
             self.assertTrue(claimed, f"send {i + 1} should have been claimed")
             self.assertEqual(effective_limit, 3)
 
-        claimed, effective_limit = so_drip._reserve_quota_slot(account)
+        claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
         self.assertFalse(claimed)
         self.assertEqual(effective_limit, 3)
 
@@ -271,11 +280,11 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
         account = self._make_account(daily_limit=50)
 
         for _ in range(50):
-            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
             self.assertTrue(claimed)
             self.assertEqual(effective_limit, 50)
 
-        claimed, _ = so_drip._reserve_quota_slot(account)
+        claimed, _ = so_drip._reserve_quota_slot(self.campaign, account)
         self.assertFalse(claimed)
 
     def test_expired_trial_reverts_to_account_daily_limit(self):
@@ -289,11 +298,11 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
         self.user.save(update_fields=['trial_started_at', 'trial_ends_at'])
 
         for i in range(50):
-            claimed, effective_limit = so_drip._reserve_quota_slot(account)
+            claimed, effective_limit = so_drip._reserve_quota_slot(self.campaign, account)
             self.assertTrue(claimed, f"send {i + 1} should have been claimed")
             self.assertEqual(effective_limit, 50, "expired trial must not still cap at 7")
 
-        claimed, _ = so_drip._reserve_quota_slot(account)
+        claimed, _ = so_drip._reserve_quota_slot(self.campaign, account)
         self.assertFalse(claimed)
 
     @override_settings(ENABLE_EMAIL_TRACKING=True)
@@ -317,7 +326,7 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
 
         # Exhaust the trial's 7/day cap first, with a throwaway contact.
         for i in range(SALES_OUTREACH_TRIAL_DAILY_SEND_CAP):
-            self.assertTrue(so_drip._reserve_quota_slot(account)[0])
+            self.assertTrue(so_drip._reserve_quota_slot(self.campaign, account)[0])
 
         prospect = SOProspect.objects.create(
             user_id=self.user.id, email='trial-cap-recipient@example.com',
@@ -339,3 +348,206 @@ class TrialSalesOutreachQuotaCapTests(TestCase):
         self.assertEqual(cc.current_step, 1)   # never advanced
         self.assertIsNotNone(cc.next_action_at)
         mock_server.sendmail.assert_not_called()  # never even attempted
+
+
+class CampaignSendingCountTests(TestCase):
+    """Campaign Sending Count — replaces the removed Weight/Percentage
+    system. Covers the new per-(campaign, account, day) cap
+    _reserve_quota_slot/_release_quota_slot enforce only while
+    campaign.sender_send_count_enabled is True, and pick_sender_account's
+    distribution."""
+
+    def setUp(self):
+        self.user = make_user('so_send_count@example.com')
+        self.account = SOEmailAccount.objects.create(
+            user_id=self.user.id, provider='google', display_name='Count Sender',
+            email='count-sender@example.com', smtp_host='smtp.test', smtp_port=587,
+            imap_host='imap.test', imap_port=993, username='count-sender@example.com',
+            password='x', daily_limit=50, status='connected',
+        )
+
+    def _campaign(self, enabled):
+        return SOCampaign.objects.create(
+            user_id=self.user.id, name=f'Count Campaign {enabled}', subject='s', html_body='<p>x</p>',
+            status='sending', sender_send_count_enabled=enabled,
+        )
+
+    def test_toggle_off_ignores_daily_send_count_uses_account_limit_only(self):
+        campaign = self._campaign(enabled=False)
+        SOEmailAccountRotation.objects.create(campaign=campaign, account=self.account, daily_send_count=2)
+
+        for i in range(50):
+            claimed, effective_limit = so_drip._reserve_quota_slot(campaign, self.account)
+            self.assertTrue(claimed, f"send {i + 1} should have been claimed")
+            self.assertEqual(effective_limit, 50)
+
+        claimed, _ = so_drip._reserve_quota_slot(campaign, self.account)
+        self.assertFalse(claimed, "the 51st send must be refused by the account's own daily_limit")
+        self.assertEqual(SOCampaignAccountDailyUsage.objects.count(), 0,
+                          "toggle off must never write a per-campaign usage row")
+
+    def test_toggle_on_caps_below_the_accounts_own_daily_limit(self):
+        campaign = self._campaign(enabled=True)
+        SOEmailAccountRotation.objects.create(campaign=campaign, account=self.account, daily_send_count=2)
+
+        for i in range(2):
+            claimed, effective_limit = so_drip._reserve_quota_slot(campaign, self.account)
+            self.assertTrue(claimed, f"send {i + 1} should have been claimed")
+            # A successful claim always reports the account-level cap (same
+            # contract as every other passing case in this file) — it's
+            # only on a REFUSED claim that effective_limit names whichever
+            # cap actually blocked it, checked just below.
+            self.assertEqual(effective_limit, 50)
+
+        claimed, effective_limit = so_drip._reserve_quota_slot(campaign, self.account)
+        self.assertFalse(claimed, "the 3rd send must be refused by this campaign's own count, "
+                                   "well below the account's daily_limit=50")
+        self.assertEqual(effective_limit, 2)
+        # The account-level slot claimed then immediately given back (since
+        # the campaign-level cap blocked it) must not leak — only the 2
+        # successful sends should be reflected in the account-global usage.
+        usage = SOEmailAccountDailyUsage.objects.get(account=self.account)
+        self.assertEqual(usage.sent_count, 2)
+
+    def test_two_campaigns_sharing_one_account_have_independent_caps(self):
+        campaign_a = self._campaign(enabled=True)
+        campaign_b = self._campaign(enabled=True)
+        SOEmailAccountRotation.objects.create(campaign=campaign_a, account=self.account, daily_send_count=2)
+        SOEmailAccountRotation.objects.create(campaign=campaign_b, account=self.account, daily_send_count=3)
+
+        for _ in range(2):
+            self.assertTrue(so_drip._reserve_quota_slot(campaign_a, self.account)[0])
+        self.assertFalse(so_drip._reserve_quota_slot(campaign_a, self.account)[0],
+                          "campaign A must be capped at its own count of 2")
+
+        # Campaign B's own cap (3) is untouched by campaign A being exhausted.
+        for i in range(3):
+            self.assertTrue(so_drip._reserve_quota_slot(campaign_b, self.account)[0],
+                             f"campaign B send {i + 1} should have been claimed")
+        self.assertFalse(so_drip._reserve_quota_slot(campaign_b, self.account)[0])
+
+        # But the account-global cap (50) still governs both combined.
+        usage = SOEmailAccountDailyUsage.objects.get(account=self.account)
+        self.assertEqual(usage.sent_count, 5)   # 2 (A) + 3 (B)
+
+    def test_toggle_on_shared_account_cap_still_blocks_across_campaigns(self):
+        """The per-campaign cap only ever narrows the account's own
+        daily_limit, never widens it -- two campaigns with generous
+        per-campaign counts still can't collectively exceed the account's
+        real daily_limit."""
+        self.account.daily_limit = 3
+        self.account.save(update_fields=['daily_limit'])
+        campaign_a = self._campaign(enabled=True)
+        campaign_b = self._campaign(enabled=True)
+        SOEmailAccountRotation.objects.create(campaign=campaign_a, account=self.account, daily_send_count=3)
+        SOEmailAccountRotation.objects.create(campaign=campaign_b, account=self.account, daily_send_count=3)
+
+        self.assertTrue(so_drip._reserve_quota_slot(campaign_a, self.account)[0])
+        self.assertTrue(so_drip._reserve_quota_slot(campaign_a, self.account)[0])
+        self.assertTrue(so_drip._reserve_quota_slot(campaign_b, self.account)[0])
+        # Account-wide daily_limit=3 is now exhausted, even though campaign
+        # B's own per-campaign count (3) has only been used once.
+        self.assertFalse(so_drip._reserve_quota_slot(campaign_b, self.account)[0])
+
+    def test_release_quota_slot_gives_back_both_counters_when_enabled(self):
+        campaign = self._campaign(enabled=True)
+        SOEmailAccountRotation.objects.create(campaign=campaign, account=self.account, daily_send_count=5)
+
+        self.assertTrue(so_drip._reserve_quota_slot(campaign, self.account)[0])
+        so_drip._release_quota_slot(campaign, self.account)
+
+        self.assertEqual(SOEmailAccountDailyUsage.objects.get(account=self.account).sent_count, 0)
+        self.assertEqual(
+            SOCampaignAccountDailyUsage.objects.get(campaign=campaign, account=self.account).sent_count, 0)
+
+    def test_release_quota_slot_only_touches_account_level_when_disabled(self):
+        campaign = self._campaign(enabled=False)
+        self.assertTrue(so_drip._reserve_quota_slot(campaign, self.account)[0])
+        so_drip._release_quota_slot(campaign, self.account)
+
+        self.assertEqual(SOEmailAccountDailyUsage.objects.get(account=self.account).sent_count, 0)
+        self.assertFalse(SOCampaignAccountDailyUsage.objects.filter(campaign=campaign).exists())
+
+    def test_missing_rotation_row_falls_back_to_account_limit_as_the_cap(self):
+        """Defensive: a campaign with the toggle on but no rotation row for
+        this particular account (shouldn't normally happen) must not crash
+        -- it falls back to the account's own daily_limit as the cap."""
+        campaign = self._campaign(enabled=True)
+        claimed, effective_limit = so_drip._reserve_quota_slot(campaign, self.account)
+        self.assertTrue(claimed)
+        self.assertEqual(effective_limit, 50)
+
+
+class PickSenderAccountTests(TestCase):
+    """pick_sender_account() — replaces the removed pick_weighted_account.
+    Deterministic per (campaign_id, email); weighted by daily_send_count
+    only when send_count_enabled is True, uniform otherwise."""
+
+    def setUp(self):
+        self.user = make_user('so_pick_sender@example.com')
+        self.campaign = SOCampaign.objects.create(
+            user_id=self.user.id, name='Pick Sender Campaign', subject='s', html_body='<p>x</p>',
+            status='draft',
+        )
+        self.acc_a = SOEmailAccount.objects.create(
+            user_id=self.user.id, provider='google', display_name='A',
+            email='pick-a@example.com', smtp_host='smtp.test', smtp_port=587,
+            imap_host='imap.test', imap_port=993, username='pick-a@example.com',
+            password='x', daily_limit=50, status='connected',
+        )
+        self.acc_b = SOEmailAccount.objects.create(
+            user_id=self.user.id, provider='google', display_name='B',
+            email='pick-b@example.com', smtp_host='smtp.test', smtp_port=587,
+            imap_host='imap.test', imap_port=993, username='pick-b@example.com',
+            password='x', daily_limit=50, status='connected',
+        )
+
+    def test_empty_rotations_returns_none(self):
+        self.assertIsNone(so_drip.pick_sender_account(self.campaign.id, 'x@example.com', [], True))
+
+    def test_single_rotation_always_returned(self):
+        rot = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_a, daily_send_count=1)
+        picked = so_drip.pick_sender_account(self.campaign.id, 'x@example.com', [rot], True)
+        self.assertEqual(picked.id, self.acc_a.id)
+
+    def test_deterministic_for_the_same_inputs(self):
+        rot_a = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_a, daily_send_count=30)
+        rot_b = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_b, daily_send_count=90)
+        first = so_drip.pick_sender_account(self.campaign.id, 'sticky@example.com', [rot_a, rot_b], True)
+        second = so_drip.pick_sender_account(self.campaign.id, 'sticky@example.com', [rot_a, rot_b], True)
+        self.assertEqual(first.id, second.id)
+
+    def test_disabled_ignores_daily_send_count_skew(self):
+        """With the toggle off, a wildly unequal daily_send_count between
+        two accounts must not skew the distribution -- every eligible
+        rotation is drawn uniformly."""
+        rot_a = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_a, daily_send_count=1)
+        rot_b = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_b, daily_send_count=119)
+        picks = [
+            so_drip.pick_sender_account(self.campaign.id, f'user{i}@example.com', [rot_a, rot_b], False).id
+            for i in range(60)
+        ]
+        count_a = picks.count(self.acc_a.id)
+        count_b = picks.count(self.acc_b.id)
+        # Both must get a meaningful share — a 119:1 weighted draw would
+        # make count_a implausibly close to 0.
+        self.assertGreater(count_a, 15)
+        self.assertGreater(count_b, 15)
+
+    def test_enabled_skews_distribution_toward_the_higher_count(self):
+        rot_a = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_a, daily_send_count=5)
+        rot_b = SOEmailAccountRotation.objects.create(
+            campaign=self.campaign, account=self.acc_b, daily_send_count=115)
+        picks = [
+            so_drip.pick_sender_account(self.campaign.id, f'user{i}@example.com', [rot_a, rot_b], True).id
+            for i in range(60)
+        ]
+        count_a = picks.count(self.acc_a.id)
+        count_b = picks.count(self.acc_b.id)
+        self.assertGreater(count_b, count_a)

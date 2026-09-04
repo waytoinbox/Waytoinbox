@@ -1450,7 +1450,11 @@ class EmailAccount(models.Model):
     smtp_port   = models.IntegerField(default=587)
     username    = models.CharField(max_length=255)
     password    = models.CharField(max_length=500)
-    daily_limit = models.IntegerField(default=500)
+    # Kept in sync with SOEmailAccount.daily_limit's own 120 default/cap
+    # even though this legacy model has no live edit path for the field
+    # (see views/email_accounts.py) — see that field's own comment for why
+    # 120 is the number.
+    daily_limit = models.IntegerField(default=120)
     status      = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unchecked')
     created_at  = models.DateTimeField(auto_now_add=True)
     updated_at  = models.DateTimeField(auto_now=True)
@@ -1481,7 +1485,14 @@ class SOEmailAccount(models.Model):
     imap_ssl     = models.BooleanField(default=True)
     username     = models.CharField(max_length=255)
     password     = models.CharField(max_length=500)   # signing.dumps(pwd, salt='so-ea-pwd')
-    daily_limit  = models.IntegerField(default=50)
+    # 1-120/day, enforced server-side (views/so_email_accounts.py's `edit`
+    # action) and client-side (i_SO_Edit_Email_Account.html) — not a DB-level
+    # constraint, matching this app's established pattern of validating raw
+    # JSON payloads in the view rather than via ModelForm/full_clean(). 120
+    # is also the ceiling SOEmailAccountRotation.daily_send_count clamps to,
+    # since a campaign can never ask an account to send more than the
+    # account itself is configured to send.
+    daily_limit  = models.IntegerField(default=120)
     status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unchecked')
     warmup_enabled  = models.BooleanField(default=False)
     last_imap_sync  = models.DateTimeField(null=True, blank=True)
@@ -1662,6 +1673,17 @@ class SOCampaign(models.Model):
     # behavior for every existing campaign (previously the only gate was the
     # global flag, i.e. every campaign behaved as if this were True).
     tracking_enabled = models.BooleanField(default=True)
+    # Campaign Sending Count toggle — OFF (default) means every selected
+    # sender account may be used for this campaign up to its own configured
+    # SOEmailAccount.daily_limit, exactly like this campaign's rotation
+    # behaved before this field existed (no per-campaign cap layered on
+    # top). ON means each SOEmailAccountRotation's own daily_send_count is
+    # additionally enforced as a hard per-campaign-per-account daily cap —
+    # see services/so_drip.py::_reserve_quota_slot and
+    # SOCampaignAccountDailyUsage. default=False is deliberate: every
+    # existing campaign, and every new campaign that never touches this
+    # toggle, keeps today's behavior unchanged.
+    sender_send_count_enabled = models.BooleanField(default=False)
     total_sent         = models.PositiveIntegerField(default=0)
     total_delivered    = models.PositiveIntegerField(default=0)
     total_opened       = models.PositiveIntegerField(default=0)
@@ -1886,15 +1908,50 @@ class SOConditionGroup(models.Model):
 
 
 class SOEmailAccountRotation(models.Model):
+    """One sender account selected for one campaign.
+
+    daily_send_count replaces the old Weight/Percentage system entirely
+    (removed). It is a real number, not a relative proportion: "how many of
+    this campaign's sends may come from this account per day", 1-120,
+    clamped server-side to the account's own SOEmailAccount.daily_limit
+    (views/so_sender.py's campaign-save validation). It only acts as an
+    enforced cap when campaign.sender_send_count_enabled is True — see
+    SOCampaignAccountDailyUsage; while the toggle is off it still doubles as
+    the (deterministic, hash-based) distribution weight services/so_drip.py
+    uses to assign each new contact a sticky sender account, same technique
+    the old `weight` field drove, just fed this field's value instead.
+    """
     campaign = models.ForeignKey(SOCampaign,    on_delete=models.CASCADE, related_name='account_rotations')
     account  = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='campaign_rotations')
-    weight   = models.PositiveIntegerField(default=1)
+    daily_send_count = models.PositiveIntegerField(default=120)
     order    = models.PositiveIntegerField(default=0)
 
     class Meta:
         db_table        = 'so_email_account_rotations'
         unique_together = [('campaign', 'account')]
         ordering        = ['order']
+
+
+class SOCampaignAccountDailyUsage(models.Model):
+    """Atomic per-(campaign, account, UTC-day) send counter.
+
+    Only ever written to when campaign.sender_send_count_enabled is True —
+    see services/so_drip.py::_reserve_quota_slot/_release_quota_slot, which
+    reserve a slot here (conditional UPDATE, sent_count__lt=
+    rotation.daily_send_count) in addition to, never instead of, the
+    account-global SOEmailAccountDailyUsage cap. This is what makes
+    "Campaign Sending Count" a real enforced daily limit for THIS campaign's
+    use of the account, on top of (and always within) that account's own
+    total daily_limit shared across every other campaign using it too.
+    """
+    campaign   = models.ForeignKey(SOCampaign,    on_delete=models.CASCADE, related_name='account_daily_usage')
+    account    = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='campaign_daily_usage')
+    date       = models.DateField()
+    sent_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        db_table        = 'so_campaign_account_daily_usage'
+        unique_together = [('campaign', 'account', 'date')]
 
 
 class SOEmailAccountDailyUsage(models.Model):

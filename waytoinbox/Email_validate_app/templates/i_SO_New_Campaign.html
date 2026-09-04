@@ -237,11 +237,15 @@
                 <i class="fas fa-search soc-rd-search-icon"></i>
                 <input type="text" class="soc-rd-search" id="socSenderSearch" placeholder="Search…" autocomplete="off"/>
               </div>
+              <label class="soc-rd-selectall">
+                <input type="checkbox" class="soc-rd-selectall-chk" id="socSenderSelectAll"/>
+                <span>Select All</span>
+              </label>
               <div class="soc-rd-list" id="socSenderList">
                 {% for acc in email_accounts %}
                 <label class="soc-rd-option" data-type="account" data-id="{{ acc.id }}"
                        data-label="{{ acc.email }}" data-daily-limit="{{ acc.daily_limit }}"
-                       data-display-name="{{ acc.display_name }}" data-weight="1">
+                       data-display-name="{{ acc.display_name }}" data-count="{{ acc.daily_limit }}">
                   <input type="checkbox" class="soc-rd-chk" value="account__{{ acc.id }}"/>
                   <span class="soc-rd-name">{{ acc.email }}</span>
                   <span class="soc-rd-meta">{{ acc.daily_limit }}/day</span>
@@ -251,10 +255,17 @@
               </div>
             </div>
           </div>
-          <!-- Rotation weight per selected account — only shown once an
-               account is checked above; populated/updated by
-               renderSenderWeights() in so_campaign.js. -->
-          <div class="soc-sender-weights" id="socSenderWeights" hidden></div>
+          <!-- Campaign Sending Count — replaces the removed Weight/
+               Percentage system. Only shown once an account is checked
+               above; populated/updated by renderSenderCounts() in
+               so_campaign.js. -->
+          <div class="soc-sender-counts" id="socSenderCounts" hidden>
+            <label class="soc-sender-count-toggle">
+              <input type="checkbox" id="socSendCountToggle"/>
+              <span class="soc-sender-count-toggle-label">Campaign Sending Count <span class="soc-sender-count-toggle-range">(1–120/day per account)</span></span>
+            </label>
+            <div class="soc-sender-count-rows" id="socSenderCountRows"></div>
+          </div>
           <p class="soc-error" id="err-socAccount"></p>
         </div>
         <div class="soc-form-group">

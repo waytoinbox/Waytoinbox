@@ -40,7 +40,7 @@ def pick_variant_label(campaign_id, email, step_id, variants):
 
     Hash-based rather than random so re-running/retrying a send assigns the
     same recipient the same variant instead of re-rolling it — same
-    technique as pick_weighted_account below, now also salted with the
+    technique as pick_sender_account below, now also salted with the
     step's own stable id (not its order, which can change on reorder) so
     EVERY step is resolved independently: campaign_id + email + step_id
     together are the sole selection key, per step. Revisiting the same step
@@ -49,10 +49,10 @@ def pick_variant_label(campaign_id, email, step_id, variants):
 
     Weight 0 means excluded, not "rare" — unlike the historical
     max(1, v.weight) floor this replaces, a variant with weight 0 is
-    filtered out of the draw entirely, exactly mirroring
-    pick_weighted_account's own "0 means configured but disabled" rule
-    below (that function's docstring used to call this an intentional
-    difference between the two; it no longer is one).
+    filtered out of the draw entirely. (pick_sender_account below no longer
+    has an analogous "0 means disabled" rule — the Weight/Percentage system
+    it used to share this with was removed; every account it's given is
+    eligible, weighted or not per send_count_enabled.)
     """
     eligible = [v for v in variants if v.is_active and v.weight > 0]
     if not eligible:
@@ -77,36 +77,42 @@ def pick_variant_label(campaign_id, email, step_id, variants):
     return eligible[-1].label
 
 
-def pick_weighted_account(campaign_id, email, rotations):
-    """Deterministic per-recipient weighted pick over a campaign's selected
-    sender accounts (V2.4.8). Same hash-based technique as pick_variant_label
-    above, for the same reason — re-running enrollment (e.g. a retried task)
-    assigns the same recipient the same account instead of re-rolling it,
-    and sticky assignment (SOCampaignContact.account) then keeps every
-    subsequent step on that same account. The hash input includes a distinct
-    ':account' suffix so which account a contact gets is decorrelated from
-    which A/B variant it gets — two independent draws, not the same one
-    reused twice.
+def pick_sender_account(campaign_id, email, rotations, send_count_enabled):
+    """Deterministic per-recipient pick over a campaign's selected sender
+    accounts. Same hash-based technique as pick_variant_label above, for the
+    same reason — re-running enrollment (e.g. a retried task) assigns the
+    same recipient the same account instead of re-rolling it, and sticky
+    assignment (SOCampaignContact.account) then keeps every subsequent step
+    on that same account. The hash input includes a distinct ':account'
+    suffix so which account a contact gets is decorrelated from which A/B
+    variant it gets — two independent draws, not the same one reused twice.
 
-    A weight of 0 is never selected here — an explicitly zero-weighted
-    account must never be picked (that's the whole point of allowing 0:
-    "configured but effectively disabled"), same rule pick_variant_label
-    above now applies to variants too. `rotations` must already be
-    pre-filtered to only
-    connected, non-deleted accounts by the caller — this function has no
-    opinion on account eligibility, only on weighting among what it's given.
-    Returns None if nothing is eligible (every rotation has weight 0, or the
-    list is empty) — the caller already knows how to handle "no account"
-    (see send_next_step's own no-valid-account bounded retry).
+    Replaces the removed Weight/Percentage system (formerly
+    pick_weighted_account). When send_count_enabled (campaign.
+    sender_send_count_enabled) is True, the draw is weighted by each
+    rotation's own daily_send_count — an account configured for a higher
+    Campaign Sending Count is proportionally more likely to be this
+    recipient's sticky account, which keeps the enrollment-time distribution
+    roughly in line with the per-account caps _reserve_quota_slot actually
+    enforces at send time. When False, every eligible account is weighted
+    equally — the same effectively-uniform distribution this campaign had
+    before the toggle existed (every rotation defaulted to weight=1 unless
+    a user explicitly changed it).
+
+    `rotations` must already be pre-filtered to only connected, non-deleted
+    accounts by the caller — this function has no opinion on account
+    eligibility, only on weighting among what it's given. Returns None only
+    if `rotations` is empty — the caller already knows how to handle "no
+    account" (see send_next_step's own no-valid-account bounded retry).
     """
-    eligible = [r for r in rotations if r.weight > 0]
+    eligible = list(rotations)
     if not eligible:
         return None
     if len(eligible) == 1:
         return eligible[0].account
     h = int(hashlib.sha256(f'{campaign_id}:{email}:account'.encode()).hexdigest()[:8], 16)
-    weights = [r.weight for r in eligible]
-    total   = sum(weights)
+    weights = [r.daily_send_count for r in eligible] if send_count_enabled else [1] * len(eligible)
+    total   = sum(weights) or len(eligible)
     target  = h % total
     acc = 0
     for r, w in zip(eligible, weights):
@@ -160,6 +166,20 @@ def stop_all_for_email(user_id, email, reason):
         logger.info('so_drip: stopped %s in-flight contact(s) for %s (user %s) — %s',
                     updated, email, user_id, reason)
     return updated
+
+
+def _record_bounce(cc, campaign, metadata):
+    """Record a bounce detected synchronously at SMTP send time — reuses
+    the exact same recording/suppression pair the IMAP-detected DSN path
+    uses (services/so_imap.py::_record_once + this module's own
+    stop_all_for_email), so a bounce caught right now and one discovered
+    later via a DSN email produce identical downstream state: one
+    'bounced' SOEvent, one total_bounced increment, and every other
+    in-flight contact for this address across the user's campaigns
+    stopped."""
+    from Email_validate_app.services.so_imap import _record_once
+    _record_once(cc, 'bounced', 'total_bounced', metadata)
+    stop_all_for_email(campaign.user_id, cc.email, 'bounced')
 
 
 def _resolve_step_and_variant(campaign, cc):
@@ -224,12 +244,13 @@ def _get_contact_account(cc):
     if not rotations:
         return None
 
-    # Weighted pick (V2.4.8), same deterministic technique used at real
-    # enrollment (tasks/so_send_campaign.py) — this is only a self-heal path
-    # for legacy rows that somehow reached send-time with no account
-    # assigned yet, so it must use the exact same selection logic rather
-    # than a second, different mechanism.
-    account = pick_weighted_account(cc.campaign_id, cc.email, rotations)
+    # Same deterministic technique used at real enrollment
+    # (tasks/so_send_campaign.py) — this is only a self-heal path for legacy
+    # rows that somehow reached send-time with no account assigned yet, so
+    # it must use the exact same selection logic rather than a second,
+    # different mechanism.
+    account = pick_sender_account(
+        cc.campaign_id, cc.email, rotations, cc.campaign.sender_send_count_enabled)
     if account is None:
         return None
     SOCampaignContact.objects.filter(id=cc.id, account__isnull=True).update(account=account)
@@ -243,7 +264,7 @@ def _next_utc_midnight():
     return datetime.combine(today_utc + timedelta(days=1), time.min, tzinfo=dt_timezone.utc)
 
 
-def _reserve_quota_slot(account):
+def _reserve_quota_slot(campaign, account):
     """Atomically claim one of `account`'s remaining sends for today, capped
     at min(account.daily_limit, 7) while the account's owning user has an
     active free trial -- a trial only ever narrows the cap, never widens it
@@ -254,11 +275,25 @@ def _reserve_quota_slot(account):
     row's current committed value under MySQL/InnoDB row locking, so two
     concurrent callers for the same account cannot both succeed.
 
+    When campaign.sender_send_count_enabled is True, a SECOND, independent
+    slot is also claimed against SOCampaignAccountDailyUsage, capped at this
+    campaign's own SOEmailAccountRotation.daily_send_count for `account` —
+    the "Campaign Sending Count" cap. This can only ever narrow how much of
+    the account's global daily_limit THIS campaign gets to use, never widen
+    it: if the campaign-level slot isn't available, the account-level slot
+    just claimed is released again before returning, so a blocked campaign
+    send never quietly eats into another campaign's share of the same
+    account's quota. When the toggle is off, this second check is skipped
+    entirely and behavior is unchanged from before this feature existed.
+
     Returns (claimed, effective_limit) — effective_limit lets the caller log
-    what cap was actually enforced, which matters when a trial is deferring
-    sends well below the account's own daily_limit.
+    what cap was actually enforced (account-level, or this campaign's own
+    daily_send_count if that's what blocked the claim), which matters when a
+    trial is deferring sends well below the account's own daily_limit.
     """
-    from Email_validate_app.models import SOEmailAccountDailyUsage
+    from Email_validate_app.models import (
+        SOCampaignAccountDailyUsage, SOEmailAccountDailyUsage, SOEmailAccountRotation,
+    )
     from Email_validate_app.services.trial_manager import sales_outreach_daily_send_cap
 
     today = now().date()
@@ -269,19 +304,44 @@ def _reserve_quota_slot(account):
     updated = SOEmailAccountDailyUsage.objects.filter(
         account=account, date=today, sent_count__lt=effective_limit,
     ).update(sent_count=F('sent_count') + 1)
-    return bool(updated), effective_limit
+    if not updated:
+        return False, effective_limit
+
+    if campaign.sender_send_count_enabled:
+        rotation = SOEmailAccountRotation.objects.filter(
+            campaign_id=campaign.id, account_id=account.id).only('daily_send_count').first()
+        campaign_cap = rotation.daily_send_count if rotation else effective_limit
+
+        SOCampaignAccountDailyUsage.objects.get_or_create(
+            campaign=campaign, account=account, date=today, defaults={'sent_count': 0})
+        campaign_updated = SOCampaignAccountDailyUsage.objects.filter(
+            campaign=campaign, account=account, date=today, sent_count__lt=campaign_cap,
+        ).update(sent_count=F('sent_count') + 1)
+        if not campaign_updated:
+            SOEmailAccountDailyUsage.objects.filter(
+                account=account, date=today, sent_count__gt=0,
+            ).update(sent_count=F('sent_count') - 1)
+            return False, campaign_cap
+
+    return True, effective_limit
 
 
-def _release_quota_slot(account):
+def _release_quota_slot(campaign, account):
     """Give back a slot reserved by _reserve_quota_slot — called only when the
     send attempt that reserved it then failed. daily_limit counts successful
-    sends only, so a failed attempt must not permanently consume a slot."""
-    from Email_validate_app.models import SOEmailAccountDailyUsage
+    sends only, so a failed attempt must not permanently consume a slot.
+    Mirrors _reserve_quota_slot: releases the campaign-level slot too, but
+    only when the toggle that made it claim one in the first place is on."""
+    from Email_validate_app.models import SOCampaignAccountDailyUsage, SOEmailAccountDailyUsage
 
     today = now().date()
     SOEmailAccountDailyUsage.objects.filter(
         account=account, date=today, sent_count__gt=0,
     ).update(sent_count=F('sent_count') - 1)
+    if campaign.sender_send_count_enabled:
+        SOCampaignAccountDailyUsage.objects.filter(
+            campaign=campaign, account=account, date=today, sent_count__gt=0,
+        ).update(sent_count=F('sent_count') - 1)
 
 
 def _campaign_tz(campaign):
@@ -438,7 +498,7 @@ def send_next_step(cc):
             )
         return False
 
-    claimed, effective_limit = _reserve_quota_slot(account)
+    claimed, effective_limit = _reserve_quota_slot(campaign, account)
     if not claimed:
         next_at = _next_utc_midnight()
         logger.info(
@@ -477,8 +537,17 @@ def send_next_step(cc):
 
         server = open_smtp(account)
         try:
+            # Thread this step under the PREVIOUS step's Message-ID (still on
+            # cc.message_id at this point — _record_success below is what
+            # advances it to this send's own msg_id). Blank for step 1 of a
+            # campaign (nothing to reply to yet), so build_message emits no
+            # In-Reply-To/References there, exactly as before. This lets a
+            # genuine reply's own In-Reply-To/References be matched against
+            # ANY prior step via SOEvent (see so_imap.py), not just whichever
+            # step happens to be most recent.
             msg = build_message(from_nm, account.email, cc.email,
-                                variant.subject, personalized_html, unsub_url, msg_id)
+                                variant.subject, personalized_html, unsub_url, msg_id,
+                                in_reply_to=cc.message_id or None)
             refused = server.sendmail(account.email, cc.email, msg.as_bytes())
             if refused and cc.email in refused:
                 raise smtplib.SMTPRecipientsRefused(refused)
@@ -502,6 +571,36 @@ def send_next_step(cc):
         if open_pixel is not None:
             open_pixel.save()
 
+    except smtplib.SMTPRecipientsRefused as exc:
+        # The SMTP transaction itself rejected the recipient (RCPT TO/DATA
+        # got a 5xx or 4xx) — raised either by sendmail() itself (all
+        # recipients refused) or by the explicit re-raise above (a partial-
+        # refusal dict naming cc.email). sent_ok is always False here: this
+        # can only be raised before sendmail() returns successfully, never
+        # after a real delivery.
+        #
+        # A permanent (5xx) rejection is exactly as final a delivery
+        # failure as a DSN arriving later via the IMAP-detected bounce path
+        # (see services/so_imap.py::_handle_bounce_candidate) — so it's
+        # recorded and suppressed the identical way, through the same
+        # _record_once('bounced', ...) + stop_all_for_email() pair, rather
+        # than folded into the generic retry-then-fail path meant for
+        # transient errors (auth issues, network blips). A 4xx (or an
+        # unrecognized/missing code) is genuinely transient and keeps the
+        # existing retry behavior unchanged.
+        code, raw_message = exc.recipients.get(cc.email) or next(iter(exc.recipients.values()), (None, b''))
+        message = raw_message.decode('utf-8', errors='replace') if isinstance(raw_message, bytes) else str(raw_message or '')
+        logger.warning('so_drip: SMTP recipient refused for contact %s (%s) step %s: %s %s',
+                       cc.id, cc.email, cc.current_step, code, message[:200])
+        _release_quota_slot(campaign, account)   # reservation must not survive a failed send
+        if code is not None and 500 <= code < 600:
+            _record_bounce(cc, campaign, {
+                'reason': 'smtp_time_rejection', 'smtp_code': code, 'smtp_message': message[:200],
+            })
+        else:
+            _record_failure(cc, exc)
+        return False
+
     except Exception as exc:
         if sent_ok:
             # Persisting the tracking rows failed AFTER a successful SMTP
@@ -523,7 +622,7 @@ def send_next_step(cc):
         else:
             logger.warning('so_drip: send failed for contact %s (%s) step %s: %s',
                            cc.id, cc.email, cc.current_step, exc)
-            _release_quota_slot(account)   # reservation must not survive a failed send
+            _release_quota_slot(campaign, account)   # reservation must not survive a failed send
             _record_failure(cc, exc)
             return False
 

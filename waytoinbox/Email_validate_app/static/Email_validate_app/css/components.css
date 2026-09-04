@@ -919,7 +919,7 @@
    style.display), which needs an explicit override since .pay-confirm-row's
    own display:flex ties [hidden]'s specificity. */
 .pay-confirm-row[hidden] { display: none; }
-.pay-confirm-actions { display: flex; gap: 10px; margin-bottom: 14px; }
+.pay-confirm-actions { display: flex; gap: 10px; margin-bottom: 14px; margin-top: 14px; }
 .pay-confirm-cancel {
   flex: 1; background: var(--bg-2); border: 1px solid var(--border);
   border-radius: var(--radius-sm); padding: 10px 0;
@@ -942,7 +942,7 @@
    own "Buy Now" flow is untouched), but reuses every .pay-confirm-* class
    above for the shell/rows/buttons so spacing and design stay identical —
    only the two-column grid itself is new. */
-.pay-confirm-box--wide { max-width: 640px; }
+.pay-confirm-box--wide { max-width: 840px; }
 .pay-confirm-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; align-items: stretch; }
 /* Column 1 (line items) always renders exactly 7 rows now that every
    service is required, while column 2 (Name/Email/Order ID/Total) stays a

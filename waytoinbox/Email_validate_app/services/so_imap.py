@@ -18,6 +18,12 @@ _BOUNCE_SUBJ   = ('delivery status notification', 'undelivered mail', 'mail deli
 _OOF_HEADERS   = ('auto-submitted',)
 _COMPLAINT_HDR = ('x-report-abuse-type', 'x-abuse-report', 'x-arf')
 
+# RFC 3464 delivery-status "Status:" field — class digit before the first
+# dot: 5.x.x is permanent (hard), 4.x.x is transient (soft). See
+# _parse_dsn_severity.
+_DSN_HARD_PREFIX = '5.'
+_DSN_SOFT_PREFIX = '4.'
+
 _FIRST_SYNC_BACKFILL_DAYS = 30
 
 # Static fallback if a provider's Sent folder can't be discovered via IMAP LIST
@@ -124,6 +130,172 @@ def _record_once(cc, event_type, counter_field, metadata=None, ref_ids=None):
         **{counter_field: F(counter_field) + 1}
     )
     return True
+
+
+def _is_bounce_candidate(msg, from_hdr, subject_hdr) -> bool:
+    """Header-only bounce pre-check — the real DSN content-type signal
+    (RFC 3464: multipart/report; report-type=delivery-status) plus the
+    existing From/Subject heuristic, kept unchanged as a fallback for
+    bounce-looking mail that isn't a properly structured DSN. Works off a
+    header-only fetch: Content-Type (and its report-type parameter) is
+    itself a header, so this needs no body fetch.
+    """
+    if msg.get_content_type() == 'multipart/report':
+        params = msg.get_params() or []
+        if any(k.lower() == 'report-type' and str(v).lower() == 'delivery-status'
+              for k, v in params):
+            return True
+    return (any(b in from_hdr for b in _BOUNCE_FROM) or
+            any(subject_hdr.startswith(s) for s in _BOUNCE_SUBJ))
+
+
+def _extract_dsn_status(part):
+    """A message/delivery-status MIME part's content is itself formatted as
+    RFC 3464 header-style fields (Reporting-MTA/Action/Status/...) — but
+    that's the part's BODY, not its own MIME headers, so part.get('Status')
+    always returns None. Python's email package parses that body as a LIST
+    of nested header-block sub-messages (one per "per-message"/
+    "per-recipient" block); this reads Status: from those, falling back to
+    a plain-text scan for a string payload (a non-standard MTA that didn't
+    produce properly nested sub-parts).
+    """
+    payload = part.get_payload()
+    if isinstance(payload, list):
+        for sub in payload:
+            status = sub.get('Status') if hasattr(sub, 'get') else None
+            if status:
+                return status.strip()
+        return None
+    if isinstance(payload, str):
+        for line in payload.splitlines():
+            if line.lower().startswith('status:'):
+                return line.split(':', 1)[1].strip()
+    return None
+
+
+def _parse_dsn_severity(imap, num):
+    """Full-fetch a bounce candidate and read a message/delivery-status
+    part's Status: field. Returns 'hard' (5.x.x), 'soft' (4.x.x), or None
+    when the body isn't a parseable DSN (not multipart/report at all, or a
+    multipart/report with no usable Status) — callers treat None as hard,
+    preserving exactly today's behavior for bounce-looking mail that isn't
+    a properly structured DSN, e.g. a plain-text auto-bounce from a
+    non-standard MTA.
+    """
+    try:
+        _, raw = imap.fetch(num, '(RFC822)')
+        raw_bytes = raw[0][1] if raw and raw[0] else b''
+        msg_full = email.message_from_bytes(raw_bytes, policy=email.policy.default)
+    except Exception:
+        return None
+    if msg_full.get_content_type() != 'multipart/report':
+        return None
+    for part in msg_full.walk():
+        if part.get_content_type() != 'message/delivery-status':
+            continue
+        status = _extract_dsn_status(part)
+        if status and status.startswith(_DSN_HARD_PREFIX):
+            return 'hard'
+        if status and status.startswith(_DSN_SOFT_PREFIX):
+            return 'soft'
+    return None
+
+
+def _handle_bounce_candidate(imap, msg, num, account, from_hdr, subject_hdr, in_reply_to, references):
+    """A message already identified as bounce-shaped (see
+    _is_bounce_candidate) — called BEFORE reply detection ever runs, so a
+    DSN quoting the original Message-ID in In-Reply-To/References (which
+    every well-formed bounce does) can never be misread as a reply first.
+
+    A real, parseable soft (4.x.x) DSN is logged only — a temporary failure
+    is not a permanent delivery failure and must not suppress future sends.
+    Everything else (a hard 5.x.x DSN, or bounce-looking mail whose body
+    isn't a parseable DSN at all) uses the existing match-and-suppress
+    logic unchanged, so today's Gmail bounce handling keeps working exactly
+    as it did before DSN-body parsing existed.
+    """
+    from Email_validate_app.models import SOCampaignContact
+    from Email_validate_app.services.so_drip import stop_all_for_email
+
+    severity = _parse_dsn_severity(imap, num)
+    if severity == 'soft':
+        logger.info('so_imap: soft (temporary) bounce for account %s, not suppressing: %s',
+                    account.id, subject_hdr[:120])
+        return
+
+    # Gmail and most MTAs name the dead address in X-Failed-Recipients;
+    # fall back to the original Message-ID when the DSN quotes it.
+    failed = _decode_header_value(msg.get('X-Failed-Recipients', '')).strip().lower()
+    bounced_ccs = []
+    if failed:
+        addrs = [a.strip() for a in failed.split(',') if a.strip()]
+        # One lookup PER address, always scoped to this account's own
+        # user — a combined filter+slice across all addresses could both
+        # leak a match across tenants and mismatch which address got which
+        # contact when a DSN lists several.
+        for addr in addrs:
+            cc_for_addr = (
+                SOCampaignContact.objects
+                .filter(email__iexact=addr, sent_at__isnull=False,
+                        campaign__user_id=account.user_id)
+                .select_related('prospect', 'campaign')
+                .order_by('-sent_at')
+                .first()
+            )
+            if cc_for_addr:
+                bounced_ccs.append(cc_for_addr)
+    if not bounced_ccs and (in_reply_to or references):
+        ref_ids = set(filter(None, [in_reply_to] + references.split()))
+        bounced_ccs = list(
+            SOCampaignContact.objects.filter(
+                message_id__in=ref_ids, campaign__user_id=account.user_id,
+            ).select_related('prospect', 'campaign')
+        )
+    if bounced_ccs:
+        for cc in bounced_ccs:
+            _record_once(cc, 'bounced', 'total_bounced',
+                         {'subject': subject_hdr[:200], 'severity': severity or 'unknown'})
+            # Stops this contact AND every other in-flight contact for the
+            # same address across this same user's other currently-running
+            # campaigns.
+            stop_all_for_email(account.user_id, cc.email, 'bounced')
+    else:
+        logger.info('so_imap: bounce for account %s could not be matched: %s',
+                    account.id, subject_hdr[:120])
+
+
+def _weak_reply_fallback(msg, account, own_addresses):
+    """Address-only reply match — the weakest signal, used only when no
+    Message-ID thread evidence exists (or none of it resolves to anything
+    we sent). Two guards keep it from misattributing mail that merely
+    shares an address with a real contact:
+
+    1. Self-owned exclusion: never treat mail FROM one of this SAME user's
+       own connected sender accounts as an external reply. When a
+       connected account is also used as a campaign recipient, the
+       campaign's own delivery copy lands in that account's synced inbox
+       looking exactly like an inbound message from the sender — this is
+       what stops that from being misread as a reply. A genuine reply FROM
+       a connected account (the product intentionally allows testing
+       between one's own accounts) still matches normally through the
+       strong, thread-evidence-backed path in sync_account_inbox, which
+       never calls this function.
+    2. Account-scoped match: only match a SOCampaignContact whose OWN
+       assigned sender account is the account currently being synced — a
+       reply lands in the inbox of whichever account actually sent to that
+       contact, so "does this user own ANY campaign that ever mailed this
+       address" (the old scope) is both too broad and can attribute a
+       reply to the wrong campaign/sender when a user runs several.
+    """
+    from Email_validate_app.models import SOCampaignContact
+
+    from_addr = _extract_email_address(msg.get('From', ''))
+    if not from_addr or from_addr in own_addresses:
+        return []
+    fallback_cc = SOCampaignContact.objects.filter(
+        email__iexact=from_addr, account_id=account.id, sent_at__isnull=False,
+    ).select_related('prospect', 'campaign').order_by('-sent_at').first()
+    return [fallback_cc] if fallback_cc else []
 
 
 def _extract_email_address(from_header_raw: str) -> str:
@@ -262,7 +434,7 @@ def sync_account_inbox(account):
     Updates account.last_imap_sync on success.
     """
     from Email_validate_app.models import (
-        SOCampaignContact, SOProspect, SOEvent, SOCampaign,
+        SOCampaignContact, SOProspect, SOEvent, SOCampaign, SOEmailAccount,
     )
     from Email_validate_app.services.so_smtp import decrypt_password
 
@@ -271,6 +443,16 @@ def sync_account_inbox(account):
     except Exception as exc:
         logger.error('so_imap: cannot decrypt password for account %s: %s', account.id, exc)
         return
+
+    # Every connected sender account this same user owns — used to keep a
+    # message FROM one of them from ever being treated as an external reply
+    # by the weak, address-only fallback (see _weak_reply_fallback). Cheap:
+    # one query, computed once per sync call, not once per message.
+    own_addresses = {
+        a.lower() for a in
+        SOEmailAccount.objects.filter(user_id=account.user_id, deleted_at__isnull=True)
+        .values_list('email', flat=True)
+    }
 
     # A brand-new account gets a much wider first-sync backfill window so its
     # Others/Sent history isn't empty on day one; every subsequent sync keeps
@@ -326,13 +508,21 @@ def sync_account_inbox(account):
         from_addr       = _extract_email_address(msg.get('From', ''))
 
         for cc in cc_qs:
-            _record_once(cc, 'replied', 'total_replied', {'oof': is_oof}, ref_ids=ref_ids)
-            # An out-of-office is not a genuine reply — don't stop a
-            # sequence over an auto-responder, and never let it feed
-            # reply-based branching either (see services/so_subsequence.py
-            # ::_eval_replied, which independently excludes metadata['oof']
-            # rows as a second, structural guard against the same thing).
+            # An out-of-office is not a genuine reply — the OOF check now
+            # runs BEFORE the event is ever recorded, not after (previously
+            # _record_once ran unconditionally for every candidate and only
+            # the sequence-stop below was skipped for an OOF, so an
+            # auto-responder still inflated total_replied every time).
+            # Still logged into the conversation store below regardless —
+            # an OOF is real correspondence and stays visible in the Inbox
+            # (classification_if_new='out_of_office'), it just isn't
+            # counted as a Reply for analytics. Never lets an OOF feed
+            # reply-based branching either (services/so_subsequence.py
+            # ::_eval_replied independently excludes metadata['oof'] rows
+            # too, now a redundant-but-harmless second guard against the
+            # same thing).
             if not is_oof:
+                _record_once(cc, 'replied', 'total_replied', {'oof': False}, ref_ids=ref_ids)
                 # V3.7 — a campaign with an ACTIVE 'replied' branching
                 # condition gets to decide what a reply means instead of
                 # the sequence being unconditionally stopped: leave the
@@ -387,80 +577,67 @@ def sync_account_inbox(account):
             auto_sub    = _decode_header_value(msg.get('Auto-Submitted', '')).lower()
 
             try:
+                # Classification order: BOUNCE first, then reply, then the
+                # no-headers-at-all fallback. A DSN/bounce notification
+                # routinely carries In-Reply-To/References quoting the
+                # original outbound Message-ID (that's how it identifies
+                # which send it's about) — checking reply-ness first would
+                # swallow every well-formed bounce as a false "reply" before
+                # bounce detection ever ran. Once a message is classified as
+                # a bounce it is handled and DONE; it never falls through to
+                # reply detection even though it may carry the exact headers
+                # reply detection looks for.
+                if _is_bounce_candidate(msg, from_hdr, subject_hdr):
+                    _handle_bounce_candidate(imap, msg, num, account, from_hdr, subject_hdr,
+                                             in_reply_to, references)
+
                 # Reply detection — thread match first; if the References/In-Reply-To
                 # header is present but doesn't match anything we sent (broken
                 # threading in the wild), fall back to matching by From-address.
-                if in_reply_to or references:
+                elif in_reply_to or references:
                     ref_ids = set(filter(None, [in_reply_to] + references.split()))
+                    # Strong match, tier 1a: cc.message_id is always the MOST
+                    # RECENTLY sent step's Message-ID — the common case, a
+                    # reply to the latest email the prospect received.
+                    # Scoped to this account (the account actually being
+                    # synced) in addition to the Message-ID match: a
+                    # Message-ID is globally unique on its own, but scoping
+                    # by account is what a reply landing at the RIGHT
+                    # mailbox actually means (see Fix 6/_weak_reply_fallback).
                     cc_qs = list(
-                        SOCampaignContact.objects.filter(message_id__in=ref_ids)
-                        .select_related('prospect', 'campaign')
+                        SOCampaignContact.objects.filter(
+                            message_id__in=ref_ids, account_id=account.id,
+                        ).select_related('prospect', 'campaign')
                     )
                     if not cc_qs:
-                        from_addr = _extract_email_address(msg.get('From', ''))
-                        if from_addr:
-                            fallback_cc = SOCampaignContact.objects.filter(
-                                email__iexact=from_addr, campaign__user_id=account.user_id, sent_at__isnull=False,
-                            ).select_related('prospect', 'campaign').order_by('-sent_at').first()
-                            cc_qs = [fallback_cc] if fallback_cc else []
-                    _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=ref_ids)
-
-                # Bounce detection (only if not already handled as reply)
-                elif (any(b in from_hdr for b in _BOUNCE_FROM) or
-                      any(subject_hdr.startswith(s) for s in _BOUNCE_SUBJ)):
-                    from Email_validate_app.services.so_drip import stop_all_for_email
-
-                    # Gmail and most MTAs name the dead address in X-Failed-Recipients;
-                    # fall back to the original Message-ID when the DSN quotes it.
-                    failed = _decode_header_value(msg.get('X-Failed-Recipients', '')).strip().lower()
-                    bounced_ccs = []
-                    if failed:
-                        addrs = [a.strip() for a in failed.split(',') if a.strip()]
-                        # One lookup PER address, always scoped to this account's
-                        # own user — a combined filter+slice across all addresses
-                        # (the previous approach) could both leak a match across
-                        # tenants (no user scoping at all) and mismatch which
-                        # address got which contact when a DSN lists several.
-                        for addr in addrs:
-                            cc_for_addr = (
-                                SOCampaignContact.objects
-                                .filter(email__iexact=addr, sent_at__isnull=False,
-                                        campaign__user_id=account.user_id)
-                                .select_related('prospect', 'campaign')
-                                .order_by('-sent_at')
-                                .first()
-                            )
-                            if cc_for_addr:
-                                bounced_ccs.append(cc_for_addr)
-                    if not bounced_ccs and (in_reply_to or references):
-                        ref_ids = set(filter(None, [in_reply_to] + references.split()))
-                        bounced_ccs = list(
-                            SOCampaignContact.objects.filter(
-                                message_id__in=ref_ids, campaign__user_id=account.user_id,
-                            ).select_related('prospect', 'campaign')
+                        # Strong match, tier 1b: cc.message_id was overwritten
+                        # by a LATER step since this thread started — a reply
+                        # to an OLDER step can no longer be found there.
+                        # SOEvent keeps one 'sent' row per step, never
+                        # overwritten, so it can still resolve a reply to any
+                        # prior step, not just the latest.
+                        sent_events = list(
+                            SOEvent.objects.filter(
+                                message_id__in=ref_ids, event_type='sent', account_id=account.id,
+                            ).values('campaign_id', 'email').distinct()
                         )
-                    if bounced_ccs:
-                        for cc in bounced_ccs:
-                            _record_once(cc, 'bounced', 'total_bounced', {'subject': subject_hdr[:200]})
-                            # Stops this contact AND every other in-flight
-                            # contact for the same address across this same
-                            # user's other currently-running campaigns.
-                            stop_all_for_email(account.user_id, cc.email, 'bounced')
-                    else:
-                        logger.info('so_imap: bounce for account %s could not be matched: %s',
-                                    account.id, subject_hdr[:120])
+                        for ev in sent_events:
+                            match = SOCampaignContact.objects.filter(
+                                campaign_id=ev['campaign_id'], email__iexact=ev['email'],
+                            ).select_related('prospect', 'campaign').first()
+                            if match and match not in cc_qs:
+                                cc_qs.append(match)
+                    if not cc_qs:
+                        # Weak fallback: headers present but reference nothing
+                        # findable on either the current or any prior step.
+                        cc_qs = _weak_reply_fallback(msg, account, own_addresses)
+                    _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=ref_ids)
 
                 # No threading headers at all, and not bounce-looking — some clients
                 # drop In-Reply-To/References entirely. Last resort: match by
                 # From-address against a contact we've actually sent to.
                 else:
-                    from_addr = _extract_email_address(msg.get('From', ''))
-                    cc_qs = []
-                    if from_addr:
-                        fallback_cc = SOCampaignContact.objects.filter(
-                            email__iexact=from_addr, campaign__user_id=account.user_id, sent_at__isnull=False,
-                        ).select_related('prospect', 'campaign').order_by('-sent_at').first()
-                        cc_qs = [fallback_cc] if fallback_cc else []
+                    cc_qs = _weak_reply_fallback(msg, account, own_addresses)
                     _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to)
 
                 # Complaint detection — V1 treats a complaint exactly like a

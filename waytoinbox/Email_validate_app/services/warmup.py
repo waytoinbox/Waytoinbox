@@ -15,6 +15,7 @@ in warmup_receiver.py. This module never touches either directly.
 """
 
 import logging
+import math
 import random
 import uuid
 from datetime import timedelta, datetime, time as dt_time, timezone as dt_timezone
@@ -24,9 +25,8 @@ from django.utils.timezone import now
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_DAILY_TARGET      = 40
-DEFAULT_RAMP_UP_DAYS      = 30
-DEFAULT_RAMP_UP_INCREMENT = 2
+DEFAULT_DAILY_TARGET = 40
+DEFAULT_RAMP_UP_DAYS = 30
 
 
 def _next_utc_midnight():
@@ -115,6 +115,22 @@ def get_todays_target(warmup) -> int:
     days_elapsed = max(0, (now().date() - warmup.started_at.date()).days)
     ramped = warmup.ramp_up_increment * (days_elapsed + 1)
     return min(warmup.daily_target, ramped)
+
+
+def compute_ramp_increment(daily_target, ramp_up_days) -> int:
+    """Single source of truth for ramp_up_increment — start_warmup() and
+    update_warmup_settings() below must always call this instead of ever
+    accepting a raw client-submitted increment, so the stored value can
+    never drift from this formula.
+
+    Ceiling division, floored at 1: guarantees the ramp (see
+    get_todays_target() above, which multiplies this by the day count)
+    reaches daily_target at or before day ramp_up_days, never later — and
+    never stalls at a 0 increment regardless of how small daily_target is
+    relative to ramp_up_days.
+    """
+    ramp_up_days = ramp_up_days or 1
+    return max(1, math.ceil(daily_target / ramp_up_days))
 
 
 def reserve_quota_slot(account, warmup) -> bool:
@@ -217,21 +233,38 @@ def create_pending_messages_for_sender(warmup) -> int:
     return created
 
 
-def start_warmup(account_ids, daily_target=None, ramp_up_days=None, ramp_up_increment=None):
+def start_warmup(account_ids, daily_target=None, ramp_up_days=None):
     """Enroll (or re-activate) the given SOEmailAccounts in warmup.
     get_or_create means an account already enrolled before never gets a
     second/duplicate warmup config — re-running Start just reactivates it
-    without resetting ramp progress."""
+    without resetting ramp progress.
+
+    ramp_up_increment is never accepted as a parameter — it's always
+    derived from daily_target/ramp_up_days via compute_ramp_increment(),
+    the single source of truth for that field (see its own docstring).
+
+    Restart bug fix: previously, re-Starting an already-enrolled (e.g.
+    stopped) account only ever updated status/started_at in the `if not
+    created` branch below, silently discarding any new daily_target/
+    ramp_up_days typed into the Start Warmup modal. Now, when either is
+    explicitly passed, they're applied (and the increment recomputed) on
+    reactivation too — mirroring what update_warmup_settings() already did
+    for the Edit flow.
+    """
     from Email_validate_app.models import SOEmailAccount, SOEmailAccountWarmup
+
+    resolved_daily_target = daily_target or DEFAULT_DAILY_TARGET
+    resolved_ramp_up_days = ramp_up_days or DEFAULT_RAMP_UP_DAYS
+    resolved_increment = compute_ramp_increment(resolved_daily_target, resolved_ramp_up_days)
 
     results = []
     for account in SOEmailAccount.objects.filter(id__in=account_ids, deleted_at__isnull=True):
         warmup, created = SOEmailAccountWarmup.objects.get_or_create(
             account=account,
             defaults={
-                'daily_target':      daily_target or DEFAULT_DAILY_TARGET,
-                'ramp_up_days':      ramp_up_days or DEFAULT_RAMP_UP_DAYS,
-                'ramp_up_increment': ramp_up_increment or DEFAULT_RAMP_UP_INCREMENT,
+                'daily_target':      resolved_daily_target,
+                'ramp_up_days':      resolved_ramp_up_days,
+                'ramp_up_increment': resolved_increment,
                 'started_at':        now(),
                 'status':            'active',
             },
@@ -242,21 +275,38 @@ def start_warmup(account_ids, daily_target=None, ramp_up_days=None, ramp_up_incr
             if not warmup.started_at:
                 warmup.started_at = now()
                 update_fields.append('started_at')
+            if daily_target is not None:
+                warmup.daily_target = daily_target
+                update_fields.append('daily_target')
+            if ramp_up_days is not None:
+                warmup.ramp_up_days = ramp_up_days
+                update_fields.append('ramp_up_days')
+            if daily_target is not None or ramp_up_days is not None:
+                new_increment = compute_ramp_increment(warmup.daily_target, warmup.ramp_up_days)
+                if new_increment != warmup.ramp_up_increment:
+                    warmup.ramp_up_increment = new_increment
+                    update_fields.append('ramp_up_increment')
             warmup.save(update_fields=update_fields)
         results.append(warmup)
     return results
 
 
-def update_warmup_settings(account, daily_target=None, ramp_up_days=None, ramp_up_increment=None):
+def update_warmup_settings(account, daily_target=None, ramp_up_days=None):
     """The real update path start_warmup()'s get_or_create was missing for
     an ALREADY-enrolled account (V4.5): that function's `if not created`
-    branch only ever touches `status`/`started_at`, so re-running Start
-    with new ramp values silently discarded them. This function updates
-    ONLY the three ramp config fields — it never touches status/started_at
-    (that stays exclusively Start/Pause/Resume/Stop's job) and never
-    creates a row (Edit must not enroll an account in warmup as a side
-    effect of saving unrelated fields). Returns the updated
-    SOEmailAccountWarmup, or None if this account was never enrolled.
+    branch only ever touched `status`/`started_at`, so re-running Start
+    with new ramp values silently discarded them (start_warmup() now also
+    handles this on reactivation, see its own docstring — this function
+    remains the Edit flow's own path, which must never touch status/
+    started_at or create a row as a side effect of saving unrelated
+    fields). Returns the updated SOEmailAccountWarmup, or None if this
+    account was never enrolled.
+
+    ramp_up_increment is never accepted as a parameter — always derived
+    from daily_target/ramp_up_days via compute_ramp_increment() after
+    applying whichever of the two were passed, so a partial update (e.g.
+    only ramp_up_days changing) still recomputes using the account's
+    current daily_target rather than a stale/default value.
 
     get_todays_target() reads daily_target/ramp_up_increment live off the
     model instance every call, so it automatically reflects these new
@@ -275,9 +325,11 @@ def update_warmup_settings(account, daily_target=None, ramp_up_days=None, ramp_u
     if ramp_up_days is not None:
         warmup.ramp_up_days = ramp_up_days
         update_fields.append('ramp_up_days')
-    if ramp_up_increment is not None:
-        warmup.ramp_up_increment = ramp_up_increment
-        update_fields.append('ramp_up_increment')
+    if daily_target is not None or ramp_up_days is not None:
+        new_increment = compute_ramp_increment(warmup.daily_target, warmup.ramp_up_days)
+        if new_increment != warmup.ramp_up_increment:
+            warmup.ramp_up_increment = new_increment
+            update_fields.append('ramp_up_increment')
     if update_fields:
         warmup.save(update_fields=update_fields)
     return warmup

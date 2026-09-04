@@ -30,8 +30,8 @@ from Email_validate_app.services.credit_manager import (
 )
 from Email_validate_app.services.trial_manager import (
     TRIAL_LIMITS, SALES_OUTREACH_TRIAL_DAILY_SEND_CAP, activate_trial,
-    get_trial_remaining, is_trial_active, is_trial_eligible,
-    sales_outreach_daily_send_cap,
+    can_offer_trial, get_trial_remaining, has_ever_paid, is_trial_active,
+    is_trial_eligible, sales_outreach_daily_send_cap,
 )
 from Email_validate_app.tasks.scheduler_job import (
     subscription_expiry_job, trial_expiry_notification_job,
@@ -122,13 +122,13 @@ class ActivateTrialTests(TestCase):
         user = make_user('trial_new_limits@example.com')
         activate_trial(user)
         rows = {r.service: r.limit for r in ServiceTrial.objects.filter(user_id=user.id)}
-        self.assertEqual(rows['email_validation'], 50)
-        self.assertEqual(rows['email_marketing'], 50)
-        self.assertEqual(rows['header_analysis'], 10)
-        self.assertEqual(rows['sales_outreach'], 1)
-        self.assertEqual(rows['reputation'], 1)
-        self.assertEqual(rows['ip_blocklist'], 1)
-        self.assertEqual(rows['domain_blocklist'], 1)
+        self.assertEqual(rows['email_validation'], 100)
+        self.assertEqual(rows['email_marketing'], 200)
+        self.assertEqual(rows['header_analysis'], 25)
+        self.assertEqual(rows['sales_outreach'], 2)
+        self.assertEqual(rows['reputation'], 2)
+        self.assertEqual(rows['ip_blocklist'], 5)
+        self.assertEqual(rows['domain_blocklist'], 5)
 
 
 class SalesOutreachDailySendCapTests(TestCase):
@@ -254,6 +254,38 @@ class TrialActivateEndpointTests(TestCase):
         r = self.client.get('/trial/activate/')
         self.assertEqual(r.status_code, 405)
 
+    def test_already_paid_but_never_trialed_returns_409_already_paid(self):
+        """Per the confirmed product rule, a real payment retires the trial
+        offer even for someone who never started a trial at all."""
+        from Email_validate_app.models import Payment
+        user = make_user('trial_ep_paid_no_trial@example.com', verified=True)
+        Payment.objects.create(
+            user=user, order_id='order_ep_paid_no_trial', payment_id='pay_ep_paid_no_trial',
+            amount='9.99',
+        )
+        self._login_session(user)
+
+        r = self.client.post('/trial/activate/')
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()['reason'], 'already_paid')
+        self.assertEqual(ServiceTrial.objects.filter(user_id=user.id).count(), 0)
+        user.refresh_from_db()
+        self.assertIsNone(user.trial_started_at)
+
+    def test_paid_via_subs_payment_only_also_returns_409_already_paid(self):
+        user = make_user('trial_ep_subs_paid@example.com', verified=True)
+        SubsPayment.objects.create(
+            user=user, order_id='order_ep_subs_paid', payment_id='pay_ep_subs_paid',
+            amount='19.99',
+        )
+        self._login_session(user)
+
+        r = self.client.post('/trial/activate/')
+
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()['reason'], 'already_paid')
+
 
 @override_settings(
     ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'],
@@ -346,9 +378,9 @@ class TrialUsageGatingTests(TestCase):
     def test_services_are_independent_spending_one_does_not_touch_another(self):
         deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='validation')
 
-        self.assertEqual(get_trial_remaining(self.user.id, 'sales_outreach'), 0)
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 50)
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_marketing'), 50)
+        self.assertEqual(get_trial_remaining(self.user.id, 'sales_outreach'), 1)  # limit 2, spent 1
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 100)
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_marketing'), 200)
 
     def test_all_seven_start_at_their_configured_limit(self):
         for service in SERVICE_KEYS:
@@ -357,8 +389,8 @@ class TrialUsageGatingTests(TestCase):
 
     # ── exact boundary behaviour ──────────────────────────────────────────
 
-    def test_fiftieth_email_validation_credit_succeeds_51st_fails(self):
-        deduct_service_credits(self.user.id, 'email_validation', 50, ref_type='validation')
+    def test_hundredth_email_validation_credit_succeeds_101st_fails(self):
+        deduct_service_credits(self.user.id, 'email_validation', 100, ref_type='validation')
         self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 0)
 
         with self.assertRaises(InsufficientCredits) as ctx:
@@ -366,13 +398,13 @@ class TrialUsageGatingTests(TestCase):
         self.assertTrue(ctx.exception.trial_active)
         self.assertTrue(ctx.exception.trial_exhausted)
 
-    def test_single_credit_service_allows_one_and_rejects_the_second(self):
-        deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='so_account')
+    def test_two_credit_service_allows_two_and_rejects_the_third(self):
+        deduct_service_credits(self.user.id, 'sales_outreach', 2, ref_type='so_account')
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='so_account')
 
-    def test_header_analyzer_ten_credit_boundary(self):
-        deduct_service_credits(self.user.id, 'header_analysis', 10, ref_type='ip_check')
+    def test_header_analyzer_twentyfive_credit_boundary(self):
+        deduct_service_credits(self.user.id, 'header_analysis', 25, ref_type='ip_check')
         self.assertEqual(get_trial_remaining(self.user.id, 'header_analysis'), 0)
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(self.user.id, 'header_analysis', 1, ref_type='ip_check')
@@ -384,7 +416,7 @@ class TrialUsageGatingTests(TestCase):
 
         deduct_service_credits(self.user.id, 'email_validation', 30, ref_type='validation')
 
-        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 20)
+        self.assertEqual(get_trial_remaining(self.user.id, 'email_validation'), 70)
         self.assertEqual(
             ServiceCredit.objects.get(user_id=self.user.id, service='email_validation').balance, 100,
             "paid wallet must be untouched while trial still has enough")
@@ -392,7 +424,7 @@ class TrialUsageGatingTests(TestCase):
     def test_falls_through_to_paid_wallet_once_trial_is_exhausted(self):
         ServiceCredit.objects.create(user_id=self.user.id, service='sales_outreach', balance=5)
 
-        deduct_service_credits(self.user.id, 'sales_outreach', 1, ref_type='so_account')  # trial's 1
+        deduct_service_credits(self.user.id, 'sales_outreach', 2, ref_type='so_account')  # trial's full 2
         deduct_service_credits(self.user.id, 'sales_outreach', 3, ref_type='so_account')  # from paid wallet
 
         self.assertEqual(get_trial_remaining(self.user.id, 'sales_outreach'), 0)
@@ -407,8 +439,8 @@ class TrialUsageGatingTests(TestCase):
         debits = TrialUsageLog.objects.filter(
             user_id=self.user.id, service='reputation', entry_type='debit')
         self.assertEqual(debits.count(), 1)
-        self.assertEqual(debits.first().balance_before, 1)
-        self.assertEqual(debits.first().balance_after, 0)
+        self.assertEqual(debits.first().balance_before, 2)  # limit 2, nothing spent yet
+        self.assertEqual(debits.first().balance_after, 1)
         self.assertEqual(debits.first().amount, -1)
 
     # ── lock-order regression guard ───────────────────────────────────────
@@ -423,7 +455,7 @@ class TrialUsageGatingTests(TestCase):
             ServiceCredit.objects.get_or_create(user_id=self.user.id, service='reputation')
             list(ServiceCredit.objects.select_for_update().filter(
                 user_id=self.user.id, service='reputation'))
-            deduct_service_credits(self.user.id, 'reputation', 1, ref_type='reputation')
+            deduct_service_credits(self.user.id, 'reputation', 2, ref_type='reputation')  # full limit
         self.assertEqual(get_trial_remaining(self.user.id, 'reputation'), 0)
 
 
@@ -440,7 +472,7 @@ class TrialExpiryTests(TestCase):
         # itself isn't zeroed, access is just gated live off trial_ends_at.
         row = ServiceTrial.objects.get(user_id=user.id, service='email_validation')
         self.assertEqual(row.used, 0)
-        self.assertEqual(row.limit, 50)
+        self.assertEqual(row.limit, 100)
 
     def test_deduct_raises_once_expired_rather_than_spending_trial(self):
         user = make_user('trial_expired_spend@example.com')
@@ -597,3 +629,50 @@ class DuplicateEmailRejectedTests(TestCase):
         with self.assertRaises(IntegrityError):
             UserTable.objects.create_user(
                 user_name='Second', user_email='dupe@example.com', password='StrongPass123!')
+
+
+class HasEverPaidAndCanOfferTrialTests(TestCase):
+    """has_ever_paid()/can_offer_trial() -- the "made any payment, even
+    without ever trialing" half of the trial-retirement rule (the other
+    half, "already activated a trial", is is_trial_eligible(), covered
+    elsewhere in this file)."""
+
+    def test_no_payment_no_trial_can_offer_is_true(self):
+        user = make_user('cot_fresh@example.com', verified=True)
+        self.assertFalse(has_ever_paid(user.id))
+        self.assertTrue(can_offer_trial(user))
+
+    def test_a_payment_row_alone_retires_the_offer(self):
+        from Email_validate_app.models import Payment
+        user = make_user('cot_paid@example.com', verified=True)
+        Payment.objects.create(
+            user=user, order_id='order_cot_paid', payment_id='pay_cot_paid', amount='9.99')
+        self.assertTrue(has_ever_paid(user.id))
+        self.assertFalse(can_offer_trial(user))
+        # is_trial_eligible() alone is untouched by payment history --
+        # only the broader can_offer_trial() considers it.
+        self.assertTrue(is_trial_eligible(user))
+
+    def test_a_subs_payment_row_alone_also_retires_the_offer(self):
+        user = make_user('cot_subs_paid@example.com', verified=True)
+        SubsPayment.objects.create(
+            user=user, order_id='order_cot_subs_paid', payment_id='pay_cot_subs_paid',
+            amount='19.99')
+        self.assertTrue(has_ever_paid(user.id))
+        self.assertFalse(can_offer_trial(user))
+
+    def test_a_service_order_alone_does_not_count_as_paid(self):
+        """ServiceOrder is a checkout-intent/quote row only -- never a
+        confirmed payment -- so it must not retire the trial offer."""
+        from Email_validate_app.models import ServiceOrder
+        user = make_user('cot_order_only@example.com', verified=True)
+        ServiceOrder.objects.create(
+            user=user, order_id='order_cot_order_only', cart_json={}, amount_cents=999)
+        self.assertFalse(has_ever_paid(user.id))
+        self.assertTrue(can_offer_trial(user))
+
+    def test_already_used_trial_retires_the_offer_even_with_no_payment(self):
+        user = make_user('cot_used_trial@example.com', verified=True)
+        activate_trial(user)
+        self.assertFalse(has_ever_paid(user.id))
+        self.assertFalse(can_offer_trial(user))

@@ -307,19 +307,24 @@ def so_email_account_action(request):
             daily_limit = int(data.get('daily_limit'))
             if daily_limit <= 0:
                 errors['daily_limit'] = 'Daily sending limit must be greater than 0.'
+            elif daily_limit > 120:
+                errors['daily_limit'] = 'Daily sending limit cannot exceed 120.'
         except (TypeError, ValueError):
             errors['daily_limit'] = 'Daily sending limit must be a whole number.'
 
         # warmup settings are entirely optional in the payload — the
         # frontend only sends them when this account actually has a
         # warmup row (see so_email_account_action's caller); still
-        # validated defensively here regardless.
+        # validated defensively here regardless. ramp_up_increment is
+        # deliberately not accepted here at all — it's always server-
+        # computed from daily_target/ramp_up_days (see
+        # services/warmup.py::compute_ramp_increment /
+        # update_warmup_settings).
         warmup_payload = data.get('warmup') or {}
         warmup_updates = {}
-        for key, label in (
-            ('daily_target', 'Daily target'),
-            ('ramp_up_days', 'Ramp-up days'),
-            ('ramp_up_increment', 'Daily increment'),
+        for key, label, max_val in (
+            ('daily_target', 'Daily target', 40),
+            ('ramp_up_days', 'Ramp-up days', 30),
         ):
             if key not in warmup_payload:
                 continue
@@ -327,6 +332,8 @@ def so_email_account_action(request):
                 val = int(warmup_payload.get(key))
                 if val <= 0:
                     errors[key] = f'{label} must be greater than 0.'
+                elif val > max_val:
+                    errors[key] = f'{label} cannot exceed {max_val}.'
                 else:
                     warmup_updates[key] = val
             except (TypeError, ValueError):

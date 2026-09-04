@@ -247,21 +247,21 @@
       <div class="so-field soea-ramp-field">
         <label>Daily target</label>
         <div class="soea-ramp-input-wrap">
-          <input type="number" id="warmupDailyTarget" min="1" value="40"/>
+          <input type="number" id="warmupDailyTarget" min="1" max="40" value="40"/>
           <span class="soea-ramp-unit">emails/day</span>
         </div>
       </div>
       <div class="so-field soea-ramp-field">
         <label>Ramp-up days</label>
         <div class="soea-ramp-input-wrap">
-          <input type="number" id="warmupRampDays" min="1" value="30"/>
+          <input type="number" id="warmupRampDays" min="1" max="30" value="30"/>
           <span class="soea-ramp-unit">days</span>
         </div>
       </div>
       <div class="so-field soea-ramp-field">
-        <label>Daily increment</label>
+        <label>Daily increment (auto)</label>
         <div class="soea-ramp-input-wrap">
-          <input type="number" id="warmupRampIncrement" min="1" value="2"/>
+          <input type="number" id="warmupRampIncrement" readonly style="opacity:0.6;cursor:not-allowed;"/>
           <span class="soea-ramp-unit">emails/day</span>
         </div>
       </div>
@@ -354,20 +354,38 @@ document.getElementById('cancelStartWarmup').onclick = function () {
 document.getElementById('startWarmupModal').addEventListener('click', e => {
   if (e.target === e.currentTarget) e.currentTarget.classList.remove('open');
 });
+
+/* Daily increment is server-computed (daily_target / ramp_up_days,
+   ceiling) — this mirrors that formula purely for a live preview before
+   submitting; the server recomputes it independently and this field's
+   own value is never sent. Safe to run on load here since the modal
+   always starts from the static 40/30 defaults, not a per-account value. */
+function recomputeWarmupIncrement() {
+  var dt = parseInt(document.getElementById('warmupDailyTarget').value, 10);
+  var rd = parseInt(document.getElementById('warmupRampDays').value, 10);
+  var el = document.getElementById('warmupRampIncrement');
+  el.value = (dt > 0 && rd > 0) ? Math.max(1, Math.ceil(dt / rd)) : '';
+}
+document.getElementById('warmupDailyTarget').addEventListener('input', recomputeWarmupIncrement);
+document.getElementById('warmupRampDays').addEventListener('input', recomputeWarmupIncrement);
+recomputeWarmupIncrement();
+
 document.getElementById('confirmStartWarmup').onclick = function () {
   var id = _warmupStartId;
-  document.getElementById('startWarmupModal').classList.remove('open');
   fetch(WARMUP_ACTION_URL, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
     body: JSON.stringify({
       action: 'start', ids: [id],
       daily_target: document.getElementById('warmupDailyTarget').value,
       ramp_up_days: document.getElementById('warmupRampDays').value,
-      ramp_up_increment: document.getElementById('warmupRampIncrement').value,
     }),
   }).then(r => r.json()).then(d => {
-    if (d.status === 'ok') { WTI.toast('Warmup started.', 'success'); setTimeout(() => location.reload(), 500); }
-    else { WTI.toast(d.message || 'Error.', 'error'); }
+    if (d.status === 'ok') {
+      document.getElementById('startWarmupModal').classList.remove('open');
+      WTI.toast('Warmup started.', 'success'); setTimeout(() => location.reload(), 500);
+    } else {
+      WTI.toast(d.message || Object.values(d.errors || {}).join(' ') || 'Error.', 'error');
+    }
   }).catch(() => WTI.toast('Network error.', 'error'));
 };
 

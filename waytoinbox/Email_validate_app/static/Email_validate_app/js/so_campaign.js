@@ -167,7 +167,8 @@ var SOCampaignPage = (function () {
       exclude_list_ids:      comboIds('socRdExcList', 'list'),
       exclude_segment_ids:   comboIds('socRdExcList', 'segment'),
       email_account_ids:     accountIds(),
-      email_account_weights: accountWeights(),
+      email_account_counts:  accountCounts(),
+      sender_send_count_enabled: !!($('socSendCountToggle') && $('socSendCountToggle').checked),
       sender_name: ($('socSenderName') ? $('socSenderName').value.trim() : ''),
       reply_to:    ($('socReplyTo') ? $('socReplyTo').value.trim() : ''),
       schedule_date: $('socScheduleDate') ? $('socScheduleDate').value : '',
@@ -1314,19 +1315,24 @@ var SOCampaignPage = (function () {
     return comboIds('socSenderList', 'account');
   }
 
-  /* {account_id: weight} for every currently-checked sender account, read
-     straight from each option's data-weight attribute (the single source
-     of truth — see renderSenderWeights()). Missing/blank defaults to 1,
-     same default the model field itself uses. */
-  function accountWeights() {
+  /* {account_id: count} for every currently-checked sender account, read
+     straight from each option's data-count attribute (the single source
+     of truth — see renderSenderCounts()). Missing/blank falls back to that
+     account's own daily limit (data-daily-limit), same fallback the server
+     applies when this key is absent from the payload. Sent regardless of
+     whether the Campaign Sending Count toggle is on — the server only
+     treats these as real per-account caps while it is (see
+     views/so_sender.py's campaign-save validation). */
+  function accountCounts() {
     var out = {};
     var list = $('socSenderList');
     if (!list) return out;
     list.querySelectorAll('.soc-rd-option[data-type="account"]').forEach(function (o) {
       var chk = o.querySelector('.soc-rd-chk');
       if (chk && chk.checked) {
-        var w = o.dataset.weight != null && o.dataset.weight !== '' ? parseInt(o.dataset.weight, 10) : 1;
-        out[o.dataset.id] = isNaN(w) ? 1 : w;
+        var fallback = parseInt(o.dataset.dailyLimit, 10) || 120;
+        var c = o.dataset.count != null && o.dataset.count !== '' ? parseInt(o.dataset.count, 10) : fallback;
+        out[o.dataset.id] = isNaN(c) ? fallback : c;
       }
     });
     return out;
@@ -1433,29 +1439,30 @@ var SOCampaignPage = (function () {
     var infoEl = $('socDailyLimitInfo');
     if (!infoEl) return;
     var list = $('socSenderList');
-    var combined = 0, n = 0;
-    if (list) {
-      list.querySelectorAll('.soc-rd-chk:checked').forEach(function (c) {
-        var o = c.closest('.soc-rd-option');
-        combined += parseInt(o.dataset.dailyLimit, 10) || 0;
-        n++;
-      });
-    }
+    var combined = combinedSenderCapacity(), n = 0;
+    if (list) n = list.querySelectorAll('.soc-rd-chk:checked').length;
     if (!n) {
-      infoEl.innerHTML = '<i class="fas fa-info-circle"></i> Select one or more sending accounts above to see combined daily capacity.';
+      infoEl.innerHTML = '<i class="fas fa-info-circle"></i> <span>Select one or more sending accounts above to see combined daily capacity.</span>';
       return;
     }
-    var html = '<i class="fas fa-info-circle"></i> ' + n + ' account' + (n > 1 ? 's' : '') +
+    // Everything after the icon lives inside ONE <span> -- .soc-info-line is
+    // display:flex, so without this wrapper each loose text run and <strong>
+    // becomes its own separate flex item (flexbox treats element boundaries,
+    // not just the icon, as item boundaries), which squeezed the sentence
+    // into several narrow, independently-wrapped columns instead of one
+    // flowing line. A single wrapper span makes the icon + text exactly two
+    // flex items, so the text wraps as an ordinary paragraph would.
+    var text = n + ' account' + (n > 1 ? 's' : '') +
                ' selected — up to <strong>' + combined.toLocaleString() + '</strong> emails/day combined.';
     if (lastEstimateCount > 0 && combined > 0) {
       var days = Math.ceil(lastEstimateCount / combined);
-      html += ' Estimated <strong>~' + days + ' day' + (days > 1 ? 's' : '') +
+      text += ' Estimated <strong>~' + days + ' day' + (days > 1 ? 's' : '') +
               '</strong> for the first email to reach everyone.';
       if (days > 1) {
-        html += '<br/><span style="color:var(--ink-3);">💡 Add another sending account to increase daily capacity and finish faster.</span>';
+        text += ' <span class="soc-info-line-tip">💡 Add another sending account to increase daily capacity and finish faster.</span>';
       }
     }
-    infoEl.innerHTML = html;
+    infoEl.innerHTML = '<i class="fas fa-info-circle"></i> <span>' + text + '</span>';
   }
 
   /* ── Review & Launch summary ─────────────────────────────────────────── */
@@ -1482,13 +1489,7 @@ var SOCampaignPage = (function () {
       : 'Not configured';
 
     var accIds = accountIds();
-    var combined = 0;
-    var senderList = $('socSenderList');
-    if (senderList) {
-      senderList.querySelectorAll('.soc-rd-chk:checked').forEach(function (c) {
-        combined += parseInt(c.closest('.soc-rd-option').dataset.dailyLimit, 10) || 0;
-      });
-    }
+    var combined = combinedSenderCapacity();
 
     var sendOptEl = document.querySelector('input[name="socSendOption"]:checked');
     var isSchedule = !!(sendOptEl && sendOptEl.value === 'schedule');
@@ -1574,13 +1575,7 @@ var SOCampaignPage = (function () {
 
     var prospectCount = lastEstimateCount;
     var accIds = accountIds();
-    var combined = 0;
-    var senderList = $('socSenderList');
-    if (senderList) {
-      senderList.querySelectorAll('.soc-rd-chk:checked').forEach(function (c) {
-        combined += parseInt(c.closest('.soc-rd-option').dataset.dailyLimit, 10) || 0;
-      });
-    }
+    var combined = combinedSenderCapacity();
     var sequenceReady = SEQ.steps.length > 0 && SEQ.steps.every(function (s) {
       return s.variants.length > 0 && s.variants.every(function (v) {
         return (v.subject || '').trim() && (v.html || '').trim();
@@ -1631,33 +1626,81 @@ var SOCampaignPage = (function () {
       '<p class="soc-launch-message">' + message + '</p>';
   }
 
-  /* ── Sender rotation weights ─────────────────────────────────────────── */
-  /* Weight lives directly on each account's .soc-rd-option element as a
-     data-weight attribute — same place data-daily-limit already lives —
-     rather than a separate JS state object, so it can't drift out of sync
-     with which accounts are actually checked. Only checked accounts ever
-     get a visible row; unchecking one just hides it (its data-weight is
-     preserved on the element in case it's re-checked in the same session). */
-  function renderSenderWeights() {
-    var wrap = $('socSenderWeights');
+  /* ── Campaign Sending Count ──────────────────────────────────────────── */
+  /* Replaces the removed Weight/Percentage system. The count lives directly
+     on each account's .soc-rd-option element as a data-count attribute —
+     same place data-daily-limit already lives — rather than a separate JS
+     state object, so it can't drift out of sync with which accounts are
+     actually checked. Only checked accounts ever get a visible row;
+     unchecking one just hides it (its data-count is preserved on the
+     element in case it's re-checked in the same session).
+
+     Only #socSenderCountRows is rebuilt here — the Enable/Disable toggle
+     itself (#socSendCountToggle) is static markup in the template, read
+     for its current checked state but never touched, so re-rendering rows
+     (e.g. after checking a new account) never resets the toggle. */
+  function renderSenderCounts() {
+    var wrap = $('socSenderCounts');
+    var rows = $('socSenderCountRows');
     var list = $('socSenderList');
-    if (!wrap || !list) return;
+    if (!wrap || !rows || !list) return;
     var checked = Array.prototype.filter.call(
       list.querySelectorAll('.soc-rd-option[data-type="account"]'),
       function (o) { var chk = o.querySelector('.soc-rd-chk'); return chk && chk.checked; }
     );
-    if (!checked.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+    if (!checked.length) { wrap.hidden = true; rows.innerHTML = ''; return; }
     wrap.hidden = false;
-    wrap.innerHTML =
-      '<p class="soc-hint soc-sender-weight-hint">Higher weight = more prospects assigned to this account</p>' +
-      checked.map(function (o) {
-        var w = o.dataset.weight != null && o.dataset.weight !== '' ? o.dataset.weight : '1';
-        return '<div class="soc-sender-weight-row" data-account-id="' + esc(o.dataset.id) + '">' +
-          '<span class="soc-sender-weight-email">' + esc(o.dataset.label) + '</span>' +
-          '<span class="soc-sender-weight-field"><label>Weight</label>' +
-          '<input type="number" class="soc-sender-weight-input" min="0" max="1000" step="10" value="' + esc(w) + '"/></span>' +
-        '</div>';
-      }).join('');
+    var enabled = !!($('socSendCountToggle') && $('socSendCountToggle').checked);
+    rows.innerHTML = checked.map(function (o) {
+      var ceiling = parseInt(o.dataset.dailyLimit, 10) || 120;
+      var c = o.dataset.count != null && o.dataset.count !== '' ? parseInt(o.dataset.count, 10) : ceiling;
+      if (isNaN(c)) c = ceiling;
+      var valueHtml = enabled
+        ? '<input type="number" class="soc-sender-count-input" style="padding:3px 4px;" min="1" max="' + ceiling +
+          '" value="' + c + '"/> / ' + ceiling + ' per day'
+        : ceiling + ' per day';
+      return '<div class="soc-sender-count-row" data-account-id="' + esc(o.dataset.id) + '">' +
+        '<span class="soc-sender-count-email">' + esc(o.dataset.label) + '</span>' +
+        '<span class="soc-sender-count-value">' + valueHtml + '</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  /* Combined per-day capacity across every currently-checked sender
+     account. While Campaign Sending Count is on, each account contributes
+     at most its own configured count (never more than its daily-limit
+     ceiling, same min() services/so_drip.py enforces at send time);
+     otherwise each contributes its full daily_limit, unchanged from before
+     this feature existed. Shared by updateCapacityReadout() and the two
+     Review & Launch summaries so all three stay consistent. */
+  function combinedSenderCapacity() {
+    var list = $('socSenderList');
+    if (!list) return 0;
+    var enabled = !!($('socSendCountToggle') && $('socSendCountToggle').checked);
+    var combined = 0;
+    list.querySelectorAll('.soc-rd-chk:checked').forEach(function (c) {
+      var o = c.closest('.soc-rd-option');
+      var limit = parseInt(o.dataset.dailyLimit, 10) || 0;
+      if (enabled) {
+        var count = o.dataset.count != null && o.dataset.count !== '' ? parseInt(o.dataset.count, 10) : limit;
+        if (isNaN(count)) count = limit;
+        combined += Math.min(count, limit);
+      } else {
+        combined += limit;
+      }
+    });
+    return combined;
+  }
+
+  /* Keeps the "Select All" checkbox honest: checked only when every sender
+     account option is checked, so manually unchecking one account doesn't
+     leave a stale "all selected" checkbox behind. */
+  function syncSenderSelectAll() {
+    var all = $('socSenderSelectAll'), list = $('socSenderList');
+    if (!all || !list) return;
+    var opts = list.querySelectorAll('.soc-rd-option[data-type="account"]');
+    var checked = list.querySelectorAll('.soc-rd-option[data-type="account"] .soc-rd-chk:checked');
+    all.checked = opts.length > 0 && checked.length === opts.length;
   }
 
   function refreshEstimate() {
@@ -2866,16 +2909,18 @@ var SOCampaignPage = (function () {
     check('socRdExcList', 'list', d.exclude_list_ids);
     check('socRdExcList', 'segment', d.exclude_segment_ids);
     check('socSenderList', 'account', d.email_account_ids);
-    // Weights are keyed by account id in the saved payload (server sends
+    if ($('socSendCountToggle')) $('socSendCountToggle').checked = !!d.sender_send_count_enabled;
+    // Counts are keyed by account id in the saved payload (server sends
     // string keys since they came from a JSON object) — set BEFORE
-    // wireCombos() runs so senderCombo's initial renderSenderWeights() call
-    // reflects the real saved values, not the "1" default.
-    var savedWeights = d.email_account_weights || {};
-    Object.keys(savedWeights).forEach(function (accId) {
+    // wireCombos() runs so senderCombo's initial renderSenderCounts() call
+    // reflects the real saved values, not the account's own daily-limit
+    // fallback.
+    var savedCounts = d.email_account_counts || {};
+    Object.keys(savedCounts).forEach(function (accId) {
       var opt = $('socSenderList') && document.querySelector(
         '#socSenderList .soc-rd-option[data-type="account"][data-id="' + accId + '"]'
       );
-      if (opt) opt.dataset.weight = String(savedWeights[accId]);
+      if (opt) opt.dataset.count = String(savedCounts[accId]);
     });
     if (d.exclude_list_ids.length || d.exclude_segment_ids.length) {
       $('socExclSection').hidden = false;
@@ -3067,26 +3112,47 @@ var SOCampaignPage = (function () {
       { root: 'socSenderRoot', trigger: 'socSenderTrigger', panel: 'socSenderPanel',
         tags: 'socSenderTags', search: 'socSenderSearch', list: 'socSenderList' },
       'Select one or more sending accounts',
-      function () { updateCapacityReadout(); renderSenderWeights(); });
+      function () { updateCapacityReadout(); renderSenderCounts(); syncSenderSelectAll(); });
     // Initial render — hydrate() has already checked the saved accounts and
-    // set their data-weight attributes by this point (phase('state', hydrate)
+    // set their data-count attributes by this point (phase('state', hydrate)
     // runs before phase('recipients', wireCombos)), so this reflects the
     // real saved state on first paint, not just future changes.
-    renderSenderWeights();
-    if ($('socSenderWeights')) {
-      $('socSenderWeights').addEventListener('input', function (e) {
-        var input = e.target.closest('.soc-sender-weight-input');
+    renderSenderCounts();
+    syncSenderSelectAll();
+    if ($('socSendCountToggle')) {
+      $('socSendCountToggle').addEventListener('change', function () {
+        renderSenderCounts();
+        markDirty();
+      });
+    }
+    if ($('socSenderCountRows')) {
+      $('socSenderCountRows').addEventListener('input', function (e) {
+        var input = e.target.closest('.soc-sender-count-input');
         if (!input) return;
-        var row = input.closest('.soc-sender-weight-row');
+        var row = input.closest('.soc-sender-count-row');
         var accId = row && row.dataset.accountId;
         var opt = accId && document.querySelector(
           '#socSenderList .soc-rd-option[data-type="account"][data-id="' + accId + '"]'
         );
         if (opt) {
-          var val = Math.max(0, Math.min(1000, parseInt(input.value, 10) || 0));
-          opt.dataset.weight = String(val);
+          var ceiling = parseInt(input.max, 10) || 120;
+          var val = Math.max(1, Math.min(ceiling, parseInt(input.value, 10) || 1));
+          opt.dataset.count = String(val);
           markDirty();
         }
+      });
+    }
+    // "Select All" — checks/unchecks every sender account option, then
+    // replays the exact same summary()+markDirty() the combo's own change
+    // listener runs for a real click (programmatic .checked assignment
+    // doesn't fire a 'change' event on its own — same reason the tag-remove
+    // handler above calls these manually too).
+    if ($('socSenderSelectAll') && senderCombo) {
+      $('socSenderSelectAll').addEventListener('change', function () {
+        var checkAll = this.checked;
+        $('socSenderList').querySelectorAll('.soc-rd-chk').forEach(function (c) { c.checked = checkAll; });
+        senderCombo.summary();
+        markDirty();
       });
     }
     syncExclude();

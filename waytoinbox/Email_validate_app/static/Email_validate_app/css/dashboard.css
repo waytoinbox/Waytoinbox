@@ -479,6 +479,38 @@ body.no-sidebar .topbar    { left: 0; }
 .notif-unread-dot { width: 6px; height: 6px; border-radius: 50%; background: #0096ff; flex-shrink: 0; margin-top: 5px; }
 
 /* ══════════════════════════════════════════════════════
+   Profile menu dropdown — same open/close mechanics as the
+   notification-bell dropdown above, but themed via this
+   codebase's --bg/--ink/--border tokens (tokens-reset-
+   utilities.css + dark-mode.css) instead of copying the
+   bell dropdown's own hardcoded dark palette, so it reads
+   correctly in BOTH light and dark mode rather than always
+   rendering dark.
+   ══════════════════════════════════════════════════════ */
+.profile-menu-wrap { position: relative; }
+/* Overrides .topbar-user's own padding/pill shape -- a bare, larger
+   circular icon button instead (no text label anymore, just the icon). */
+.profile-menu-wrap .topbar-user {
+  cursor: pointer; padding: 0; gap: 0;
+  width: 42px; height: 42px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; flex-shrink: 0;
+}
+.profile-dropdown {
+  display: none; position: absolute; top: calc(100% + 8px); right: 0; width: 200px;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: var(--shadow-lg); z-index: 1000; overflow: hidden; padding: 6px;
+}
+.profile-dropdown.open { display: block; }
+.profile-dropdown-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 8px;
+  font-size: 13px; color: var(--ink); text-decoration: none; transition: background 0.1s;
+}
+.profile-dropdown-item i { width: 16px; text-align: center; color: var(--ink-3); }
+.profile-dropdown-item:hover { background: var(--bg-2); }
+.profile-dropdown-divider { height: 1px; background: var(--border); margin: 6px 4px; }
+
+/* ══════════════════════════════════════════════════════
    Dashboard Redesign — Control Center v2
    ══════════════════════════════════════════════════════ */
 

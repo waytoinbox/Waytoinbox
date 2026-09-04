@@ -470,12 +470,13 @@ class SubscriptionSharesPaygOrderSummaryTests(TestCase):
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
-class AllSevenServicesRequiredUiTests(TestCase):
-    """"Get Started" is only enabled once every one of the 7 services has a
-    quantity at or above its own minimum -- checked in buy_credits.js's
+class PartialServiceSelectionUiTests(TestCase):
+    """"Get Started" is enabled once at least one service has a quantity at
+    or above its own minimum -- a service left at 0 is simply not selected,
+    not a reason to block checkout. Any selected (nonzero) service must
+    still clear its own minimum. Checked in buy_credits.js's
     incompleteServices()/refreshCta(), enforced for real server-side in
-    subscription_order() (see test_service_checkout.py /
-    AllServicesRequiredTests, test_coupons.py)."""
+    subscription_order() (see test_service_checkout.py)."""
 
     def setUp(self):
         self.client = Client(SERVER_NAME='127.0.0.1')
@@ -487,21 +488,28 @@ class AllSevenServicesRequiredUiTests(TestCase):
         with open(js_path, encoding='utf-8') as f:
             js = f.read()
         self.assertIn('function incompleteServices', js)
-        self.assertIn('Select credits for every service to continue', js)
-        # The old "choose at least one" copy must be gone -- a single
-        # service is no longer sufficient.
-        self.assertNotIn('at least one service', js)
+        self.assertIn('Select credits for at least one service to continue', js)
+        # The old "every service" requirement must be gone -- a single
+        # service is sufficient, zero-quantity services are not incomplete.
+        self.assertNotIn('Select credits for every service to continue', js)
 
-    def test_static_cta_hint_copy_matches_the_all_seven_rule(self):
+    def test_static_cta_hint_copy_matches_the_at_least_one_rule(self):
         for url in ('/pricing/', '/subscription/'):
             html = self.client.get(url).content.decode()
-            self.assertIn('Select credits for every service to continue.', html, url)
-            self.assertNotIn('at least one service', html, url)
+            self.assertIn('Select credits for at least one service to continue.', html, url)
+            self.assertNotIn('every service', html, url)
 
-    def test_cta_button_starts_disabled_and_cart_gate_uses_all_seven(self):
+    def test_cta_button_starts_disabled_on_an_empty_cart(self):
         for url in ('/pricing/', '/subscription/'):
             html = self.client.get(url).content.decode()
             self.assertIn('id="scGetStarted" class="sc-cta" disabled', html, url)
+
+    def test_sc_balance_available_credits_display_is_gone(self):
+        """Requirement: don't show available credits on the purchase card."""
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('sc-balance', html, url)
+            self.assertNotIn('available</span>', html, url)
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
@@ -597,9 +605,11 @@ class ServiceConfirmPopupTests(TestCase):
             self.assertNotIn('discRow.style.display', html, url)
 
     def test_popup_summary_block_balances_the_two_columns(self):
-        """Column 1 always renders exactly 7 rows now (every service is
-        required); Discount+Total are grouped into their own block in
-        column 2 so it reads as complete rather than sparse next to it."""
+        """Column 1 renders one row per selected service (up to 7, however
+        many the user actually chose -- rows are built client-side by
+        openServiceConfirm() from the real order, not asserted by count
+        here); Discount+Total are grouped into their own block in column 2
+        so it reads as complete rather than sparse next to it."""
         for url in ('/pricing/', '/subscription/'):
             html = self.client.get(url).content.decode()
             start = html.index('id="scConfirmModal"')
@@ -665,8 +675,8 @@ class TrialPopupTests(TestCase):
             # New limits: Email Validation 50, Email Marketing 50,
             # Sales Outreach 1, Reputation 1, Header Analyzer 10,
             # IP Blocklist 1, Domain Blocklist 1.
-            self.assertIn('50 emails', popup_html, url)
-            self.assertIn('10 headers', popup_html, url)
+            self.assertIn('100 emails', popup_html, url)
+            self.assertIn('25 headers', popup_html, url)
 
     def test_activate_button_posts_to_the_trial_activate_endpoint(self):
         user = make_user('trial_popup_endpoint@example.com', verified=True)
@@ -707,3 +717,53 @@ class TrialPopupTests(TestCase):
         html = self.client.get('/pricing/').content.decode()
         self.assertIn('function closeTrialPopup', html)
         self.assertIn("addEventListener('click'", html)
+
+    def test_popup_starts_hidden_and_is_only_opened_by_the_cta_button(self):
+        """The trial no longer auto-shows on page load -- it starts without
+        the 'show' class, and only the "Start Your 7-Day Free Trial" button
+        (calling openTrialPopup()) reveals it."""
+        user = make_user('trial_popup_hidden_on_load@example.com', verified=True)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="trialCtaBtn"', html, url)
+            self.assertIn('onclick="openTrialPopup()"', html, url)
+            self.assertIn('function openTrialPopup', html, url)
+            self.assertNotIn('class="pay-confirm-modal show" id="trialPopupModal"', html, url)
+            self.assertIn('class="pay-confirm-modal" id="trialPopupModal"', html, url)
+
+    def test_cta_button_hidden_for_anonymous_visitor(self):
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('id="trialCtaBtn"', html, url)
+
+    def test_cta_button_shown_for_unverified_eligible_user_too(self):
+        user = make_user('trial_cta_unverified@example.com', verified=False)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertIn('id="trialCtaBtn"', html, url)
+
+    def test_cta_button_hidden_once_a_trial_is_active(self):
+        from Email_validate_app.services.trial_manager import activate_trial
+        user = make_user('trial_cta_active@example.com', verified=True)
+        activate_trial(user)
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('id="trialCtaBtn"', html, url)
+
+    def test_cta_button_and_popup_hidden_for_a_user_who_has_paid_but_never_trialed(self):
+        """Per the confirmed product rule, ANY real payment retires the trial
+        offer -- even for a user who never touched the trial at all."""
+        from Email_validate_app.models import Payment
+        user = make_user('trial_cta_paid_no_trial@example.com', verified=True)
+        Payment.objects.create(
+            user=user, order_id='order_paid_no_trial', payment_id='pay_paid_no_trial',
+            amount='9.99',
+        )
+        self._login(user)
+        for url in ('/pricing/', '/subscription/'):
+            html = self.client.get(url).content.decode()
+            self.assertNotIn('id="trialCtaBtn"', html, url)
+            self.assertNotIn('trialPopupModal', html, url)

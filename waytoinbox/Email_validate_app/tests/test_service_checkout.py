@@ -32,9 +32,12 @@ def make_user(email):
     return user
 
 
-# subscription_order() now requires all 7 services to be present (each at
-# or above its own minimum) -- not just a nonempty subset. This is the
-# cheapest such cart: every service at exactly its minimum quantity.
+# subscription_order() accepts any nonempty subset of the 7 services (each
+# selected service must still clear its own minimum) -- a full cart is not
+# required, just one convenient, deterministic fixture used by several tests
+# below that want a rich multi-service order to exercise (verify, tamper,
+# audit-log, replay) without that being the point of the test itself. This
+# is the cheapest such cart: every service at exactly its minimum quantity.
 # Total: 390 (email_validation) + 200 (email_marketing) + 300 (sales_outreach)
 #      + 200 (reputation) + 40 (header_analysis) + 200 (ip_blocklist)
 #      + 200 (domain_blocklist) = 1530 cents = $15.30
@@ -236,30 +239,32 @@ class ServiceCheckoutTests(TestCase):
         rz.return_value.order.create.assert_not_called()
         self.assertFalse(ServiceOrder.objects.exists())
 
-    def test_order_rejects_a_cart_missing_one_service(self):
+    def test_order_accepts_a_cart_missing_one_service(self):
+        """Users may buy credits only for the services they need -- a cart
+        with 6 of the 7 services is a normal, valid order, not an error."""
         cart = dict(FULL_CART_AT_MINIMUM)
         del cart['sales_outreach']
         with patch('Email_validate_app.views.credits._razorpay_client',
-                   return_value=fake_razorpay()) as rz:
+                   return_value=fake_razorpay()):
             r = self._json('/subscription/order/', {'cart': cart})
-        self.assertEqual(r.status_code, 400)
-        self.assertIn('Sales Outreach', r.json()['message'])
-        rz.return_value.order.create.assert_not_called()
-        self.assertFalse(ServiceOrder.objects.exists())
+        self.assertEqual(r.status_code, 200, r.content)
+        order = ServiceOrder.objects.get(order_id='order_TEST123')
+        self.assertEqual(order.cart_json, cart)
+        self.assertNotIn('sales_outreach', order.cart_json)
 
-    def test_order_rejects_a_cart_missing_several_services(self):
-        cart = {'email_validation': 25_000, 'sales_outreach': 1}
+    def test_order_accepts_a_cart_with_a_single_service_selected(self):
+        """The minimal real-world case this feature exists for: exactly one
+        service selected, everything else left at 0."""
+        cart = {'email_validation': 25_000}
         with patch('Email_validate_app.views.credits._razorpay_client',
-                   return_value=fake_razorpay()) as rz:
+                   return_value=fake_razorpay()):
             r = self._json('/subscription/order/', {'cart': cart})
-        self.assertEqual(r.status_code, 400)
-        message = r.json()['message']
-        for missing in ('Email Marketing', 'Reputation Analysis',
-                       'Email Header Analyzer', 'IP Blocklist Monitor',
-                       'Domain Blocklist Monitor'):
-            self.assertIn(missing, message)
-        rz.return_value.order.create.assert_not_called()
-        self.assertFalse(ServiceOrder.objects.exists())
+        self.assertEqual(r.status_code, 200, r.content)
+        order = ServiceOrder.objects.get(order_id='order_TEST123')
+        self.assertEqual(order.cart_json, {'email_validation': 25_000})
+        # Total reflects only the one selected service -- not inflated by
+        # the other 6 services being silently included at any value.
+        self.assertEqual(order.amount_cents, 5900)   # $59, email_validation's own price at 25,000
 
     def test_order_accepts_a_cart_with_all_seven_services_at_minimum(self):
         with patch('Email_validate_app.views.credits._razorpay_client',
@@ -271,9 +276,9 @@ class ServiceCheckoutTests(TestCase):
         self.assertEqual(order.cart_json, FULL_CART_AT_MINIMUM)
 
     def test_quote_still_prices_a_partial_cart(self):
-        """Only the checkout gate (subscription_order) requires all 7 —
-        the live quote must keep pricing whatever subset is selected so far,
-        so the running total still updates as the user builds up their cart."""
+        """The live quote prices whatever subset is selected so far, same as
+        subscription_order itself now accepts -- the running total updates
+        as the user builds up their cart, one service at a time."""
         r = self._json('/subscription/quote/', {'cart': {'email_validation': 25_000}})
         self.assertEqual(r.status_code, 200, r.content)
         self.assertEqual(r.json()['total_cents'], 5900)
@@ -283,7 +288,11 @@ class ServiceCheckoutTests(TestCase):
 
     def _make_order(self, cart, order_id='order_TEST123'):
         """cart is filled out to include every service (at its minimum) that
-        isn't already present -- subscription_order now requires all 7."""
+        isn't already present -- not because subscription_order requires it
+        (it doesn't), just so tests below that exercise verify/tamper/
+        audit-log/replay behavior get a rich, deterministic multi-service
+        order to work with, without that fill-in being the point under
+        test."""
         cart = dict(FULL_CART_AT_MINIMUM, **cart)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay(order_id)):
@@ -489,10 +498,10 @@ class MinimumPurchaseEndpointTests(TestCase):
         self.assertFalse(ServiceOrder.objects.exists())
 
     def test_order_accepts_1000_for_a_bulk_service(self):
-        # subscription_order requires all 7 services; the other 6 are filled
-        # in at their own minimum so this test can isolate email_marketing's
-        # own boundary (999 rejected, 1000 accepted — see the two tests
-        # above) without also tripping the all-7-required check.
+        # A single-service cart would isolate email_marketing's own boundary
+        # (999 rejected, 1000 accepted — see the two tests above) just as
+        # well now; reusing the FULL_CART_AT_MINIMUM fixture here is just
+        # convenience, not a requirement.
         cart = dict(FULL_CART_AT_MINIMUM, email_marketing=1000)
         with patch('Email_validate_app.views.credits._razorpay_client',
                    return_value=fake_razorpay()):

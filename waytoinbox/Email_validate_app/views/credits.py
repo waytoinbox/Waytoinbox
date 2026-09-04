@@ -46,7 +46,7 @@ from Email_validate_app.services.credit_manager import (
 from Email_validate_app.services.mailer import send_payment_success_email
 from Email_validate_app.services.trial_manager import (
     TRIAL_DURATION_DAYS, TRIAL_LIMITS, SERVICE_LABELS as TRIAL_SERVICE_LABELS,
-    activate_trial, is_trial_eligible,
+    activate_trial, has_ever_paid, is_trial_eligible,
 )
 from Email_validate_app.utils import get_user_id
 
@@ -173,10 +173,11 @@ def subscription_order(request):
     to open; the amount it shows comes from the Razorpay order, which was
     created from the server's own arithmetic.
 
-    Requires all 7 services to be selected (each already validated against
-    its own minimum), not just a nonempty subset — this is the actual gate
-    behind "Get Started", which the frontend also disables client-side for
-    the same reason, but never relies on that alone.
+    Any nonempty subset of the 7 services may be purchased — a service left
+    at 0 is simply not selected, not an error (see pricing.quote_cart()).
+    Only a fully empty cart (every service at 0) is rejected below. Each
+    selected (nonzero) service still must clear its own existing minimum,
+    enforced the same way it always was, inside quote_cart() itself.
     """
     user_id = get_user_id(request)
     if not user_id:
@@ -201,21 +202,6 @@ def subscription_order(request):
     if not quote.lines:
         return JsonResponse(
             {"status": "error", "message": "Select at least one service to continue."},
-            status=400)
-
-    # Product rule: checkout requires every one of the 7 services to be
-    # selected (each already validated against its own minimum by
-    # quote_cart() above) — not just a nonempty subset. Enforced here, not
-    # in quote_cart() itself, so the live quote (subscription_quote) still
-    # prices a partial cart while the user is still building it up.
-    missing = [s for s in pricing.SERVICE_KEYS
-              if s not in {ln.service for ln in quote.lines}]
-    if missing:
-        missing_labels = ', '.join(pricing.SERVICE_LABELS[s] for s in missing)
-        return JsonResponse(
-            {"status": "error",
-             "message": f"Select credits for every service before continuing. "
-                        f"Missing: {missing_labels}."},
             status=400)
 
     discount_cents, promo_message, coupon = _quote_discount(quote, promo_code, user_id)
@@ -450,10 +436,16 @@ def trial_activate(request):
     """Manually activate the current user's one-time 7-day free trial.
 
     This is the ONLY way a trial starts — verify_email() no longer calls
-    activate_trial() automatically (see views/auth.py). Two distinct failure
-    reasons are reported ("not_verified" vs "already_used") via a `reason`
-    field alongside distinct HTTP status codes, so the trial popup can show
-    the right copy instead of one generic error.
+    activate_trial() automatically (see views/auth.py). Distinct failure
+    reasons are reported ("not_verified" / "already_used" / "already_paid")
+    via a `reason` field alongside distinct HTTP status codes, so the trial
+    popup can show the right copy instead of one generic error.
+
+    "already_paid" mirrors context_processors.py::nav_credits()'s
+    nav_trial_eligible (trial_manager.can_offer_trial): a user who has ever
+    completed a real payment is never offered the trial, even if they never
+    activated one — checked here too so a direct POST can't bypass the
+    button being hidden client-side.
     """
     user_id = get_user_id(request)
     if not user_id:
@@ -478,6 +470,18 @@ def trial_activate(request):
         return JsonResponse(
             {"status": "error", "message": "You've already used your free trial.",
              "reason": "already_used"}, status=409)
+
+    if has_ever_paid(user_id):
+        # Never activated a trial, but has already made a real purchase —
+        # the free trial offer is only for someone who hasn't bought
+        # anything yet. Checked here too, not just hidden in the UI (see
+        # trial_manager.can_offer_trial), so a direct POST to this
+        # endpoint can't activate a trial the button was deliberately
+        # hidden for.
+        return JsonResponse(
+            {"status": "error",
+             "message": "The free trial is only available before your first purchase.",
+             "reason": "already_paid"}, status=409)
 
     if not activate_trial(user):
         # Lost a race against a concurrent activation (e.g. a double click /

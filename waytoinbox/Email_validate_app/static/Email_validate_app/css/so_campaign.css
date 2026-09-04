@@ -27,13 +27,22 @@
 .soc-form-group > label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
 /* Same reasoning for :not() here — without it this outranked
    .soc-rd-search's border:none (0,1,1) vs (0,1,0)) and drew a visible box
-   around the dropdown panel's search field. */
-.soc-form-group input:not(.soc-rd-chk):not(.soc-rd-search), .soc-form-group select {
+   around the dropdown panel's search field. :not([type=checkbox]) is the
+   same fix generalized: this rule's own specificity, (0,3,1), beat every
+   single checkbox's own narrower styling rule (e.g.
+   .soc-window-toggle input[type=checkbox] at (0,2,1)), so without excluding
+   checkboxes here every checkbox nested anywhere inside a .soc-form-group
+   -- "Select All", the Campaign Sending Count toggle, any future one --
+   got stretched to width:100% and boxed like a text input instead of
+   rendering as a small checkbox. */
+.soc-form-group input:not(.soc-rd-search):not([type=checkbox]),
+.soc-form-group select {
   width: 100%; border: 1.5px solid var(--border); border-radius: var(--radius-sm);
   padding: 9px 12px; font-size: 13.5px; color: var(--ink); background: var(--bg);
   outline: none; box-sizing: border-box; transition: border-color .15s;
 }
-.soc-form-group input:not(.soc-rd-chk):not(.soc-rd-search):focus, .soc-form-group select:focus { border-color: var(--teal); }
+.soc-form-group input:not(.soc-rd-search):not([type=checkbox]):focus,
+.soc-form-group select:focus { border-color: var(--teal); }
 .soc-error { display: none; color: #C94A1D; font-size: 12px; margin: 5px 0 0; }
 .soc-error.show { display: block; }
 .req { color: #C94A1D; }
@@ -410,29 +419,75 @@
 }
 .soc-wait-days:focus, .soc-wait-hours:focus { border-color: var(--teal); }
 
-/* ── Sender rotation weights (Settings step) — one row per currently
-   selected account, only visible once at least one is checked. ────────── */
+/* ── "Select All" row inside the sender combo panel — sits between the
+   search box and the option list. ───────────────────────────────────── */
+.soc-rd-selectall {
+  display: flex; align-items: center; gap: 8px; justify-content: flex-start;
+  padding: 7px 12px; font-size: 12px; font-weight: 600; color: var(--ink-2);
+  border-bottom: 1px solid var(--border); cursor: pointer; margin: 0; white-space: nowrap;
+}
+.soc-rd-selectall-chk {
+  width: 14px !important; height: 14px !important; flex-shrink: 0;
+  padding: 0 !important; border: revert !important; border-radius: 0 !important;
+  box-shadow: none !important; background: revert !important; outline: revert !important;
+  accent-color: var(--teal); cursor: pointer; margin: 0 !important;
+}
+
+/* ── Campaign Sending Count (Settings step) — replaces the removed
+   Weight/Percentage system. One row per currently selected account, only
+   visible once at least one is checked. ─────────────────────────────── */
 /* Explicit display:flex on the bare class beats the native [hidden]{display:
    none} UA rule at equal specificity (same bug class as .soc-recipient-
    estimate/.soc-wizard-panel below) -- without this override the container's
    own padding/border rendered as a visible empty box even while [hidden]. */
-.soc-sender-weights[hidden] { display: none; }
-.soc-sender-weight-hint { margin-top: 0; }
-.soc-sender-weights {
-  display: flex; flex-direction: column; gap: 6px; margin-top: 10px;
+.soc-sender-counts[hidden] { display: none; }
+.soc-sender-counts {
+  display: flex; flex-direction: column; gap: 10px; margin-top: 10px;
   padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--bg-2);
 }
-.soc-sender-weight-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.soc-sender-weight-email { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.soc-sender-weight-field { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
-.soc-sender-weight-field label { font-size: 11.5px; color: var(--ink-3); }
-.soc-sender-weight-input {
+/* Self-contained row (not sharing .soc-window-toggle, unlike Email
+   Tracking/Sending Window's toggles above) — a real pill switch instead of
+   a plain checkbox, and a single compact line of text instead of a
+   title+paragraph, since this one sits inside its own already-bordered
+   .soc-sender-counts box rather than a bare card section. */
+.soc-sender-count-toggle {
+  display: flex; align-items: center; gap: 10px; cursor: pointer; margin: 0;
+}
+.soc-sender-count-toggle-label { font-size: 12.5px; font-weight: 600; color: var(--ink); }
+.soc-sender-count-toggle-range { font-size: 10.5px; font-weight: 400; color: var(--ink-3); }
+
+/* Checkbox re-skinned as a pill switch via appearance:none + a sliding
+   ::before dot — no extra wrapper markup needed. */
+.soc-sender-count-toggle input[type=checkbox] {
+  appearance: none; -webkit-appearance: none; position: relative;
+  width: 32px; height: 18px; flex-shrink: 0; margin: 0;
+  background: var(--border); border-radius: 999px; cursor: pointer;
+  transition: background-color .18s;
+}
+.soc-sender-count-toggle input[type=checkbox]::before {
+  content: ''; position: absolute; top: 2px; left: 2px;
+  width: 14px; height: 14px; background: #fff; border-radius: 50%;
+  transition: left .18s; box-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+.soc-sender-count-toggle input[type=checkbox]:checked { background: var(--teal); }
+.soc-sender-count-toggle input[type=checkbox]:checked::before { left: 16px; }
+.soc-sender-count-toggle input[type=checkbox]:focus-visible {
+  outline: 2px solid var(--teal); outline-offset: 2px;
+}
+.soc-sender-count-rows { display: flex; flex-direction: column; gap: 6px; }
+.soc-sender-count-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.soc-sender-count-email { font-size: 12.5px; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.soc-sender-count-value { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 10.5px; color: var(--ink-3); white-space: nowrap; }
+.soc-sender-count-input {
+  /* padding is set inline in so_campaign.js (renderSenderCounts()) instead
+     of here, so it always wins regardless of any other rule -- not
+     redeclared here to avoid a dead value nobody reads. */
   width: 56px; border: 1.5px solid var(--border); border-radius: 7px;
-  padding: 5px 7px; font-size: 13px; text-align: center; color: var(--ink);
+  font-size: 13px; text-align: center; color: var(--ink);
   background: var(--bg); outline: none;
 }
-.soc-sender-weight-input:focus { border-color: var(--teal); }
+.soc-sender-count-input:focus { border-color: var(--teal); }
 
 .soc-add-step {
   width: 100%; border: 1.5px solid var(--border); border-radius: 10px; background: var(--bg);
@@ -942,6 +997,7 @@
 .soc-info-line i { color: var(--teal); flex-shrink: 0; }
 .soc-info-line--soon { color: var(--ink-3); }
 .soc-info-line--soon i { color: var(--ink-3); }
+.soc-info-line-tip { color: var(--ink-3); }
 
 /* ── Review & Launch summary (Step 5/6) ─────────────────────────────── */
 .soc-review-summary {

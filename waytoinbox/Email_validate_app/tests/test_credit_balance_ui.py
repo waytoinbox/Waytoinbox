@@ -187,8 +187,14 @@ class NavCreditsContextProcessorLogicTests(SimpleTestCase):
         # ordering against a datetime (it would raise, which nav_credits'
         # own try/except would then swallow into an unexpected {}).
         fake_user = MagicMock(id=1, trial_started_at=None, trial_ends_at=None)
+        # can_offer_trial() (nav_trial_eligible) does a real Payment/
+        # SubsPayment query via has_ever_paid() -- mocked out here too, same
+        # as every other credit-manager/ORM call in this SimpleTestCase file,
+        # so nav_credits() never opens a database connection.
         with patch('Email_validate_app.context_processors.get_all_service_balances',
                    return_value=canned) as balances_mock, \
+             patch('Email_validate_app.services.trial_manager.can_offer_trial',
+                   return_value=False), \
              patch('Email_validate_app.models.UserTable.objects') as manager_mock:
             manager_mock.filter.return_value.first.return_value = fake_user
             result = cp.nav_credits(request)

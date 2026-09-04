@@ -17,7 +17,7 @@ from django.utils import timezone
 
 from Email_validate_app.models import (
     Campaign, CurrentCredits, ListFiles, LoginActivity,
-    Payment, SubsPayment, UserTable,
+    Payment, ServiceTrial, SubsPayment, UserTable, SERVICE_KEYS,
 )
 
 logger = logging.getLogger('Email_validate_app.services')
@@ -43,7 +43,18 @@ def _credits_subquery():
 def get_user_list(request_get):
     """Return (page_obj, filter_params) for the user list page."""
     qs = UserTable.objects.annotate(
-        credit_balance=_credits_subquery()
+        credit_balance=_credits_subquery(),
+        # Computed, not stored -- same "gate live off trial_ends_at, no
+        # cached flag" approach the trial system uses everywhere else
+        # (see services/trial_manager.py). Powers the list page's Trial
+        # badge without a second query per row.
+        trial_is_active=models.Case(
+            models.When(
+                trial_started_at__isnull=False, trial_ends_at__gt=timezone.now(),
+                then=models.Value(True),
+            ),
+            default=models.Value(False), output_field=models.BooleanField(),
+        ),
     ).order_by('-created_date')
 
     q = request_get.get('q', '').strip()
@@ -70,6 +81,14 @@ def get_user_list(request_get):
     elif verified_filter == '0':
         qs = qs.filter(is_verified=False)
 
+    trial_filter = request_get.get('trial', '')
+    if trial_filter == 'active':
+        qs = qs.filter(trial_started_at__isnull=False, trial_ends_at__gt=timezone.now())
+    elif trial_filter == 'expired':
+        qs = qs.filter(trial_started_at__isnull=False, trial_ends_at__lte=timezone.now())
+    elif trial_filter == 'none':
+        qs = qs.filter(trial_started_at__isnull=True)
+
     total = qs.count()
 
     try:
@@ -85,6 +104,7 @@ def get_user_list(request_get):
         'status': status_filter,
         'admin': admin_filter,
         'verified': verified_filter,
+        'trial': trial_filter,
     }
     return page_obj, params, total
 
@@ -119,6 +139,31 @@ def get_user_detail(uid):
         .only('id', 'amount', 'currency', 'credits', 'payment_time')
         .order_by('-payment_time')[:5]
     )
+
+    # 7-Day Free Trial — same live trial_ends_at-vs-now() check used
+    # throughout services/trial_manager.py, no stored "active" flag to
+    # drift stale. trial_rows lists all 7 services even for a user who was
+    # never eligible for one of the newer limits, using TRIAL_LIMITS as the
+    # display fallback for a service with no ServiceTrial row yet (there
+    # won't be one at all if this user never activated a trial).
+    from Email_validate_app.services.trial_manager import (
+        TRIAL_LIMITS, SERVICE_LABELS as _TRIAL_SERVICE_LABELS,
+    )
+    trial_active = bool(
+        user.trial_started_at and user.trial_ends_at and user.trial_ends_at > timezone.now())
+    trial_days_left = max(0, (user.trial_ends_at - timezone.now()).days) if trial_active else 0
+    trial_rows = []
+    if user.trial_started_at:
+        usage = {row.service: row for row in ServiceTrial.objects.filter(user_id=user.id)}
+        trial_rows = [
+            {
+                'label': _TRIAL_SERVICE_LABELS[svc],
+                'used':  usage[svc].used  if svc in usage else 0,
+                'limit': usage[svc].limit if svc in usage else TRIAL_LIMITS[svc],
+            }
+            for svc in SERVICE_KEYS
+        ]
+
     return {
         'target_user': user,
         'credits': credits,
@@ -127,6 +172,11 @@ def get_user_detail(uid):
         'recent_validations': recent_validations,
         'recent_campaigns': recent_campaigns,
         'recent_payments': recent_payments,
+        'trial_started_at': user.trial_started_at,
+        'trial_ends_at': user.trial_ends_at,
+        'trial_active': trial_active,
+        'trial_days_left': trial_days_left,
+        'trial_rows': trial_rows,
     }
 
 

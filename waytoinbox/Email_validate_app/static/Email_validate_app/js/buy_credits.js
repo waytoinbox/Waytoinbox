@@ -91,20 +91,21 @@
 
   function cartIsEmpty() { return Object.keys(buildCart()).length === 0; }
 
-  /* Checkout requires every one of the 7 services to be selected, each at
-     or above its own minimum — not just a nonempty subset. Returns one
-     entry per service that still needs attention: { label, needsMore }
-     where needsMore is the target minimum if some (nonzero) quantity has
-     been entered but not enough, or null if nothing has been entered yet.
-     Used both to gate "Get Started" and to name exactly what's missing. */
+  /* Any nonempty subset of the 7 services may be checked out — a service
+     left at 0 is simply not selected, not incomplete (cartIsEmpty() below
+     is what catches "nothing selected at all"). A service the user HAS
+     entered a quantity for must still clear its own existing minimum.
+     Returns one entry per selected-but-under-minimum service: { label,
+     needsMore } where needsMore is the target minimum. Used both to gate
+     "Get Started" and to name exactly what's missing. */
   function incompleteServices() {
     return rows.reduce(function (acc, row) {
       var key    = row.dataset.service;
       var minQty = (config[key] && config[key].min_qty) || MIN_QTY_FALLBACK;
       var qty    = quantities[key] || 0;
-      if (qty >= minQty) { return acc; }
+      if (qty === 0 || qty >= minQty) { return acc; }
       var label = (config[key] && config[key].label) || key;
-      acc.push({ label: label, needsMore: qty > 0 ? minQty : null });
+      acc.push({ label: label, needsMore: minQty });
       return acc;
     }, []);
   }
@@ -145,17 +146,20 @@
 
   function refreshCta() {
     var incomplete = incompleteServices();
-    ctaEl.disabled = incomplete.length > 0 || inFlight;
+    var empty = cartIsEmpty();
+    ctaEl.disabled = empty || incomplete.length > 0 || inFlight;
+    if (empty) {
+      ctaHintEl.textContent = 'Select credits for at least one service to continue.';
+      return;
+    }
     if (incomplete.length === 0) {
       ctaHintEl.textContent = '';
       return;
     }
     var names = incomplete.map(function (s) {
-      return s.needsMore === null
-        ? s.label
-        : s.label + ' (increase to ' + s.needsMore.toLocaleString() + ')';
+      return s.label + ' (increase to ' + s.needsMore.toLocaleString() + ')';
     });
-    ctaHintEl.textContent = 'Select credits for every service to continue — ' + names.join(', ') + '.';
+    ctaHintEl.textContent = 'Increase these to their minimum to continue — ' + names.join(', ') + '.';
   }
 
   /* ── quoting ─────────────────────────────────────────── */
@@ -373,15 +377,15 @@
   /* ── checkout ────────────────────────────────────────── */
 
   /* Creates the order server-side (re-validating everything fresh from the
-     live cart — including that all 7 services are present and each meets
-     its own minimum, which the stepper only clamps client-side as a
+     live cart — at least one service selected, and each selected service
+     meets its own minimum, which the stepper only clamps client-side as a
      convenience), then hands off to the "Confirm your purchase" / "Order
      Summary" popup: openServiceConfirm() / closeServiceConfirm() /
      proceedToServicePay() are defined once in this page's own inline
      script, styled consistently with (but a separate popup from)
      Pay-As-You-Go's own Order Summary modal. A rejected order (e.g. a
-     service still below its minimum, or one not selected at all) never
-     reaches that step — the server's exact message is shown inline
+     selected service still below its minimum, or nothing selected at all)
+     never reaches that step — the server's exact message is shown inline
      instead, and no payment can start. */
   function createOrder() {
     inFlight = true;
@@ -408,8 +412,17 @@
         refreshCta();
 
         if (!r.ok || r.data.status !== 'ok') {
-          notify('error', r.data.message || 'Could not start checkout.');
-          setNote(r.data.message || 'Could not start checkout.', true);
+          // subscription_order() returns this exact string for an
+          // anonymous request (views/credits.py) -- swapped for a message
+          // that actually tells the visitor what to do next, rather than
+          // a generic "Not authenticated." that reads like an error on
+          // their end.
+          var message = r.data.message || 'Could not start checkout.';
+          if (message === 'Not authenticated.') {
+            message = 'Please sign up or log in to purchase credits.';
+          }
+          notify('error', message);
+          setNote(message, true);
           return;
         }
 
@@ -424,7 +437,7 @@
 
   if (ctaEl) {
     ctaEl.addEventListener('click', function () {
-      if (incompleteServices().length > 0 || inFlight) { refreshCta(); return; }
+      if (cartIsEmpty() || incompleteServices().length > 0 || inFlight) { refreshCta(); return; }
       if (lastQuote) { createOrder(); return; }
 
       // Either the user beat the debounce or the last quote failed. Re-quote

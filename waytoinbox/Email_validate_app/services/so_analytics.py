@@ -6,7 +6,7 @@ over the existing SOEvent data.
 
 Nothing in this module writes to SOEvent, SOCampaign, SOCampaignContact, or
 any other send-path model, and nothing in send_next_step / so_send_campaign_task
-/ so_imap.py's reply-bounce-complaint detection / pick_weighted_account /
+/ so_imap.py's reply-bounce-complaint detection / pick_sender_account /
 pick_variant_label imports this module. This is purely a reader built on top
 of what V1-V2.4.8 already record — see the inspection notes below for exactly
 what that data does and does not support.
