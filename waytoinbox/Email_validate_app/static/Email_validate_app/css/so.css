@@ -3,6 +3,13 @@
 /* Page wrapper */
 .so-page {
   /* padding: 24px 28px; */
+  /* Scoped safety net (mirrors body/.dash-main's own overflow-x
+     containment) — catches any Sales Outreach page content that can't
+     compress below its container width (e.g. a busy action row, a
+     two-column layout at a squeezed width) before it reaches a real
+     document-level horizontal scrollbar, most visible when the sidebar
+     is expanded and .dash-main has less width to give. */
+  overflow-x: hidden;
 }
 
 /* Page header row */

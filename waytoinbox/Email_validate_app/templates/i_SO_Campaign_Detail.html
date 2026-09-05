@@ -66,281 +66,238 @@
   </div>
   {% endif %}
 
-  <!-- ── Summary Stats ──────────────────────────────────── -->
-  <div class="socd-summary-grid">
-    <div class="socd-stat recipients">
-      <div class="socd-stat-label">Recipients</div>
-      <div class="socd-stat-value">{{ recipient_count }}</div>
-      <div class="socd-stat-pct">100%</div>
-      <div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:100%"></div></div>
-    </div>
-    <div class="socd-stat sent">
-      <div class="socd-stat-label">Sent</div>
-      <div class="socd-stat-value">{{ campaign.total_sent }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.sent is not None %}{{ stat_pct.sent }}%{% else %}—{% endif %}</div>
-      {% if recipient_count %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_sent recipient_count 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat delivered">
-      <div class="socd-stat-label">Delivered</div>
-      <div class="socd-stat-value">{{ campaign.total_delivered }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.delivered is not None %}{{ stat_pct.delivered }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_delivered campaign.total_sent 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat opened">
-      <div class="socd-stat-label">Opened</div>
-      <div class="socd-stat-value">{{ campaign.total_opened }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.opened is not None %}{{ stat_pct.opened }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_opened campaign.total_delivered 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat clicked">
-      <div class="socd-stat-label">Clicked</div>
-      <div class="socd-stat-value">{{ campaign.total_clicked }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.clicked is not None %}{{ stat_pct.clicked }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_clicked campaign.total_delivered 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat replied">
-      <div class="socd-stat-label">Replied</div>
-      <div class="socd-stat-value">{{ campaign.total_replied }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.replied is not None %}{{ stat_pct.replied }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_replied campaign.total_delivered 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat unsubscribed">
-      <div class="socd-stat-label">Unsubscribed</div>
-      <div class="socd-stat-value">{{ campaign.total_unsubscribed }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.unsubscribed is not None %}{{ stat_pct.unsubscribed }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_delivered %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_unsubscribed campaign.total_delivered 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat bounced">
-      <div class="socd-stat-label">Bounced</div>
-      <div class="socd-stat-value">{{ campaign.total_bounced }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.bounced is not None %}{{ stat_pct.bounced }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_bounced campaign.total_sent 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat complained">
-      <div class="socd-stat-label">Complained</div>
-      <div class="socd-stat-value">{{ campaign.total_complained }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.complained is not None %}{{ stat_pct.complained }}%{% else %}—{% endif %}</div>
-      {% if campaign.total_sent %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_complained campaign.total_sent 100 %}%"></div></div>{% endif %}
-    </div>
-    <div class="socd-stat failed">
-      <div class="socd-stat-label">Failed</div>
-      <div class="socd-stat-value">{{ campaign.total_failed }}</div>
-      <div class="socd-stat-pct">{% if stat_pct.failed is not None %}{{ stat_pct.failed }}%{% else %}—{% endif %}</div>
-      {% if recipient_count %}<div class="socd-stat-bar"><div class="socd-stat-bar-fill" style="width:{% widthratio campaign.total_failed recipient_count 100 %}%"></div></div>{% endif %}
-    </div>
+  <!-- ── Section Tabs ──────────────────────────────────── -->
+  <div class="socd-section-tabs" id="socdSectionTabs">
+    <button class="soa-pill active" data-section="overview" type="button">Overview</button>
+    <button class="soa-pill" data-section="insights" type="button">Performance Insights</button>
+    <button class="soa-pill" data-section="setup" type="button">Campaign Setup</button>
   </div>
 
-  <!-- ── Analytics / Performance (V2.4.9) ──────────────────── -->
-  <div class="soa-section-head">
-    <h2 class="soa-section-title"><i class="fas fa-chart-pie"></i> Analytics &amp; Performance</h2>
-    <div class="soa-filter-bar" id="soaFilterBar">
-      <button class="soa-pill" data-preset="today">Today</button>
-      <button class="soa-pill" data-preset="7d">Last 7 Days</button>
-      <button class="soa-pill" data-preset="30d">Last 30 Days</button>
-      <button class="soa-pill active" data-preset="all">All Time</button>
-      <button class="soa-pill" data-preset="custom">Custom</button>
-      <div class="soa-custom-dates" id="soaCustomDates">
-        <input type="date" id="soaDateFrom" class="soa-date-input"/>
-        <span style="color:var(--ink-3);font-size:12px;">to</span>
-        <input type="date" id="soaDateTo" class="soa-date-input"/>
-        <button class="soa-date-apply" id="soaDateApply">Apply</button>
-      </div>
-    </div>
-  </div>
+  <!-- ══ SECTION 1: Overview — top-line numbers + who did what ══ -->
+  <div class="socd-section visible" id="socdSection-overview">
 
-  <div id="soaRoot">
-    <div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>
-  </div>
-
-  <!-- ── Recipient Events Table ─────────────────────────── -->
-  <div class="so-card">
-
-    <div class="socd-rec-bar">
-      <span class="socd-rec-title"><i class="fas fa-envelope"></i> Recipient Events</span>
-      <span class="socd-rec-count">{{ recipient_rows|length }} Recipient{{ recipient_rows|length|pluralize }}</span>
-    </div>
-
-    {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_search_placeholder="Search email…" pf_show_date=False %}
-
-    {% if recipient_rows %}
-    <div class="so-table-wrap">
-      <table class="socd-ev-table">
-        <thead>
-          <tr>
-            <th class="socd-ev-th-num">#</th>
-            <th class="socd-ev-th-email">Email</th>
-            <th>Sequence Status</th>
-            <th class="socd-ev-th-journey">
-              <div class="socd-ev-legend">
-                <span>Sent</span>
-                <span>Delivery</span>
-                <span>Open</span>
-                <span>Click</span>
-                <span>Reply</span>
-                <span>Bounce</span>
-                <span>Complaint</span>
-                <span>Unsub</span>
-              </div>
-            </th>
-            <th class="socd-ev-th-last">Last Event</th>
-          </tr>
-        </thead>
-        <tbody id="recipientBody">
-          {% for row in recipient_rows %}
-          <tr data-search="{{ row.email }}" data-status="{{ row.last_event|default:'' }}">
-            <td class="socd-ev-td-num">{{ forloop.counter }}</td>
-            <td class="socd-ev-td-email" title="{{ row.email }}">{{ row.email }}</td>
-            <td><span class="so-badge {{ row.cc_status }}">{{ row.cc_status_display }}</span></td>
-            <td class="socd-ev-td-journey">
-              <div class="socd-ev-track">
-                <div class="socd-ev-rail"></div>
-                <span class="socd-ev-node {% if row.sent %}sent{% else %}inactive{% endif %}" title="Sent"></span>
-                <span class="socd-ev-node {% if row.delivered %}delivered{% else %}inactive{% endif %}" title="Delivered"></span>
-                <span class="socd-ev-node {% if row.opened %}opened{% else %}inactive{% endif %}" title="Opened"></span>
-                <span class="socd-ev-node {% if row.clicked %}clicked{% else %}inactive{% endif %}" title="Clicked"></span>
-                <span class="socd-ev-node {% if row.replied %}replied{% else %}inactive{% endif %}" title="Replied"></span>
-                <span class="socd-ev-node {% if row.bounced %}bounced{% else %}inactive{% endif %}" title="Bounced"></span>
-                <span class="socd-ev-node {% if row.complained %}complained{% else %}inactive{% endif %}" title="Complained"></span>
-                <span class="socd-ev-node {% if row.unsubscribed %}unsubscribed{% else %}inactive{% endif %}" title="Unsubscribed"></span>
-              </div>
-            </td>
-            <td class="socd-ev-td-last">
-              {% if row.last_event %}
-              <span class="socd-ev-badge {{ row.last_event }}">
-                {% if row.last_event == 'sent' %}Sent
-                {% elif row.last_event == 'delivered' %}Delivered
-                {% elif row.last_event == 'opened' %}Opened
-                {% elif row.last_event == 'clicked' %}Clicked
-                {% elif row.last_event == 'replied' %}Replied
-                {% elif row.last_event == 'bounced' %}Bounced
-                {% elif row.last_event == 'complained' %}Complained
-                {% elif row.last_event == 'unsubscribed' %}Unsubscribed
-                {% endif %}
-              </span>
-              {% else %}—{% endif %}
-            </td>
-          </tr>
-          {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div class="sose-pagination" id="recipientPagBar">
-      <span class="sose-page-info" id="recipientPagInfo"></span>
-      <div class="sose-page-btns">
-        <button class="sose-page-btn disabled" id="recipientPrevBtn" type="button"><i class="fas fa-chevron-left"></i> Prev</button>
-        <span class="sose-page-current" id="recipientPagNum"></span>
-        <button class="sose-page-btn" id="recipientNextBtn" type="button">Next <i class="fas fa-chevron-right"></i></button>
-      </div>
-    </div>
-    {% else %}
-    <div class="socd-empty">
-      <i class="fas fa-inbox"></i>
-      <p>No recipients enrolled yet.</p>
-    </div>
-    {% endif %}
-  </div>
-
-  <!-- ── Bottom Row: Details + Email Preview ────────────── -->
-  <div class="socd-bottom-row">
-
-    <!-- Campaign Details -->
-    <div class="so-card" style="flex:1;min-width:0;">
-      <div class="socd-card-head"><i class="fas fa-info-circle"></i> Campaign Details</div>
-      <dl class="socd-details-grid">
-        <dt>Campaign Name</dt>
-        <dd>{{ campaign.name }}</dd>
-
-        <dt>Status</dt>
-        <dd>
-          <span class="so-badge {{ campaign.status }}">{{ campaign.get_status_display }}</span>
-          {% if campaign.status == 'sent' and campaign.sent_at %}
-            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.sent_at|date:"M d, Y · H:i" }}</span>
-          {% elif campaign.status == 'scheduled' and campaign.schedule_at %}
-            <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.schedule_at|date:"M d, Y · H:i" }}</span>
-          {% endif %}
-        </dd>
-
-        <dt>Subject</dt>
-        <dd>{{ campaign.subject|default:"—" }}</dd>
-        <dt>Sender Name</dt>
-        <dd>{{ campaign.from_name|default:"—" }}</dd>
-        <dt>Sending Accounts</dt>
-        <dd>
-          {% for r in campaign.account_rotations.all %}{{ r.account.email }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
-        </dd>
-        <dt>Reply-To</dt>
-        <dd>{{ campaign.reply_to|default:"—" }}</dd>
-        <dt>Lists</dt>
-        <dd>
-          {% for l in campaign.recipient_lists.all %}{{ l.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
-        </dd>
-        <dt>Segments</dt>
-        <dd>
-          {% for s in campaign.recipient_segments.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
-        </dd>
-        <dt>Recipients</dt>
-        <dd>{{ recipient_count }}</dd>
-        <dt>Created</dt>
-        <dd>{{ campaign.created_at|date:"M d, Y · H:i" }}</dd>
-      </dl>
-    </div>
-
-    <!-- Email Preview -->
-    <div class="so-card" style="flex:1;min-width:0;">
-      <div class="socd-card-head"><i class="fas fa-envelope-open-text"></i> Email Preview</div>
-      {% if campaign.html_body %}
-        <div class="socd-preview-wrap" id="socd-preview-wrap">
-          <iframe id="socd-preview-frame" sandbox="allow-same-origin" scrolling="no" class="socd-preview-frame"></iframe>
+    <!-- ── Analytics / Performance (V2.4.9) ──────────────────── -->
+    <div class="soa-section-head">
+      <h2 class="soa-section-title"><i class="fas fa-chart-pie"></i> Analytics &amp; Performance</h2>
+      <div class="soa-filter-bar" id="soaFilterBar">
+        <button class="soa-pill" data-preset="today">Today</button>
+        <button class="soa-pill" data-preset="7d">Last 7 Days</button>
+        <button class="soa-pill" data-preset="30d">Last 30 Days</button>
+        <button class="soa-pill active" data-preset="all">All Time</button>
+        <button class="soa-pill" data-preset="custom">Custom</button>
+        <div class="soa-custom-dates" id="soaCustomDates">
+          <input type="date" id="soaDateFrom" class="soa-date-input"/>
+          <span style="color:var(--ink-3);font-size:12px;">to</span>
+          <input type="date" id="soaDateTo" class="soa-date-input"/>
+          <button class="soa-date-apply" id="soaDateApply">Apply</button>
         </div>
-        {{ campaign.html_body|json_script:"socd-html-content" }}
-        <script>
-        (function () {
-          var dataEl = document.getElementById('socd-html-content');
-          var frame  = document.getElementById('socd-preview-frame');
-          var wrap   = document.getElementById('socd-preview-wrap');
-          if (!dataEl || !frame || !wrap) return;
+      </div>
+    </div>
 
-          var html = JSON.parse(dataEl.textContent);
-          frame.srcdoc = html;
+    <div id="soaRoot-overview">
+      <div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>
+    </div>
 
-          var RENDER_W = 600;
+    <!-- ── Recipient Events Table ─────────────────────────── -->
+    <div class="so-card">
 
-          function scaleFrame() {
-            var wrapW = wrap.clientWidth;
-            var scale = wrapW / RENDER_W;
-            frame.style.width = RENDER_W + 'px';
-            frame.style.transform = 'scale(' + scale + ')';
-            frame.style.transformOrigin = 'top left';
-            var renderH = Math.round(frame.scrollHeight || 500);
-            frame.style.height = renderH + 'px';
-            wrap.style.height = Math.round(renderH * scale) + 'px';
-          }
+      <div class="socd-rec-bar">
+        <span class="socd-rec-title"><i class="fas fa-envelope"></i> Recipient Events</span>
+        <span class="socd-rec-count">{{ recipient_rows|length }} Recipient{{ recipient_rows|length|pluralize }}</span>
+      </div>
 
-          frame.addEventListener('load', function () {
-            try {
-              var body = frame.contentDocument.body;
-              var h = body ? body.scrollHeight : 500;
-              frame.style.height = h + 'px';
-              var scale = wrap.clientWidth / RENDER_W;
-              wrap.style.height = Math.round(h * scale) + 'px';
-            } catch(e) {}
-          });
+      {% include "includes/filter_bar.html" with pf_show_status=True pf_statuses=pf_statuses pf_search_placeholder="Search email…" pf_show_date=False %}
 
-          scaleFrame();
-          window.addEventListener('resize', scaleFrame);
-          if (window.ResizeObserver) {
-            new ResizeObserver(scaleFrame).observe(wrap);
-          }
-        })();
-        </script>
+      {% if recipient_rows %}
+      <div class="so-table-wrap">
+        <table class="socd-ev-table">
+          <thead>
+            <tr>
+              <th class="socd-ev-th-num">#</th>
+              <th class="socd-ev-th-email">Email</th>
+              <th>Sequence Status</th>
+              <th class="socd-ev-th-journey">
+                <div class="socd-ev-legend">
+                  <span>Sent</span>
+                  <span>Delivery</span>
+                  <span>Open</span>
+                  <span>Click</span>
+                  <span>Reply</span>
+                  <span>Bounce</span>
+                  <span>Complaint</span>
+                  <span>Unsub</span>
+                </div>
+              </th>
+              <th class="socd-ev-th-last">Last Event</th>
+            </tr>
+          </thead>
+          <tbody id="recipientBody">
+            {% for row in recipient_rows %}
+            <tr data-search="{{ row.email }}" data-status="{{ row.last_event|default:'' }}">
+              <td class="socd-ev-td-num">{{ forloop.counter }}</td>
+              <td class="socd-ev-td-email" title="{{ row.email }}">{{ row.email }}</td>
+              <td><span class="so-badge {{ row.cc_status }}">{{ row.cc_status_display }}</span></td>
+              <td class="socd-ev-td-journey">
+                <div class="socd-ev-track">
+                  <div class="socd-ev-rail"></div>
+                  <span class="socd-ev-node {% if row.sent %}sent{% else %}inactive{% endif %}" title="Sent"></span>
+                  <span class="socd-ev-node {% if row.delivered %}delivered{% else %}inactive{% endif %}" title="Delivered"></span>
+                  <span class="socd-ev-node {% if row.opened %}opened{% else %}inactive{% endif %}" title="Opened"></span>
+                  <span class="socd-ev-node {% if row.clicked %}clicked{% else %}inactive{% endif %}" title="Clicked"></span>
+                  <span class="socd-ev-node {% if row.replied %}replied{% else %}inactive{% endif %}" title="Replied"></span>
+                  <span class="socd-ev-node {% if row.bounced %}bounced{% else %}inactive{% endif %}" title="Bounced"></span>
+                  <span class="socd-ev-node {% if row.complained %}complained{% else %}inactive{% endif %}" title="Complained"></span>
+                  <span class="socd-ev-node {% if row.unsubscribed %}unsubscribed{% else %}inactive{% endif %}" title="Unsubscribed"></span>
+                </div>
+              </td>
+              <td class="socd-ev-td-last">
+                {% if row.last_event %}
+                <span class="socd-ev-badge {{ row.last_event }}">
+                  {% if row.last_event == 'sent' %}Sent
+                  {% elif row.last_event == 'delivered' %}Delivered
+                  {% elif row.last_event == 'opened' %}Opened
+                  {% elif row.last_event == 'clicked' %}Clicked
+                  {% elif row.last_event == 'replied' %}Replied
+                  {% elif row.last_event == 'bounced' %}Bounced
+                  {% elif row.last_event == 'complained' %}Complained
+                  {% elif row.last_event == 'unsubscribed' %}Unsubscribed
+                  {% endif %}
+                </span>
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="sose-pagination" id="recipientPagBar">
+        <span class="sose-page-info" id="recipientPagInfo"></span>
+        <div class="sose-page-btns">
+          <button class="sose-page-btn disabled" id="recipientPrevBtn" type="button"><i class="fas fa-chevron-left"></i> Prev</button>
+          <span class="sose-page-current" id="recipientPagNum"></span>
+          <button class="sose-page-btn" id="recipientNextBtn" type="button">Next <i class="fas fa-chevron-right"></i></button>
+        </div>
+      </div>
       {% else %}
-        <div class="socd-empty" style="padding:40px 24px;">
-          <i class="fas fa-file-alt" style="font-size:32px;"></i>
-          <p style="margin-top:10px;">No content yet for this campaign.</p>
-        </div>
+      <div class="socd-empty">
+        <i class="fas fa-inbox"></i>
+        <p>No recipients enrolled yet.</p>
+      </div>
       {% endif %}
     </div>
 
+  </div>
+
+  <!-- ══ SECTION 2: Performance Insights — optimization-oriented breakdowns ══ -->
+  <div class="socd-section" id="socdSection-insights">
+    <div id="soaRoot-insights">
+      <div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>
+    </div>
+  </div>
+
+  <!-- ══ SECTION 3: Campaign Setup — static reference info ══ -->
+  <div class="socd-section" id="socdSection-setup">
+    <div class="socd-bottom-row">
+
+      <!-- Campaign Details -->
+      <div class="so-card" style="flex:1;min-width:0;">
+        <div class="socd-card-head"><i class="fas fa-info-circle"></i> Campaign Details</div>
+        <dl class="socd-details-grid">
+          <dt>Campaign Name</dt>
+          <dd>{{ campaign.name }}</dd>
+
+          <dt>Status</dt>
+          <dd>
+            <span class="so-badge {{ campaign.status }}">{{ campaign.get_status_display }}</span>
+            {% if campaign.status == 'sent' and campaign.sent_at %}
+              <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.sent_at|date:"M d, Y · H:i" }}</span>
+            {% elif campaign.status == 'scheduled' and campaign.schedule_at %}
+              <span style="font-size:12px;color:var(--ink-3);margin-left:8px;">· {{ campaign.schedule_at|date:"M d, Y · H:i" }}</span>
+            {% endif %}
+          </dd>
+
+          <dt>Subject</dt>
+          <dd>{{ campaign.subject|default:"—" }}</dd>
+          <dt>Sender Name</dt>
+          <dd>{{ campaign.from_name|default:"—" }}</dd>
+          <dt>Sending Accounts</dt>
+          <dd>
+            {% for r in campaign.account_rotations.all %}{{ r.account.email }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+          </dd>
+          <dt>Reply-To</dt>
+          <dd>{{ campaign.reply_to|default:"—" }}</dd>
+          <dt>Lists</dt>
+          <dd>
+            {% for l in campaign.recipient_lists.all %}{{ l.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+          </dd>
+          <dt>Segments</dt>
+          <dd>
+            {% for s in campaign.recipient_segments.all %}{{ s.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
+          </dd>
+          <dt>Recipients</dt>
+          <dd>{{ recipient_count }}</dd>
+          <dt>Created</dt>
+          <dd>{{ campaign.created_at|date:"M d, Y · H:i" }}</dd>
+        </dl>
+      </div>
+
+      <!-- Email Preview -->
+      <div class="so-card" style="flex:1;min-width:0;">
+        <div class="socd-card-head"><i class="fas fa-envelope-open-text"></i> Email Preview</div>
+        {% if campaign.html_body %}
+          <div class="socd-preview-wrap" id="socd-preview-wrap">
+            <iframe id="socd-preview-frame" sandbox="allow-same-origin" scrolling="no" class="socd-preview-frame"></iframe>
+          </div>
+          {{ campaign.html_body|json_script:"socd-html-content" }}
+          <script>
+          (function () {
+            var dataEl = document.getElementById('socd-html-content');
+            var frame  = document.getElementById('socd-preview-frame');
+            var wrap   = document.getElementById('socd-preview-wrap');
+            if (!dataEl || !frame || !wrap) return;
+
+            var html = JSON.parse(dataEl.textContent);
+            frame.srcdoc = html;
+
+            var RENDER_W = 600;
+
+            function scaleFrame() {
+              var wrapW = wrap.clientWidth;
+              var scale = wrapW / RENDER_W;
+              frame.style.width = RENDER_W + 'px';
+              frame.style.transform = 'scale(' + scale + ')';
+              frame.style.transformOrigin = 'top left';
+              var renderH = Math.round(frame.scrollHeight || 500);
+              frame.style.height = renderH + 'px';
+              wrap.style.height = Math.round(renderH * scale) + 'px';
+            }
+
+            frame.addEventListener('load', function () {
+              try {
+                var body = frame.contentDocument.body;
+                var h = body ? body.scrollHeight : 500;
+                frame.style.height = h + 'px';
+                var scale = wrap.clientWidth / RENDER_W;
+                wrap.style.height = Math.round(h * scale) + 'px';
+              } catch(e) {}
+            });
+
+            scaleFrame();
+            window.addEventListener('resize', scaleFrame);
+            if (window.ResizeObserver) {
+              new ResizeObserver(scaleFrame).observe(wrap);
+            }
+          })();
+          </script>
+        {% else %}
+          <div class="socd-empty" style="padding:40px 24px;">
+            <i class="fas fa-file-alt" style="font-size:32px;"></i>
+            <p style="margin-top:10px;">No content yet for this campaign.</p>
+          </div>
+        {% endif %}
+      </div>
+
+    </div>
   </div>
 
 </div>
@@ -468,6 +425,12 @@ function retryCampaign() {
 <script>
 (function () {
   var ANALYTICS_URL = '{% url "so_campaign_analytics_data" campaign.id %}';
+  // Total contacts enrolled in this campaign — a campaign-level count, not
+  // an event count, so unlike every other KPI card it doesn't change with
+  // the date-range filter below. Already computed server-side for this
+  // same page (Campaign Details' "Recipients" row, the Recipient Events
+  // count badge) — reused here rather than re-derived from analytics data.
+  var RECIPIENT_COUNT = {{ recipient_count }};
   var state = { preset: 'all', date_from: '', date_to: '' };
   var charts = {};
 
@@ -488,6 +451,7 @@ function retryCampaign() {
   function renderKpis(d) {
     var t = d.overview.totals, r = d.overview.rates, off = !d.overview.tracking_enabled;
     var html = '<div class="soa-kpi-grid">';
+    html += kpiCard('Recipients', RECIPIENT_COUNT);
     html += kpiCard('Sent', t.sent);
     html += kpiCard('Delivered', t.delivered, null, r.delivery_rate);
     html += kpiCard('Opened', t.opened, t.opened_total_events != null && t.opened_total_events !== t.opened ? (t.opened_total_events + ' total open events') : null, r.open_rate, off);
@@ -521,7 +485,7 @@ function retryCampaign() {
   }
 
   function renderTrendCard() {
-    return '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-chart-line"></i> Sending &amp; Engagement Trend</div><canvas id="soaTrendChart"></canvas></div>';
+    return '<div class="so-card soa-chart-card"><div class="socd-card-head"><i class="fas fa-chart-line"></i> Sending &amp; Engagement Trend</div><div class="soa-chart-canvas-wrap"><canvas id="soaTrendChart"></canvas></div></div>';
   }
 
   function drawTrend(d) {
@@ -564,7 +528,7 @@ function retryCampaign() {
       note += ' ' + d.steps.excluded_branched_contacts + ' contact(s) currently on a subsequence branch are excluded from this table to avoid mixing subsequence and main-sequence step numbers.';
     }
     return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-list-ol"></i> Sequence Step Performance</div>' +
-      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Step</th><th>Subject(s)</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Bounced</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th></tr></thead>' +
+      '<div class="so-table-wrap"><table class="so-table socd-compact-table"><thead><tr><th>Step</th><th>Subject(s)</th><th>Sent</th><th>Delivered</th><th>Opened</th><th>Clicked</th><th>Replied</th><th>Bounced</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="12" class="soa-muted" style="text-align:center;padding:18px;">No steps.</td></tr>') + '</tbody></table></div>' +
       '<p class="soa-note" style="padding:0 20px 14px;">' + note + '</p></div>';
   }
@@ -598,7 +562,7 @@ function retryCampaign() {
     }).join('');
     var unattr = d.senders.unattributed.sent.total;
     return '<div class="so-card"><div class="socd-card-head"><i class="fas fa-at"></i> Sender Account Performance</div>' +
-      '<div class="so-table-wrap"><table class="so-table"><thead><tr><th>Account</th><th>Sent</th><th>Delivered</th><th>Delivery %</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th><th>Complaint %</th><th>Unsub %</th><th></th></tr></thead>' +
+      '<div class="so-table-wrap"><table class="so-table socd-compact-table"><thead><tr><th>Account</th><th>Sent</th><th>Delivered</th><th>Delivery %</th><th>Open %</th><th>Click %</th><th>Reply %</th><th>Bounce %</th><th>Complaint %</th><th>Unsub %</th><th></th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="11" class="soa-muted" style="text-align:center;padding:18px;">No sender data.</td></tr>') + '</tbody></table></div>' +
       (unattr ? '<p class="soa-note" style="padding:0 20px 14px;">' + unattr + ' send(s) have no recorded sender account (legacy data predating V2.3.1 attribution) and are excluded from this table rather than guessed.</p>' : '') +
       '</div>';
@@ -652,8 +616,8 @@ function retryCampaign() {
       '</div>';
 
     var charts = '<div class="soa-chart-grid">' +
-      '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-code-branch"></i> YES vs NO Distribution</div><canvas id="soaBranchYesNoChart"></canvas></div>' +
-      '<div class="so-card soa-chart-card" style="padding:16px 20px;"><div class="socd-card-head" style="padding:0 0 10px;"><i class="fas fa-bolt"></i> Most-Used Conditions</div><canvas id="soaBranchCondChart"></canvas></div>' +
+      '<div class="so-card soa-chart-card"><div class="socd-card-head"><i class="fas fa-code-branch"></i> YES vs NO Distribution</div><div class="soa-chart-canvas-wrap"><canvas id="soaBranchYesNoChart"></canvas></div></div>' +
+      '<div class="so-card soa-chart-card"><div class="socd-card-head"><i class="fas fa-bolt"></i> Most-Used Conditions</div><div class="soa-chart-canvas-wrap"><canvas id="soaBranchCondChart"></canvas></div></div>' +
       '</div>';
 
     var condRows = b.conditions.map(function (c) {
@@ -756,32 +720,47 @@ function retryCampaign() {
       '<div style="padding:14px 20px;"><div class="soa-rec-list">' + (items || '<div class="soa-rec-empty">No recommendations yet.</div>') + '</div></div></div>';
   }
 
+  // Overview = KPIs + funnel + trend (the top-line "what happened" numbers).
+  // Insights = everything used to optimize the next send, not just report
+  // on this one. Both come from the SAME fetch/response — this only
+  // controls which container each piece's HTML lands in.
   function render(d) {
-    var root = document.getElementById('soaRoot');
-    root.innerHTML =
+    var overviewRoot = document.getElementById('soaRoot-overview');
+    overviewRoot.innerHTML =
       renderKpis(d) +
-      '<div class="soa-chart-grid">' + renderFunnel(d) + renderTrendCard() + '</div>' +
+      '<div class="soa-chart-grid">' + renderFunnel(d) + renderTrendCard() + '</div>';
+    drawTrend(d);
+
+    var insightsRoot = document.getElementById('soaRoot-insights');
+    insightsRoot.innerHTML =
       renderStepTable(d) +
       '<div style="height:14px;"></div>' + renderVariantTable(d) +
       '<div style="height:14px;"></div>' + renderSenderTable(d) +
       '<div style="height:14px;"></div>' + renderDayHour(d) +
       '<div style="height:14px;"></div>' + renderBranchingSection(d) +
       '<div style="height:14px;"></div>' + renderRecommendations(d);
-    drawTrend(d);
     drawBranchingCharts(d);
   }
 
   function fetchData() {
-    var root = document.getElementById('soaRoot');
-    root.innerHTML = '<div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>';
+    var overviewRoot = document.getElementById('soaRoot-overview');
+    var insightsRoot = document.getElementById('soaRoot-insights');
+    var loading = '<div class="soa-loading"><i class="fas fa-spinner fa-spin"></i> Loading analytics…</div>';
+    overviewRoot.innerHTML = loading;
+    insightsRoot.innerHTML = loading;
     var qs = new URLSearchParams({ preset: state.preset, date_from: state.date_from, date_to: state.date_to });
     fetch(ANALYTICS_URL + '?' + qs.toString())
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.status !== 'ok') { root.innerHTML = '<div class="soa-rec-empty">Could not load analytics.</div>'; return; }
+        if (d.status !== 'ok') {
+          overviewRoot.innerHTML = insightsRoot.innerHTML = '<div class="soa-rec-empty">Could not load analytics.</div>';
+          return;
+        }
         render(d);
       })
-      .catch(function () { root.innerHTML = '<div class="soa-rec-empty">Network error loading analytics.</div>'; });
+      .catch(function () {
+        overviewRoot.innerHTML = insightsRoot.innerHTML = '<div class="soa-rec-empty">Network error loading analytics.</div>';
+      });
   }
 
   document.getElementById('soaFilterBar').addEventListener('click', function (e) {
@@ -803,6 +782,33 @@ function retryCampaign() {
   });
 
   fetchData();
+
+  // ── Section tabs (Overview / Performance Insights / Campaign Setup) ──────
+  // Charts and the email-preview iframe measure their own container's size
+  // when they're built, which is 0 for a section that's hidden at that
+  // moment (display:none has no box) — so whichever section wasn't visible
+  // yet needs a forced reflow the first time it's shown, not just a class
+  // toggle.
+  document.getElementById('socdSectionTabs').addEventListener('click', function (e) {
+    var btn = e.target.closest('.soa-pill');
+    if (!btn) return;
+    var section = btn.dataset.section;
+    document.querySelectorAll('#socdSectionTabs .soa-pill').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    document.querySelectorAll('.socd-section').forEach(function (s) { s.classList.remove('visible'); });
+    document.getElementById('socdSection-' + section).classList.add('visible');
+
+    if (section === 'insights') {
+      if (charts.branchYesNo) charts.branchYesNo.resize();
+      if (charts.branchCond) charts.branchCond.resize();
+    } else if (section === 'overview') {
+      if (charts.trend) charts.trend.resize();
+    } else if (section === 'setup') {
+      // Re-triggers so_campaign_detail.html's own preview-scaling script,
+      // which already listens for this event — no need to expose it.
+      window.dispatchEvent(new Event('resize'));
+    }
+  });
 })();
 </script>
 {% endblock %}

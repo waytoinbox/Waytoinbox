@@ -84,7 +84,9 @@ class OpenTrackingEndpointTests(_TrackingTestCase):
 
     def test_pixel_hit_creates_opened_event_and_returns_gif(self):
         url = reverse('so_track_pixel', args=[self.pixel.token])
-        response = self.client.get(url)
+        response = self.client.get(
+            url, HTTP_USER_AGENT='Mozilla/5.0 (Macintosh) GmailImageProxy',
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/gif')
@@ -93,20 +95,52 @@ class OpenTrackingEndpointTests(_TrackingTestCase):
         event = SOEvent.objects.get(campaign=self.campaign, event_type='opened')
         self.assertEqual(event.email, self.cc.email)
         self.assertEqual(event.step_order, 1)
+        # Forensic-only metadata — never read by counting/gating logic (see
+        # so_tracking.py comments), but must actually be captured.
+        self.assertEqual(event.metadata.get('user_agent'), 'Mozilla/5.0 (Macintosh) GmailImageProxy')
+        self.assertIn('ip', event.metadata)
 
         self.campaign.refresh_from_db()
         self.assertEqual(self.campaign.total_opened, 1)
+
+    def test_no_open_records_nothing(self):
+        """Sent, but the pixel URL is never requested by anyone — no event,
+        no counter movement. (Step 4's "No open" scenario.)"""
+        self.assertFalse(SOEvent.objects.filter(campaign=self.campaign, event_type='opened').exists())
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_opened, 0)
+
+    def test_multiple_pixel_requests_preserve_existing_total_vs_unique_semantics(self):
+        """Duplicate loads of the SAME pixel (e.g. a recipient reopening the
+        email, or a mail client re-rendering it) must keep behaving exactly
+        as so_analytics.py already documents: every hit is its own raw
+        'opened' row (total), while unique-contact dedup is computed at
+        query time, not at write time. This test does not simulate or claim
+        to fix the sender-Sent-folder case — see
+        SenderSentFolderOpenLimitationTests below for that."""
+        url = reverse('so_track_pixel', args=[self.pixel.token])
+        self.client.get(url)
+        self.client.get(url)
+        self.client.get(url)
+
+        events = SOEvent.objects.filter(campaign=self.campaign, event_type='opened')
+        self.assertEqual(events.count(), 3)
+        self.assertEqual(events.values('email').distinct().count(), 1)
+
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_opened, 3)
 
     def test_legacy_open_endpoint_also_creates_opened_event(self):
         """so_track_open (the older, per-contact-token pixel) must keep
         working unchanged for every already-sent email using it."""
         url = reverse('so_track_open', args=[self.cc.tracking_token])
-        response = self.client.get(url)
+        response = self.client.get(url, HTTP_USER_AGENT='GoogleImageProxy')
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/gif')
         event = SOEvent.objects.get(campaign=self.campaign, event_type='opened')
         self.assertEqual(event.email, self.cc.email)
+        self.assertEqual(event.metadata.get('user_agent'), 'GoogleImageProxy')
 
     def test_unknown_pixel_token_still_returns_a_valid_gif(self):
         """An unresolvable token must not surface an error to the recipient
@@ -117,6 +151,57 @@ class OpenTrackingEndpointTests(_TrackingTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response['Content-Type'], 'image/gif')
         self.assertFalse(SOEvent.objects.filter(campaign=self.campaign, event_type='opened').exists())
+
+
+class SenderSentFolderOpenLimitationTests(_TrackingTestCase):
+    """Documents the investigated, architecture-level open-tracking
+    limitation: a sender viewing their own Gmail/Outlook/Yahoo Sent-folder
+    copy of a sent campaign email fetches the exact same pixel URL a real
+    recipient open would, because the provider auto-saves the identical
+    MIME bytes (pixel included) into Sent — the app never gets to vary that
+    content, and the fetch itself carries no session/identity.
+
+    IMPORTANT (per the investigation's Step 6 rule): a Django test client
+    GET only proves the endpoint records a GET — it cannot model Gmail's
+    actual proxy behavior, image-loading policy, or which mailbox a real
+    human is viewing. These tests deliberately do NOT claim "sender
+    Sent-folder open is fixed" — they instead prove, honestly, that two
+    requests presenting different (attacker/analyst-controllable, therefore
+    unreliable) IP/User-Agent values against the SAME token are still both
+    recorded identically, which is exactly the documented limitation, not a
+    bug introduced by this change. Real confirmation requires a live Gmail
+    E2E test (see the manual test plan) — NOT performed here.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.pixel = SOOpenPixel.objects.create(campaign_contact=self.cc, step_order=1)
+
+    def test_same_token_fetched_with_different_ip_and_ua_both_count(self):
+        url = reverse('so_track_pixel', args=[self.pixel.token])
+
+        # Stand-in for "recipient's inbox view" — an arbitrary IP/UA that
+        # could equally represent a genuine recipient OR (per the
+        # investigation) a Gmail-proxied sender Sent-folder view; the
+        # endpoint has no way to know which, by design of this limitation.
+        self.client.get(url, REMOTE_ADDR='203.0.113.10', HTTP_USER_AGENT='GoogleImageProxy/inbox-view')
+        # Stand-in for "sender's Sent-folder view" — same token, different
+        # IP/UA. If IP/UA were a reliable discriminator this would need to
+        # be treated differently; it is not, and the endpoint correctly (for
+        # this known-unsolved case) makes no attempt to do so.
+        self.client.get(url, REMOTE_ADDR='198.51.100.20', HTTP_USER_AGENT='GoogleImageProxy/sent-view')
+
+        events = SOEvent.objects.filter(campaign=self.campaign, event_type='opened').order_by('id')
+        self.assertEqual(events.count(), 2)
+        self.assertEqual(events[0].metadata.get('ip'), '203.0.113.10')
+        self.assertEqual(events[1].metadata.get('ip'), '198.51.100.20')
+        # Both attributed to the same real recipient/contact/campaign —
+        # correct per SOCampaignContact's own scoping — regardless of who
+        # actually issued either request.
+        self.assertTrue(all(e.email == self.cc.email for e in events))
+
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_opened, 2)
 
 
 class ClickTrackingEndpointTests(_TrackingTestCase):

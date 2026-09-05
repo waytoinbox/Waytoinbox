@@ -117,6 +117,23 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
     open_pixel = SOOpenPixel(campaign_contact=cc, step_order=step_order)
     open_url = f'{site_url}/so/track/pixel/{open_pixel.token}/'
 
+    # Known, architectural limitation (investigated, not yet fully
+    # solvable): this pixel is embedded in the ONE MIME body that gets both
+    # delivered to the recipient AND auto-saved into the sending mailbox's
+    # own Sent folder by the provider (Gmail/Outlook/Yahoo all do this for
+    # authenticated SMTP submission — the app never controls or varies that
+    # Sent-folder content). If the sender later opens that Sent copy in a
+    # webmail client that loads remote images (confirmed for Gmail), it
+    # fetches this exact open_url, and views/so_tracking.py::so_track_pixel
+    # has no reliable way to tell that apart from a genuine recipient open
+    # — there is no session/identity on an anonymous pixel GET, and
+    # providers' own image-loading proxies (e.g. Gmail's) fetch identically
+    # either way. Sending two different bodies (tracked vs untracked) for
+    # one logical send isn't possible through standard SMTP/Gmail-API
+    # submission — both deliver and Sent-save the identical bytes — so this
+    # is not fixed here; see so_tracking.py/so_analytics.py for the
+    # forensic-only (never gating) mitigation that is in place instead.
+
     footer = (
         f'<div style="text-align:center;padding:16px 0 8px;font-size:12px;color:#999;">'
         f'If you no longer wish to receive these emails, '
@@ -135,7 +152,7 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
 
 def build_message(from_name: str, from_email: str, to_email: str,
                   subject: str, html: str, unsub_url: str, msg_id: str,
-                  in_reply_to: str = None, cc_email: str = '') -> MIMEMultipart:
+                  in_reply_to: str = None, cc_email: str = '', reply_to: str = '') -> MIMEMultipart:
     msg = MIMEMultipart('alternative')
     msg['Message-ID']       = msg_id
     msg['From']             = f'{from_name} <{from_email}>' if from_name else from_email
@@ -153,6 +170,12 @@ def build_message(from_name: str, from_email: str, to_email: str,
     if in_reply_to:
         msg['In-Reply-To'] = in_reply_to
         msg['References']  = in_reply_to
+    # Only added when the caller actually configured one (e.g.
+    # SOCampaign.reply_to) — an empty/absent value must never emit a blank
+    # or malformed Reply-To header, and leaving it unset preserves today's
+    # existing behavior (recipient's reply goes back to `from_email`).
+    if reply_to:
+        msg['Reply-To'] = reply_to
     msg.attach(MIMEText(html, 'html', 'utf-8'))
     return msg
 

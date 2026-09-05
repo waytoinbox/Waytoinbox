@@ -27,6 +27,19 @@ what that data does and does not support.
   two types, and — per explicit product decision — uses the unique count
   for every rate calculation (open_rate, click_rate, and anywhere else
   these feed a percentage). See compute_overview.
+
+  IMPORTANT — 'opened' is "the tracking pixel was fetched," not a proven
+  human recipient action, and this module's open-rate numbers inherit that.
+  Investigated limitation: a sender viewing their own Gmail/Outlook/Yahoo
+  Sent-folder copy of a sent campaign email (auto-saved by the provider
+  with the same embedded pixel URL) produces an indistinguishable 'opened'
+  event/row — there is no reliable IP/User-Agent/session signal available
+  at the pixel endpoint to separate that from a genuine recipient open
+  (see views/so_tracking.py and services/so_smtp.py::inject_tracking for
+  the forensic-only metadata this module does not read or rely on). This
+  is a known, architecture-level limitation of pixel-based open tracking,
+  not something this analytics layer can correct after the fact — do not
+  add IP/UA-based filtering here as a "fix" for it.
 - 'replied' / 'bounced' / 'complained' — deduplicated at write time: at most
   one row ever, per (campaign, email, event_type) — see
   services/so_imap.py::_record_once. total == unique for these by

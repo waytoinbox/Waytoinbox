@@ -10,11 +10,12 @@ Integration point: credit_manager.get_effective_balance() and
 deduct_service_credits() call get_trial_remaining() from this module
 internally, so every existing per-service view/deduction call site becomes
 trial-aware automatically with no changes of its own. See credit_manager.py
-for that wiring. so_drip.py separately calls
-sales_outreach_daily_send_cap() for the per-sender-account daily send cap
-during an active trial (a different limit from TRIAL_LIMITS['sales_outreach'],
-which caps how many SENDER ACCOUNTS may be added, not how many emails per
-day an already-added one may send).
+for that wiring. Sales Outreach's real send volume (so_drip.py's
+SOEmailAccountDailyUsage) is NOT narrowed during a trial -- an active trial
+only limits TRIAL_LIMITS['sales_outreach'] below, how many SENDER ACCOUNTS
+may be added, not how many emails per day an already-added one may send;
+a per-day send cap override used to exist here (removed) and is not
+reintroduced.
 
 Anti-abuse: "one trial per verified email, ever" relies entirely on
 UserTable.user_email already being unique=True at the DB level (a duplicate
@@ -45,15 +46,6 @@ TRIAL_LIMITS = {
 }
 assert set(TRIAL_LIMITS) == set(SERVICE_KEYS), \
     "TRIAL_LIMITS must cover every SERVICE_KEYS entry"
-
-# Sales Outreach only: while a user's trial is active, each of their sender
-# accounts is additionally capped at this many emails/day (never higher than
-# the account's own configured daily_limit -- see
-# sales_outreach_daily_send_cap() and so_drip.py::_reserve_quota_slot).
-# Independent of TRIAL_LIMITS['sales_outreach'] above, which caps how many
-# sender accounts may be added during the trial, not how many emails per day
-# an already-added one may send.
-SALES_OUTREACH_TRIAL_DAILY_SEND_CAP = 7
 
 SERVICE_LABELS = dict(SERVICE_CHOICES)
 
@@ -164,28 +156,3 @@ def get_trial_remaining(user_id, service):
         return 0
     row = ServiceTrial.objects.filter(user_id=user_id, service=service).first()
     return max(0, row.limit - row.used) if row else 0
-
-
-def sales_outreach_daily_send_cap(user_id):
-    """Sales Outreach per-account daily send cap override while `user_id`'s
-    trial is active, else None (no override -- caller keeps the account's
-    own configured daily_limit unchanged).
-
-    Cheap, unlocked, values()-only lookup -- same style as
-    get_trial_remaining(). Takes a bare user_id rather than a loaded
-    UserTable so callers can pass account.user_id (a FK id already present
-    on any loaded SOEmailAccount row, no extra join/query) instead of having
-    to select_related('account__user') just to call this.
-
-    Reverting after trial expiry needs no separate code path: this is a
-    live check against trial_ends_at on every call, exactly like
-    get_trial_remaining() -- there is no stored/cached "trial active" flag
-    anywhere in this system to go stale.
-    """
-    window = UserTable.objects.filter(pk=user_id).values(
-        'trial_started_at', 'trial_ends_at').first()
-    if not window or not window['trial_started_at']:
-        return None
-    if not window['trial_ends_at'] or window['trial_ends_at'] <= now():
-        return None
-    return SALES_OUTREACH_TRIAL_DAILY_SEND_CAP

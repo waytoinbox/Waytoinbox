@@ -31,7 +31,7 @@ import uuid
 from datetime import time
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
 from Email_validate_app.models import (
     UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEmailAccount,
@@ -549,3 +549,297 @@ class MultiStepThreadingTests(TestCase):
         _sync(self.account, {b'1': late_reply})
 
         self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
+
+
+@override_settings(ENABLE_EMAIL_TRACKING=True)
+class ReplyToHeaderTests(TestCase):
+    """Outgoing side: SOCampaign.reply_to -> build_message() -> the actual
+    Reply-To MIME header on a real send_next_step() send. Verifies the
+    header appears on the wire (inspecting the raw bytes handed to
+    smtplib.sendmail), not just that build_message() accepts the param."""
+
+    def setUp(self):
+        self.user = make_user('reply_to_header@example.com')
+        self.account = make_account(self.user, 'emailoo2@gmail.com')
+        self.campaign = make_campaign(self.user)
+        self.prospect = SOProspect.objects.create(
+            user_id=self.user.id, email='john@gmail.com', first_name='John', last_name='Doe',
+            status='subscribed',
+        )
+        self.cc = SOCampaignContact.objects.create(
+            campaign=self.campaign, prospect=self.prospect, email=self.prospect.email,
+            account=self.account, status='sending', current_step=1, attempts=0,
+        )
+
+    def _sent_message(self):
+        """Runs send_next_step() for real (SMTP faked), returns the parsed
+        MIME message that was actually handed to sendmail()."""
+        import email as email_pkg
+        mock_server = MagicMock()
+        mock_server.sendmail.return_value = {}
+        with patch('Email_validate_app.services.so_smtp.open_smtp', return_value=mock_server):
+            result = so_drip.send_next_step(self.cc)
+        self.assertTrue(result, 'send_next_step should have succeeded')
+        raw = mock_server.sendmail.call_args[0][2]
+        return email_pkg.message_from_bytes(raw)
+
+    def test_reply_to_header_present_when_campaign_has_one(self):
+        self.campaign.reply_to = 'sales@company.com'
+        self.campaign.save(update_fields=['reply_to'])
+
+        msg = self._sent_message()
+
+        # From includes the display name (send_next_step's from_nm falls
+        # back to account.display_name, which make_account() sets to the
+        # local-part of the email) -- the address itself must still be
+        # exactly account.email.
+        self.assertIn(self.account.email, msg['From'])
+        self.assertEqual(msg['To'], self.cc.email)
+        self.assertEqual(msg['Reply-To'], 'sales@company.com')
+
+    def test_no_reply_to_header_when_campaign_has_none(self):
+        """Scenario A -- regression guard: an empty/blank reply_to (the
+        model default) must never emit a Reply-To header at all."""
+        self.assertEqual(self.campaign.reply_to, '')
+
+        msg = self._sent_message()
+
+        self.assertIsNone(msg['Reply-To'])
+        self.assertIn(self.account.email, msg['From'])
+
+    def test_other_headers_unaffected_by_reply_to(self):
+        """Adding Reply-To must not disturb Message-ID/In-Reply-To/
+        List-Unsubscribe -- set up a second step so In-Reply-To is
+        populated too."""
+        self.campaign.reply_to = 'sales@company.com'
+        self.campaign.save(update_fields=['reply_to'])
+        prior_msg_id = _msgid()
+        self.cc.message_id = prior_msg_id
+        self.cc.save(update_fields=['message_id'])
+
+        msg = self._sent_message()
+
+        self.assertTrue(msg['Message-ID'])
+        self.assertEqual(msg['In-Reply-To'], prior_msg_id)
+        self.assertEqual(msg['References'], prior_msg_id)
+        self.assertTrue(msg['List-Unsubscribe'])
+        self.assertEqual(msg['Reply-To'], 'sales@company.com')
+
+
+class ReplyToMailboxTrackingTests(TestCase):
+    """Incoming side: a reply to a campaign with SOCampaign.reply_to set
+    arrives at that DIFFERENT mailbox (not the account that actually sent
+    the campaign) and must still be matched to the correct
+    SOCampaignContact/campaign/conversation, exactly like the exact
+    scenario from the investigation report:
+      Sending account: emailoo2@gmail.com
+      Reply-To:        sales@company.com
+      Prospect:        john@gmail.com
+    """
+
+    def setUp(self):
+        self.user = make_user('reply_to_mailbox@example.com')
+        self.sender = make_account(self.user, 'emailoo2@gmail.com', sent_folder='Sent1')
+        self.reply_mailbox = make_account(self.user, 'sales@company.com', sent_folder='Sent2')
+        self.campaign = make_campaign(self.user, name='Reply-To Campaign')
+        self.campaign.reply_to = self.reply_mailbox.email
+        self.campaign.save(update_fields=['reply_to'])
+
+    def test_reply_landing_in_the_reply_to_mailbox_is_matched(self):
+        """Scenario B, tier 1a: strong Message-ID match, but the incoming
+        mailbox is NOT the sending account -- it's the campaign's own
+        configured Reply-To mailbox instead."""
+        msg_id = _msgid()
+        cc = make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Sounds great, tell me more!')
+        # Synced from the REPLY-TO mailbox, not the sending account.
+        _sync(self.reply_mailbox, {b'1': reply})
+
+        event = SOEvent.objects.filter(campaign=self.campaign, event_type='replied').first()
+        self.assertIsNotNone(event, 'the reply must be matched even though it arrived at a different mailbox')
+        # _record_once must still attribute the event to the ORIGINAL
+        # sending account/campaign, not the mailbox that happened to sync it.
+        self.assertEqual(event.account_id, self.sender.id)
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_replied, 1)
+
+        # SOCampaignContact resolves correctly too.
+        cc.refresh_from_db()
+        conversation = SOConversation.objects.filter(campaign_contact=cc).first()
+        self.assertIsNotNone(conversation, 'a conversation must be created/updated for the matched contact')
+        self.assertEqual(conversation.campaign_id, self.campaign.id)
+
+    def test_reply_to_an_older_step_via_reply_to_mailbox_still_matches(self):
+        """Scenario B, tier 1b: the SOEvent 'sent' fallback for an older
+        step must ALSO honor the Reply-To mailbox, not just tier 1a."""
+        step1_msg_id = _msgid()
+        step2_msg_id = _msgid()
+        cc = make_sent_contact(self.campaign, self.sender, 'john@gmail.com', step1_msg_id)
+        SOCampaignContact.objects.filter(id=cc.id).update(message_id=step2_msg_id, current_step=2)
+        SOEvent.objects.create(
+            campaign=self.campaign, prospect=cc.prospect, account=self.sender,
+            message_id=step2_msg_id, email=cc.email, event_type='sent',
+            metadata={'step': 2}, step_order=2,
+        )
+
+        late_reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: s',
+            'Message-ID': _msgid(), 'In-Reply-To': step1_msg_id, 'References': step1_msg_id,
+        }, body='Sorry for the late reply to your first email!')
+        _sync(self.reply_mailbox, {b'1': late_reply})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
+
+    def test_reply_at_an_unconfigured_mailbox_is_not_matched(self):
+        """Negative control: a THIRD connected account (not the sender, not
+        the campaign's configured Reply-To) must NOT match, even though it
+        quotes a real Message-ID and belongs to the same user."""
+        other_account = make_account(self.user, 'unrelated@gmail.com', sent_folder='Sent3')
+        msg_id = _msgid()
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': other_account.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='This should not match.')
+        _sync(other_account, {b'1': reply})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 0)
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_replied, 0)
+
+    def test_cross_tenant_reply_to_string_collision_is_not_matched(self):
+        """Security guard: a DIFFERENT user's connected account that happens
+        to share the same email address as this campaign's reply_to string
+        must never be able to claim this campaign's reply -- matching is
+        scoped to campaign.user_id == syncing_account.user_id."""
+        other_user = make_user('other_tenant@example.com')
+        # A different tenant's own account, coincidentally the same address
+        # as self.campaign's configured reply_to.
+        other_users_mailbox = SOEmailAccount.objects.create(
+            user_id=other_user.id, provider='google', display_name='sales',
+            email=self.reply_mailbox.email, smtp_host='smtp.test', smtp_port=587,
+            imap_host='imap.test', imap_port=993, username=self.reply_mailbox.email,
+            password='x', daily_limit=50, status='connected', sent_folder='SentX',
+        )
+        msg_id = _msgid()
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': other_users_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='This must not be attributed to the wrong tenant.')
+        _sync(other_users_mailbox, {b'1': reply})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 0)
+
+    def test_no_reply_to_configured_still_matches_the_sending_account_only(self):
+        """Scenario A, replayed inside this class's setup: with reply_to
+        cleared, behavior must be identical to the pre-existing,
+        same-account-only matching -- no regression from the relaxed
+        query."""
+        self.campaign.reply_to = ''
+        self.campaign.save(update_fields=['reply_to'])
+        msg_id = _msgid()
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        # A reply landing at the (no longer configured) reply_mailbox must
+        # NOT match once reply_to is cleared.
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Should not match once reply_to is cleared.')
+        _sync(self.reply_mailbox, {b'1': reply})
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 0)
+
+        # The SAME reply landing at the actual sending account still works.
+        reply2 = _raw_message({
+            'From': 'john@gmail.com', 'To': self.sender.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Should match at the real sending account.')
+        _sync(self.sender, {b'2': reply2})
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
+
+    def test_syncing_the_same_reply_twice_does_not_duplicate(self):
+        """Idempotency (_record_once): re-syncing the same message must
+        never create a second 'replied' SOEvent or double-increment
+        total_replied."""
+        msg_id = _msgid()
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Interested!')
+
+        _sync(self.reply_mailbox, {b'1': reply})
+        _sync(self.reply_mailbox, {b'1': reply})   # same message, synced again
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_replied, 1)
+
+    def test_weak_fallback_stays_same_account_only_even_with_reply_to_configured(self):
+        """Explicit scope boundary (per design): a headerless message (no
+        In-Reply-To/References at all) landing in the Reply-To mailbox is
+        NOT resolved by the weak, address-only fallback -- that fallback is
+        deliberately left same-account-only. Only the strong,
+        Message-ID-backed tiers understand the Reply-To mailbox."""
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', _msgid())
+
+        headerless_reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(),
+            # No In-Reply-To / References at all.
+        }, body='Replying from a client that drops threading headers.')
+        _sync(self.reply_mailbox, {b'1': headerless_reply})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 0)
+
+    def test_matching_is_provider_agnostic(self):
+        """_mailbox_is_valid_for_reply() never reads provider/smtp_host/
+        imap_host -- only .id/.user_id/.email -- so a Reply-To mailbox on a
+        DIFFERENT provider than the sender must match exactly the same way.
+        Rebuilds sender/reply-to as realistic cross-provider accounts
+        (Gmail sender, Microsoft 365 Reply-To) rather than relying on the
+        generic smtp.test/imap.test values make_account() otherwise uses
+        for every account in this file."""
+        cross_provider_user = make_user('cross_provider@example.com')
+        gmail_sender = SOEmailAccount.objects.create(
+            user_id=cross_provider_user.id, provider='google', display_name='Sales (Gmail)',
+            email='emailoo2@gmail.com', smtp_host='smtp.gmail.com', smtp_port=587,
+            imap_host='imap.gmail.com', imap_port=993, username='emailoo2@gmail.com',
+            password='x', daily_limit=50, status='connected', sent_folder='[Gmail]/Sent Mail',
+        )
+        m365_reply_to = SOEmailAccount.objects.create(
+            user_id=cross_provider_user.id, provider='microsoft', display_name='Sales (M365)',
+            email='sales@company.com', smtp_host='smtp.office365.com', smtp_port=587,
+            imap_host='outlook.office365.com', imap_port=993, username='sales@company.com',
+            password='x', daily_limit=50, status='connected', sent_folder='Sent Items',
+        )
+        campaign = make_campaign(cross_provider_user, name='Cross-Provider Campaign')
+        campaign.reply_to = m365_reply_to.email
+        campaign.save(update_fields=['reply_to'])
+
+        # Prospect on a third provider (Yahoo) -- irrelevant to matching
+        # (the prospect has no SOEmailAccount at all), included only to
+        # mirror the real-world scenario end to end.
+        msg_id = _msgid()
+        make_sent_contact(campaign, gmail_sender, 'prospect@yahoo.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'prospect@yahoo.com', 'To': m365_reply_to.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Replying from Yahoo to your Microsoft 365 Reply-To address.')
+        _sync(m365_reply_to, {b'1': reply})
+
+        event = SOEvent.objects.filter(campaign=campaign, event_type='replied').first()
+        self.assertIsNotNone(event, 'a Gmail sender / Microsoft 365 Reply-To / Yahoo prospect '
+                                     'combination must match exactly like same-provider accounts do')
+        self.assertEqual(event.account_id, gmail_sender.id)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_replied, 1)

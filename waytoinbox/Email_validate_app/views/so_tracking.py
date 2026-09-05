@@ -40,7 +40,20 @@ def so_track_open(request, token):
             message_id=cc.message_id,
             email=cc.email,
             event_type='opened',
-            metadata={'ip': request.META.get('REMOTE_ADDR', '')},
+            # user_agent is captured alongside ip for manual/forensic
+            # investigation only — see the module-level note above
+            # SOOpenPixel-adjacent code in services/so_smtp.py and
+            # so_analytics.py's event-semantics doc for why neither field is
+            # (or safely can be) used to gate/suppress an open event: a
+            # provider's own image-loading proxy (confirmed for Gmail, whose
+            # Sent-folder auto-save means the sender's own later view of
+            # their Sent copy fetches this exact same pixel URL) fetches
+            # identically regardless of who is actually viewing the message,
+            # so there is no reliable signal here to filter on.
+            metadata={
+                'ip': request.META.get('REMOTE_ADDR', ''),
+                'user_agent': request.META.get('HTTP_USER_AGENT', ''),
+            },
         )
         SOCampaign.objects.filter(id=cc.campaign_id).update(total_opened=F('total_opened') + 1)
     except Exception:
@@ -85,7 +98,16 @@ def so_track_pixel(request, token):
             message_id=cc.message_id,
             email=cc.email,
             event_type='opened',
-            metadata={'ip': request.META.get('REMOTE_ADDR', '')},
+            # See so_track_open's matching comment above: user_agent is
+            # forensic-only, never a gate. Known, unresolved-by-design
+            # limitation — a sender viewing their own Gmail Sent-folder copy
+            # of this exact email (auto-saved by Gmail's SMTP relay with the
+            # same pixel URL) is indistinguishable at this endpoint from the
+            # real recipient opening it; see investigation notes.
+            metadata={
+                'ip': request.META.get('REMOTE_ADDR', ''),
+                'user_agent': request.META.get('HTTP_USER_AGENT', ''),
+            },
             # V3.6 — exact, not inferred: this SOOpenPixel row was created
             # fresh for this one send, so its own step_order is definitively
             # the step whose email contained this exact pixel, regardless of

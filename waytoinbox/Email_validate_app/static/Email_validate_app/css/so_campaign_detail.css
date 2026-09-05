@@ -22,7 +22,7 @@
 .socd-breadcrumb a:hover { color: var(--teal-dk); }
 .socd-breadcrumb .sep { color: var(--border); }
 .socd-breadcrumb .cur { color: var(--ink-2); font-weight: 600; }
-.socd-breadcrumb-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.socd-breadcrumb-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; flex-wrap: wrap; }
 
 /* ── LIVE SENDING PROGRESS (SO-specific — EM has no equivalent, since EM
    campaigns are single-shot, not a multi-day drip sequence) ──────────── */
@@ -73,6 +73,26 @@
 .socd-stat.complained  .socd-stat-bar-fill { background: #EA580C; }
 .socd-stat.failed      .socd-stat-value    { color: var(--ink-3); }
 .socd-stat.failed      .socd-stat-bar-fill { background: var(--ink-3); }
+
+/* ── COMPACT TABLE MODIFIER — Sequence Step Performance / Sender Account
+   Performance only (many numeric/percent columns; .so-table's normal
+   padding+font-size is generous enough that these two tables routinely
+   need .so-table-wrap's horizontal scrollbar once the sidebar is expanded
+   and narrows the content area). Scoped to this class, not .so-table
+   itself, so every other table sharing .so-table across the app is
+   unaffected. Tightens spacing/size only — never truncates or wraps a
+   cell's own text, so nothing is hidden, it just needs less room. ────── */
+.socd-compact-table.so-table { font-size: 12.5px; }
+.socd-compact-table.so-table thead th { padding: 8px 8px; font-size: 10px; letter-spacing: .03em; }
+.socd-compact-table.so-table td { padding: 7px 8px; }
+
+/* ── SECTION TABS (Overview / Performance Insights / Campaign Setup) ─────
+   Buttons reuse .soa-pill (so_analytics.css) for a consistent look with the
+   date-range filter pills already on this page. Same show/hide convention
+   as i_profile.html's .tab-section/.tab-section.visible. ────────────────── */
+.socd-section-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+.socd-section { display: none; }
+.socd-section.visible { display: block; }
 
 /* ── CARD HEAD, matching .cd-card-head — for the bottom-row Details/Preview
    cards (the Recipient Events card uses .socd-rec-bar instead, since it also
@@ -185,12 +205,12 @@
 .socd-details-grid dd:last-of-type { border-bottom: none; }
 
 /* ── BOTTOM ROW ────────────────────────────────────────────────────────── */
-.socd-bottom-row { display: flex; gap: 20px; align-items: flex-start; }
+.socd-bottom-row { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; }
 @media (max-width: 720px) { .socd-bottom-row { flex-direction: column; } }
 
 /* ── EMAIL PREVIEW (SO's step-1/variant-A content, in place of EM's single
    template — .cd-tpl-preview's iframe-scaling equivalent) ───────────────── */
-.socd-preview-wrap  { width: 100%; overflow: hidden; border-top: 1px solid var(--border); background: var(--bg-2); }
+.socd-preview-wrap  {     padding: 5px 20px; width: 100%; overflow: hidden; border-top: 1px solid var(--border); background: var(--bg-2); }
 .socd-preview-frame { display: block; border: none; pointer-events: none; }
 
 /* ══════════════════════════════════════════════════════
@@ -200,3 +220,4 @@
 [data-theme="dark"] .socd-ev-badge.clicked      { background: rgba(108,75,201,.2); color: #C4ADFF; border-color: rgba(108,75,201,.3); }
 [data-theme="dark"] .socd-ev-badge.bounced      { background: rgba(201,74,29,.18);  color: #FF8060; border-color: rgba(201,74,29,.3); }
 [data-theme="dark"] .socd-ev-badge.complained   { background: rgba(200,150,0,.16);  color: #FFB83F; border-color: rgba(200,150,0,.28); }
+[data-theme="dark"] .socd-ev-badge.unsubscribed { background: rgba(124,58,237,.2);  color: #C9A8FF; border-color: rgba(124,58,237,.3); }

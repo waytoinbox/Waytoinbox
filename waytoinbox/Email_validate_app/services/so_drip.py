@@ -266,9 +266,10 @@ def _next_utc_midnight():
 
 def _reserve_quota_slot(campaign, account):
     """Atomically claim one of `account`'s remaining sends for today, capped
-    at min(account.daily_limit, 7) while the account's owning user has an
-    active free trial -- a trial only ever narrows the cap, never widens it
-    past the account's own configured capacity.
+    at the account's own configured daily_limit -- a free trial no longer
+    narrows this (see services/trial_manager.py's own note on the removed
+    sales_outreach_daily_send_cap: an active trial now only limits the
+    OTHER per-service credit pools, not Sales Outreach's real send volume).
 
     Same conditional-UPDATE claim pattern already used to claim due contacts
     (so_dispatch_due_sequence_steps) — the WHERE clause is evaluated against the
@@ -288,17 +289,14 @@ def _reserve_quota_slot(campaign, account):
 
     Returns (claimed, effective_limit) — effective_limit lets the caller log
     what cap was actually enforced (account-level, or this campaign's own
-    daily_send_count if that's what blocked the claim), which matters when a
-    trial is deferring sends well below the account's own daily_limit.
+    daily_send_count if that's what blocked the claim).
     """
     from Email_validate_app.models import (
         SOCampaignAccountDailyUsage, SOEmailAccountDailyUsage, SOEmailAccountRotation,
     )
-    from Email_validate_app.services.trial_manager import sales_outreach_daily_send_cap
 
     today = now().date()
-    trial_cap = sales_outreach_daily_send_cap(account.user_id)
-    effective_limit = min(account.daily_limit, trial_cap) if trial_cap is not None else account.daily_limit
+    effective_limit = account.daily_limit
 
     SOEmailAccountDailyUsage.objects.get_or_create(account=account, date=today, defaults={'sent_count': 0})
     updated = SOEmailAccountDailyUsage.objects.filter(
@@ -547,7 +545,8 @@ def send_next_step(cc):
             # step happens to be most recent.
             msg = build_message(from_nm, account.email, cc.email,
                                 variant.subject, personalized_html, unsub_url, msg_id,
-                                in_reply_to=cc.message_id or None)
+                                in_reply_to=cc.message_id or None,
+                                reply_to=campaign.reply_to or '')
             refused = server.sendmail(account.email, cc.email, msg.as_bytes())
             if refused and cc.email in refused:
                 raise smtplib.SMTPRecipientsRefused(refused)

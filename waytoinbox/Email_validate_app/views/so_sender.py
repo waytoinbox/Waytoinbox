@@ -1820,6 +1820,7 @@ def so_test_send(request):
             msg = build_message(
                 from_name, account.email, to_email, f'[TEST] {personalized_subject}',
                 personalized_html, '', f'<test-{now().timestamp()}@{account.smtp_host}>',
+                reply_to=campaign.reply_to or '',
             )
             server.sendmail(account.email, to_email, msg.as_bytes())
             sent += 1

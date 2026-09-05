@@ -63,8 +63,21 @@
 .soa-funnel-bar { height: 100%; background: linear-gradient(90deg, var(--teal), #0EA5E9); border-radius: 6px; transition: width .3s; }
 .soa-funnel-value { font-size: 12.5px; color: var(--ink); text-align: right; font-weight: 700; }
 
-/* Charts */
-.soa-chart-card { height: 280px; position: relative; }
+/* Charts
+   .socd-card-head (dashboard.css/so_campaign_detail.css) is flush against
+   the card's own edges everywhere else on this page — this card used to
+   put padding on the outer .so-card itself, which inset the header's
+   background band away from the card's rounded corners instead, making it
+   look like a separate floating rectangle. Header now stays flush; only
+   the canvas gets its own padded, height-bounded wrapper below it.
+   That wrapper is also what fixes a real clipping bug: Chart.js sizes the
+   canvas to fill its OWN immediate parent's height, and with no such
+   wrapper the canvas was sized against the whole 280px card (header
+   included), so the header's own height pushed the chart — and its
+   bottom legend — past the card's fixed height, and .so-card's
+   overflow:hidden clipped it off. */
+.soa-chart-card { height: 280px; display: flex; flex-direction: column; }
+.soa-chart-canvas-wrap { flex: 1; min-height: 0; position: relative; padding: 12px 20px 20px; }
 .soa-chart-grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-bottom: 18px; }
 
 /* Recommendations */

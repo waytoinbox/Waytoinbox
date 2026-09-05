@@ -29,9 +29,8 @@ from Email_validate_app.services.credit_manager import (
     InsufficientCredits, deduct_service_credits, get_effective_balance,
 )
 from Email_validate_app.services.trial_manager import (
-    TRIAL_LIMITS, SALES_OUTREACH_TRIAL_DAILY_SEND_CAP, activate_trial,
-    can_offer_trial, get_trial_remaining, has_ever_paid, is_trial_active,
-    is_trial_eligible, sales_outreach_daily_send_cap,
+    TRIAL_LIMITS, activate_trial, can_offer_trial, get_trial_remaining,
+    has_ever_paid, is_trial_active, is_trial_eligible,
 )
 from Email_validate_app.tasks.scheduler_job import (
     subscription_expiry_job, trial_expiry_notification_job,
@@ -129,28 +128,6 @@ class ActivateTrialTests(TestCase):
         self.assertEqual(rows['reputation'], 2)
         self.assertEqual(rows['ip_blocklist'], 5)
         self.assertEqual(rows['domain_blocklist'], 5)
-
-
-class SalesOutreachDailySendCapTests(TestCase):
-    """trial_manager.sales_outreach_daily_send_cap() -- the per-sender-
-    account daily send override during an active trial. See
-    test_so_drip_send.py for the so_drip.py integration."""
-
-    def test_no_trial_returns_none(self):
-        user = make_user('so_cap_none@example.com')
-        self.assertIsNone(sales_outreach_daily_send_cap(user.id))
-
-    def test_active_trial_returns_seven(self):
-        user = make_user('so_cap_active@example.com')
-        activate_trial(user)
-        self.assertEqual(sales_outreach_daily_send_cap(user.id), SALES_OUTREACH_TRIAL_DAILY_SEND_CAP)
-        self.assertEqual(sales_outreach_daily_send_cap(user.id), 7)
-
-    def test_expired_trial_returns_none(self):
-        user = make_user('so_cap_expired@example.com')
-        activate_trial(user)
-        _backdate_trial(user)
-        self.assertIsNone(sales_outreach_daily_send_cap(user.id))
 
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
