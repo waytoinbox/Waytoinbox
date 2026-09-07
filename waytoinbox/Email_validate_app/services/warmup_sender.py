@@ -3,10 +3,14 @@ Warmup email sending — pure reuse of the existing SO SMTP infrastructure
 (services/so_smtp.py), no new SMTP code. This module only builds warmup-
 specific content and interprets send outcomes.
 
-No content-authoring UI in v1 — subject/body come from a small built-in
-template set with the WarmupMessage.identifier embedded in the subject
-(the receiver-side Gmail search key). A sequence-variant-style editor is a
-clean future addition if wanted.
+Subject/body come from a small built-in template set with the
+WarmupMessage.identifier embedded in the subject (the receiver-side Gmail
+search key) — unless the sending account has saved its own custom content
+via Edit Settings' Warmup tab (SOEmailAccountWarmup.warmup_subject/
+warmup_body), in which case that's used instead. Both fields blank (the
+default for every account created before this existed) means "use the
+built-in templates," so nothing changes for an account that never sets
+custom content.
 """
 
 import uuid
@@ -43,13 +47,25 @@ _TEMPLATES = [
 ]
 
 
-def build_warmup_content(identifier: str) -> tuple[str, str]:
+def build_warmup_content(identifier: str, account=None) -> tuple[str, str]:
     """Returns (subject, html_body). The identifier is embedded in the
     subject so the receiver-side Gmail search (q=subject:"...") can find
-    this exact message reliably — see warmup_receiver.py::find_warmup_message."""
-    template = _TEMPLATES[hash(identifier) % len(_TEMPLATES)]
-    subject = f"{template['subject']} — {identifier}"
-    return subject, template['body']
+    this exact message reliably — see warmup_receiver.py::find_warmup_message.
+
+    account's own warmup_subject/warmup_body (SOEmailAccountWarmup) are
+    used only when BOTH are set — matching edit_warmup_content's own
+    validation, which never persists one without the other — otherwise
+    this falls back to the built-in _TEMPLATES rotation exactly as before
+    this parameter existed."""
+    warmup = getattr(account, 'warmup', None) if account is not None else None
+    if warmup and warmup.warmup_subject and warmup.warmup_body:
+        subject_base, body = warmup.warmup_subject, warmup.warmup_body
+    else:
+        template = _TEMPLATES[hash(identifier) % len(_TEMPLATES)]
+        subject_base, body = template['subject'], template['body']
+
+    subject = f"{subject_base} — {identifier}"
+    return subject, body
 
 
 def send_warmup_email(message) -> None:
@@ -65,7 +81,7 @@ def send_warmup_email(message) -> None:
     if account is None:
         raise ValueError('WarmupMessage has no sender_account (deleted?) — cannot send.')
 
-    subject, html_body = build_warmup_content(message.identifier)
+    subject, html_body = build_warmup_content(message.identifier, account)
     msg_id = f'<{uuid.uuid4()}@{account.smtp_host}>'
 
     mime_msg = build_message(

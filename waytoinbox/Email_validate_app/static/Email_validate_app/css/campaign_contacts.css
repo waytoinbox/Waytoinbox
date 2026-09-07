@@ -142,7 +142,7 @@
 /* ── CONSENT BOX ─────────────────────────────────────── */
 .cc-consent-box {
   background: var(--bg-2); border: 1.5px solid var(--border);
-  border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 16px;
+  border-radius: var(--radius-sm); padding: 14px 16px; margin-bottom: 16px; margin-top: 16px;
 }
 .cc-consent-box label { display: flex; gap: 10px; align-items: flex-start; cursor: pointer; }
 .cc-consent-box input[type="checkbox"] { width: 16px; height: 16px; margin-top: 2px; flex-shrink: 0; accent-color: var(--teal); }

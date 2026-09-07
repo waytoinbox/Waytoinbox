@@ -16,6 +16,20 @@
   display: flex; align-items: center; gap: 8px; margin: 0;
 }
 
+/* .socd-card-head is used (via JS-built HTML strings) for every .so-card's
+   header on this page too — Campaign Comparison, Sender Account
+   Performance, Optimization Insights — but this page never loads
+   so_campaign_detail.css, where that class is actually defined, so those
+   headers were rendering completely unstyled (plain icon, no background
+   bar, no border, default padding). Duplicated here rather than adding a
+   whole extra stylesheet just for one rule. */
+.socd-card-head {
+  padding: 16px 22px; border-bottom: 1px solid var(--border);
+  font-family: var(--font-head); font-size: 14px; font-weight: 700; color: var(--ink);
+  display: flex; align-items: center; gap: 8px; background: var(--bg-2);
+}
+.socd-card-head i { color: var(--teal); font-size: 14px; }
+
 /* Filter pills */
 .soa-filter-bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .soa-pill {
@@ -97,6 +111,18 @@
 .soa-sortable { cursor: pointer; user-select: none; }
 .soa-sortable:hover { color: var(--teal); }
 .soa-sortable .fa-sort, .soa-sortable .fa-sort-up, .soa-sortable .fa-sort-down { margin-left: 4px; font-size: 10px; }
+
+/* Campaign Comparison / Sender Account Performance (the only two tables
+   using .soa-table-scroll) — every column but the first is a count or a
+   percentage, and .so-table's shared left-align (meant for ordinary text
+   tables) makes a column of numbers hard to scan/compare at a glance.
+   Right-align everything except the leading label column, and keep digits
+   the same width so they actually line up between rows. */
+.soa-table-scroll .so-table th:not(:first-child),
+.soa-table-scroll .so-table td:not(:first-child) {
+  text-align: right;
+}
+.soa-table-scroll .so-table td { font-variant-numeric: tabular-nums; }
 
 .soa-muted { color: var(--ink-3); }
 .soa-loading { text-align: center; padding: 30px; color: var(--ink-3); font-size: 13px; }

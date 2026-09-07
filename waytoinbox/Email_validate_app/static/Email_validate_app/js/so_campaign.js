@@ -931,6 +931,7 @@ var SOCampaignPage = (function () {
     $('socSubSubject').addEventListener('input', function () {
       var v = curSubVariant(); if (v) v.subject = this.value;
       markDirty();
+      subScheduleScore();
     });
     $('socSubPreheader').addEventListener('input', function () {
       var v = curSubVariant(); if (v) { v.preheader = this.value; }
@@ -1097,6 +1098,47 @@ var SOCampaignPage = (function () {
     toggleSubSource(true);
   }
 
+  /* ── content score: shared modal renderer ────────────────────────────────
+     Both the Sequence and Subsequence editors reuse this ONE function to
+     populate the ONE shared #socScoreModal DOM (they were already sharing
+     that DOM; this just stops the two editors from duplicating the
+     rendering logic that fills it). Groups scoreData.reasons by
+     scoreData.categories (added alongside the original flat 'reasons',
+     which callers that still want a flat list can keep reading). */
+  var SCORE_CATEGORY_ORDER = ['Subject', 'Content', 'Links', 'Personalization', 'HTML', 'Compliance'];
+
+  function renderScoreModal(scoreData) {
+    var summary = $('socScoreSummary');
+    summary.textContent = 'Score ' + scoreData.score + ' — ' + scoreData.label + '. Lower is better.';
+    summary.className = 'soc-score-summary ' + scoreData.label.toLowerCase();
+
+    var cats = scoreData.categories;
+    var html;
+    if (cats) {
+      html = SCORE_CATEGORY_ORDER.map(function (cat) {
+        var findings = cats[cat] || [];
+        var rows = findings.length
+          ? findings.map(function (f) {
+              var ico = f.severity === 'warn' ? 'fa-exclamation-triangle warn' : 'fa-info-circle info';
+              return '<div class="soc-reason"><i class="fas ' + ico + '"></i><span>' + esc(f.text) + '</span></div>';
+            }).join('')
+          : '<div class="soc-reason"><i class="fas fa-check-circle ok"></i><span>No issues</span></div>';
+        return '<div class="soc-score-category">' +
+          '<div class="soc-score-category-title">' + esc(cat) + '</div>' + rows + '</div>';
+      }).join('');
+    } else {
+      // Defensive fallback only -- the backend always sends `categories`
+      // alongside `reasons` as of this same change; kept in case a caller
+      // ever passes a bare pre-Phase-5 shaped object.
+      html = (scoreData.reasons || []).map(function (r) {
+        var ico = r.severity === 'warn' ? 'fa-exclamation-triangle warn' : 'fa-info-circle info';
+        return '<div class="soc-reason"><i class="fas ' + ico + '"></i><span>' + esc(r.text) + '</span></div>';
+      }).join('');
+    }
+    $('socScoreReasons').innerHTML = html;
+    $('socScoreModal').classList.add('open');
+  }
+
   /* ── subsequence content score ───────────────────────────────────────── */
   var subLastScore = null;
   function subScheduleScore() {
@@ -1107,23 +1149,35 @@ var SOCampaignPage = (function () {
     var v = curSubVariant();
     if (!v) return;
     commitSubEditor();
+    var pill = $('socSubScorePill');
+    pill.textContent = 'Scoring…';
+    pill.className = 'soc-score-pill loading';
     fetch(CFG.scoreUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CFG.csrf },
-      body: JSON.stringify({ subject: v.subject, html_body: v.html })
+      body: JSON.stringify({ subject: v.subject, html_body: v.html, preheader: v.preheader || '' })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.status !== 'ok') return;
+        if (d.status !== 'ok') {
+          pill.textContent = '—';
+          pill.className = 'soc-score-pill error';
+          pill.title = 'Could not update the score.';
+          return;
+        }
         subLastScore = d;
-        var pill = $('socSubScorePill');
         pill.textContent = d.label;
         pill.className = 'soc-score-pill ' + d.label.toLowerCase();
+        pill.title = '';
         // Same first-click-opens-once-ready fix as the main editor's
         // runScore()/showScoreModal() -- see that pair's own comment.
         if (openModalWhenDone) subShowScoreModal();
       })
-      .catch(function () { /* score is advisory */ });
+      .catch(function () {
+        pill.textContent = '—';
+        pill.className = 'soc-score-pill error';
+        pill.title = 'Could not update the score — network error.';
+      });
   }
   function subShowScoreModal() {
     if (!subLastScore) { subRunScore(true); return; }
@@ -1131,13 +1185,7 @@ var SOCampaignPage = (function () {
     // safe because only one wizard step (Sequence vs Subsequence) is ever
     // visible/interactive at a time, so the two can never need the modal
     // simultaneously.
-    $('socScoreSummary').textContent =
-      'Score ' + subLastScore.score + ' — ' + subLastScore.label + '. Lower is better.';
-    $('socScoreReasons').innerHTML = subLastScore.reasons.map(function (r) {
-      var ico = r.severity === 'warn' ? 'fa-exclamation-triangle warn' : 'fa-info-circle info';
-      return '<div class="soc-reason"><i class="fas ' + ico + '"></i><span>' + esc(r.text) + '</span></div>';
-    }).join('');
-    $('socScoreModal').classList.add('open');
+    renderScoreModal(subLastScore);
   }
 
   /* ── editor ──────────────────────────────────────────────────────────── */
@@ -1266,18 +1314,26 @@ var SOCampaignPage = (function () {
     var v = curVariant();
     if (!v) return;
     commitEditor();
+    var pill = $('socScorePill');
+    pill.textContent = 'Scoring…';
+    pill.className = 'soc-score-pill loading';
     fetch(CFG.scoreUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CFG.csrf },
-      body: JSON.stringify({ subject: v.subject, html_body: v.html })
+      body: JSON.stringify({ subject: v.subject, html_body: v.html, preheader: v.preheader || '' })
     })
       .then(function (r) { return r.json(); })
       .then(function (d) {
-        if (d.status !== 'ok') return;
+        if (d.status !== 'ok') {
+          pill.textContent = '—';
+          pill.className = 'soc-score-pill error';
+          pill.title = 'Could not update the score.';
+          return;
+        }
         lastScore = d;
-        var pill = $('socScorePill');
         pill.textContent = d.label;
         pill.className = 'soc-score-pill ' + d.label.toLowerCase();
+        pill.title = '';
         // Forensic-audit fix — showScoreModal()'s own first-click case (no
         // score yet) triggers this fetch and used to just return, leaving
         // the modal never opened once the score arrived. Re-entering
@@ -1288,17 +1344,15 @@ var SOCampaignPage = (function () {
         // updating the pill, never popping the modal unprompted.
         if (openModalWhenDone) showScoreModal();
       })
-      .catch(function () { /* score is advisory */ });
+      .catch(function () {
+        pill.textContent = '—';
+        pill.className = 'soc-score-pill error';
+        pill.title = 'Could not update the score — network error.';
+      });
   }
   function showScoreModal() {
     if (!lastScore) { runScore(true); return; }
-    $('socScoreSummary').textContent =
-      'Score ' + lastScore.score + ' — ' + lastScore.label + '. Lower is better.';
-    $('socScoreReasons').innerHTML = lastScore.reasons.map(function (r) {
-      var ico = r.severity === 'warn' ? 'fa-exclamation-triangle warn' : 'fa-info-circle info';
-      return '<div class="soc-reason"><i class="fas ' + ico + '"></i><span>' + esc(r.text) + '</span></div>';
-    }).join('');
-    $('socScoreModal').classList.add('open');
+    renderScoreModal(lastScore);
   }
 
   /* ── recipient combobox ──────────────────────────────────────────────── */

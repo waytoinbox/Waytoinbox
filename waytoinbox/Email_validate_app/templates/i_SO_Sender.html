@@ -79,13 +79,15 @@
             <td>{{ c.recipient_count }}</td>
             <td>{{ c.total_sent }}</td>
             <td>
-              {% if c.total_sent > 0 %}
-                {{ c.total_opened }} <small class="sose-rate">({% widthratio c.total_opened c.total_sent 100 %}%)</small>
+              {% if not c.tracking_enabled %}—
+              {% elif c.total_delivered > 0 %}
+                {{ c.unique_opened_count }} <small class="sose-rate">({% widthratio c.unique_opened_count c.total_delivered 100 %}%)</small>
               {% else %}—{% endif %}
             </td>
             <td>
-              {% if c.total_sent > 0 %}
-                {{ c.total_clicked }} <small class="sose-rate">({% widthratio c.total_clicked c.total_sent 100 %}%)</small>
+              {% if not c.tracking_enabled %}—
+              {% elif c.total_delivered > 0 %}
+                {{ c.unique_clicked_count }} <small class="sose-rate">({% widthratio c.unique_clicked_count c.total_delivered 100 %}%)</small>
               {% else %}—{% endif %}
             </td>
             <td>{{ c.total_replied }}</td>

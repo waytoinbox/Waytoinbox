@@ -15,7 +15,7 @@ from .templates import template_builder, use_library_template, save_user_templat
 from . import segments
 from .email_accounts import email_accounts, add_email_account, email_accounts_action
 from .so_email_accounts import (
-    so_email_accounts, so_add_email_account, so_email_account_action, so_edit_email_account,
+    so_email_accounts, so_add_email_account, so_email_account_action,
 )
 from .so_prospects import so_prospects, so_prospects_action, so_prospects_import, so_prospects_parse_file
 from .so_lists import (

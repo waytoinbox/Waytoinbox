@@ -99,6 +99,34 @@ def so_campaigns(request):
     total     = qs.count()
     paginator = Paginator(qs, page_size)
     page_obj  = paginator.get_page(request.GET.get('page', 1))
+
+    # Unique-contact Opened/Clicked counts for just this page's campaigns —
+    # matches so_analytics.py::compute_overview's own definition (distinct
+    # contacts, not raw event rows) so this list no longer shows different
+    # numbers than the campaign detail page for the same campaign. Computed
+    # as its own query rather than folded into `qs`'s existing annotations:
+    # `qs` already annotates Count('campaign_contacts', ...) twice, and
+    # adding Count over a second, unrelated reverse relation (`events`) in
+    # the same query would cross-join both relations and silently corrupt
+    # those existing counts. campaign.total_sent/total_delivered are exempt
+    # from this same unique-vs-total ambiguity by construction (exactly one
+    # 'sent'/'delivered' event per real send — see so_analytics.py's own
+    # docstring), so they're used as-is, unchanged.
+    from Email_validate_app.models import SOEvent
+    page_campaign_ids = [c.id for c in page_obj]
+    engagement_counts = {cid: {'opened': 0, 'clicked': 0} for cid in page_campaign_ids}
+    if page_campaign_ids:
+        rows = (
+            SOEvent.objects.filter(campaign_id__in=page_campaign_ids, event_type__in=('opened', 'clicked'))
+                            .values('campaign_id', 'event_type')
+                            .annotate(unique=Count('email', distinct=True))
+        )
+        for row in rows:
+            engagement_counts[row['campaign_id']][row['event_type']] = row['unique']
+    for c in page_obj:
+        c.unique_opened_count  = engagement_counts[c.id]['opened']
+        c.unique_clicked_count = engagement_counts[c.id]['clicked']
+
     return render(request, 'i_SO_Sender.html', {
         'page_obj': page_obj, 'search': search, 'status_filter': status, 'total': total,
         'date_from': date_from, 'date_to': date_to,
@@ -1616,17 +1644,46 @@ def so_estimate_recipients(request):
 
 # ── Content score ──────────────────────────────────────────────────────────────
 
+_SCORE_RATE_MAX    = 60   # requests
+_SCORE_RATE_WINDOW = 60   # seconds — generous for 1.5s-debounced typing across tabs/users behind one IP/NAT
+
+# Mirrors so_html.py::sanitize_email_html's own cap — same ballpark
+# precedent already established in this codebase for "a body too large to
+# reasonably process," applied here to the (unpersisted, advisory-only)
+# scoring path too.
+_SCORE_MAX_SUBJECT_LEN = 500       # matches SOSequenceVariant.subject's own max_length
+_SCORE_MAX_BODY_LEN    = 500_000
+
+
 @require_POST
 def so_content_score(request):
     r = _auth_json(request)
     if r:
         return r
+
+    from Email_validate_app.views.auth import _get_client_ip, _rate_check, _rate_increment
+    ip = _get_client_ip(request)
+    if _rate_check(ip, 'so_content_score', _SCORE_RATE_MAX):
+        return JsonResponse({'status': 'error', 'message': 'Too many requests. Please slow down.'}, status=429)
+    _rate_increment(ip, 'so_content_score', _SCORE_RATE_WINDOW)
+
     from Email_validate_app.services.so_content_score import score_email
     try:
         data = json.loads(request.body)
     except (ValueError, TypeError):
         return JsonResponse({'status': 'error', 'message': 'Invalid request body.'}, status=400)
-    result = score_email(data.get('subject', ''), data.get('html_body', ''))
+    if not isinstance(data, dict):
+        return JsonResponse({'status': 'error', 'message': 'Invalid request body.'}, status=400)
+
+    subject   = data.get('subject', '')
+    html_body = data.get('html_body', '')
+    preheader = data.get('preheader', '')
+    if not all(isinstance(v, str) for v in (subject, html_body, preheader)):
+        return JsonResponse({'status': 'error', 'message': 'subject/html_body/preheader must be strings.'}, status=400)
+    if len(subject) > _SCORE_MAX_SUBJECT_LEN or len(html_body) > _SCORE_MAX_BODY_LEN:
+        return JsonResponse({'status': 'error', 'message': 'Subject or body exceeds the maximum allowed length.'}, status=400)
+
+    result = score_email(subject, html_body, preheader)
     return JsonResponse({'status': 'ok', **result})
 
 

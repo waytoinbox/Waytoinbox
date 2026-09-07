@@ -80,6 +80,8 @@ def so_email_accounts(request):
         .values_list('account_id', 'n')
     )
 
+    from Email_validate_app.services.warmup import compute_account_warmup_analytics
+
     for acc in accounts:
         acc.today_sent = usage_map.get(acc.id, 0)
         pct = round(acc.today_sent / acc.daily_limit * 100) if acc.daily_limit else 0
@@ -93,6 +95,11 @@ def so_email_accounts(request):
         acc.campaigns_count = campaigns_map.get(acc.id, 0)
         acc.replies_7d      = replies_map.get(acc.id, 0)
         acc.prospects_7d    = prospects_map.get(acc.id, 0)
+        # Drives the Edit Settings side panel's Warmup tab, embedded per-row
+        # on this same page (no separate Edit page anymore) — None when
+        # never enrolled, same "not started" contract as everywhere else
+        # this function is already used.
+        acc.warmup_analytics = compute_account_warmup_analytics(acc)
 
     return render(request, 'i_SO_Email_Accounts.html', {'accounts': accounts})
 
@@ -102,25 +109,6 @@ def so_add_email_account(request):
     if r:
         return r
     return render(request, 'i_SO_Add_Email_Account.html')
-
-
-def so_edit_email_account(request, id):
-    """Standalone Edit Email Account page (V4.8) — replaces the former
-    in-page Edit modal. Renders the account's current details for editing;
-    Save Changes posts to the existing so_email_account_action's `edit`
-    action (unchanged), so no backend edit logic was duplicated here."""
-    r = _auth(request)
-    if r:
-        return r
-    from Email_validate_app.models import SOEmailAccount
-    user_id = get_user_id(request)
-    try:
-        acc = SOEmailAccount.objects.select_related('warmup').get(
-            id=id, user_id=user_id, deleted_at__isnull=True,
-        )
-    except SOEmailAccount.DoesNotExist:
-        return redirect(reverse('so_email_accounts'))
-    return render(request, 'i_SO_Edit_Email_Account.html', {'acc': acc})
 
 
 def so_email_account_action(request):
@@ -366,6 +354,68 @@ def so_email_account_action(request):
             'status': 'ok',
             'account': {'id': acc.id, 'display_name': acc.display_name, 'daily_limit': acc.daily_limit},
             'warmup': warmup_result,
+        })
+
+    # ── Edit Warmup Content (Edit Settings' Warmup tab) ────────────────────
+    # Deliberately its own action, independent of 'edit' above — the
+    # Warmup tab's save button never touches display_name/daily_limit, and
+    # the Accounts tab's save never touches warmup content. Only
+    # warmup_subject/warmup_body are ever written here; ramp/target/
+    # increment/status remain exclusively owned by the Start Warmup /
+    # services/warmup.py flow. Content can be edited whether or not Warmup
+    # has ever been started (see the get_or_create below) — this action
+    # itself never starts, schedules, or configures warmup.
+    if action == 'edit_warmup_content':
+        from Email_validate_app.models import SOEmailAccountWarmup
+        acc_id = data.get('id')
+        try:
+            acc = SOEmailAccount.objects.select_related('warmup').get(
+                id=acc_id, user_id=user_id, deleted_at__isnull=True,
+            )
+        except SOEmailAccount.DoesNotExist:
+            return JsonResponse({'status': 'error', 'message': 'Account not found.'})
+
+        subject = (data.get('warmup_subject') or '').strip()
+        body    = (data.get('warmup_body') or '').strip()
+
+        errors = {}
+        if len(subject) > 500:
+            errors['warmup_subject'] = 'Subject cannot exceed 500 characters.'
+        # Blank+blank ("revert to the built-in templates") is valid; one set
+        # without the other is not — build_warmup_content() only switches to
+        # custom content when BOTH are present, so a lone value would be
+        # silently ignored, which is worse than telling the user why.
+        if subject and not body:
+            errors['warmup_body'] = 'Body is required when a custom subject is set.'
+        elif body and not subject:
+            errors['warmup_subject'] = 'Subject is required when a custom body is set.'
+
+        if errors:
+            return JsonResponse({'status': 'error', 'errors': errors})
+
+        # Content can be configured before Warmup is ever started — get_or_
+        # create rather than requiring an existing row. defaults explicitly
+        # pins status='stopped', overriding SOEmailAccountWarmup.status's
+        # own model default ('active'): without this override a fresh row
+        # would misleadingly read "Active" and enter warmup_dispatch_sends()'s
+        # status='active' query for an account that never asked to run
+        # (get_todays_target() would still return 0 since started_at stays
+        # unset, so nothing would actually send either way, but a content
+        # save must not even cosmetically look like it started warmup).
+        # If a row already exists (any status, from either flow), it's
+        # reused unchanged — this never touches status/started_at/
+        # daily_target/ramp_up_days/ramp_up_increment, only content.
+        warmup, _created = SOEmailAccountWarmup.objects.get_or_create(
+            account=acc, defaults={'status': 'stopped'},
+        )
+        warmup.warmup_subject = subject
+        warmup.warmup_body    = body
+        warmup.save(update_fields=['warmup_subject', 'warmup_body'])
+
+        return JsonResponse({
+            'status': 'ok',
+            'warmup_subject': warmup.warmup_subject,
+            'warmup_body': warmup.warmup_body,
         })
 
     return JsonResponse({'status': 'error', 'message': 'Unknown action.'})

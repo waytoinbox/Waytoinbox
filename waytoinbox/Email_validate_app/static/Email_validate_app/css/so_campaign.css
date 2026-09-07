@@ -823,6 +823,22 @@
 .soc-score-pill.good { background: #FCD34D; color: #7A5A00; }
 .soc-score-pill.fair { background: #FDBA74; color: #7C2D12; }
 .soc-score-pill.poor { background: #FCA5A5; color: #7F1D1D; }
+.soc-score-pill.loading { opacity: .7; }
+.soc-score-pill.error { border: 1px dashed var(--ink-3); cursor: help; }
+
+/* Content score modal summary line -- same color mapping as the pill
+   (.soc-score-pill.good/.fair/.poor above), just text-color-only since
+   this is a full sentence, not a badge. */
+.soc-score-summary { font-size: 13px; font-weight: 600; margin-bottom: 4px; color: var(--ink-2); }
+.soc-score-summary.good { color: #92730A; }
+.soc-score-summary.fair { color: #C2410C; }
+.soc-score-summary.poor { color: #B91C1C; }
+/* Dark mode: the light-mode shades above are tuned for a white modal
+   background and read as too dark/muddy on a dark one -- same brighter-tint
+   values already used elsewhere in this file (.soc-notice/.soc-test-result). */
+[data-theme="dark"] .soc-score-summary.good { color: #E8C978; }
+[data-theme="dark"] .soc-score-summary.fair { color: #FDBA74; }
+[data-theme="dark"] .soc-score-summary.poor { color: #fca5a5; }
 .soc-score-details { background: none; border: none; color: var(--teal); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap; }
 .soc-score-details:hover { text-decoration: underline; }
 
@@ -926,6 +942,22 @@
 .soc-reason:last-child { border-bottom: none; }
 .soc-reason i.warn { color: #C94A1D; }
 .soc-reason i.info { color: var(--ink-3); }
+.soc-reason i.ok   { color: var(--teal); }
+
+/* Score-details modal — findings grouped by category (Subject/Content/
+   Links/Personalization/HTML/Compliance). Stacks inside the modal's own
+   existing .soc-scroll-y-320 scroll area -- no new scroll container, so
+   this doesn't add any extra top-to-bottom scrolling beyond what the
+   modal already had. */
+.soc-score-category { margin-bottom: 4px; }
+.soc-score-category:last-child { margin-bottom: 0; }
+.soc-score-category-title {
+  font-family: var(--font-head); font-size: 11px; font-weight: 800; color: var(--ink-3);
+  text-transform: uppercase; letter-spacing: .05em; padding: 12px 0 4px;
+}
+.soc-score-category:first-child .soc-score-category-title { padding-top: 0; }
+.soc-score-category .soc-reason:last-child { border-bottom: 1px solid var(--border); }
+.soc-score-category:last-child .soc-reason:last-child { border-bottom: none; }
 
 /* ── Send option cards (ported from create_campaign.css) ─────────── */
 .soc-send-option-group { display: flex; gap: 10px; margin-top: 8px; }
@@ -1080,7 +1112,15 @@
 .soc-tool-btn.mono { font-family: monospace; font-weight: 700; }
 .soc-tool-btn.ab { font-weight: 700; font-size: 12px; }
 .soc-modal-wide-520 { max-width: 520px; }
-.soc-scroll-y-320 { max-height: 320px; overflow-y: auto; }
+.soc-scroll-y-320 {
+  max-height: 320px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.soc-scroll-y-320::-webkit-scrollbar { width: 8px; }
+.soc-scroll-y-320::-webkit-scrollbar-track { background: transparent; }
+.soc-scroll-y-320::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.soc-scroll-y-320::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+.soc-scroll-y-320::-webkit-scrollbar-button { display: none; }
 .soc-link-teal { color: var(--teal); }
 
 /* JS-toggled visibility uses the native [hidden] attribute (see so_inbox.js's

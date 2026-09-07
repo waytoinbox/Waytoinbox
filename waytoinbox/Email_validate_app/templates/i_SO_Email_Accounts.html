@@ -4,6 +4,9 @@
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/so.css' %}"/>
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/filters.css' %}"/>
 <link rel="stylesheet" href="{% static 'Email_validate_app/css/so_email_accounts.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_add_email_account.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/so_edit_email_account.css' %}"/>
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/quill.snow.css' %}"/>
 {% endblock %}
 {% block content %}
 <div class="so-page">
@@ -154,8 +157,8 @@
                 <div class="soea-row-menu-wrap">
                   <button type="button" class="so-icon-btn soea-row-menu-trigger" title="More actions"><i class="fas fa-ellipsis-v"></i></button>
                   <div class="soea-row-menu" hidden>
-                    <a href="{% url 'so_edit_email_account' acc.id %}" hidden><i class="fas fa-pen"></i> Edit Account</a>
-                    <hr hidden/>
+                    <a href="#" onclick="openEditPanel({{ acc.id }}); return false;"><i class="fas fa-pen"></i> Edit Settings</a>
+                    <hr/>
                     {% if acc.warmup and acc.warmup.status == 'active' %}
                       <button type="button" onclick="warmupAction('pause', {{ acc.id }})"><i class="fas fa-pause"></i> Pause Warmup</button>
                       <button type="button" class="soea-menu-danger" onclick="warmupAction('stop', {{ acc.id }})"><i class="fas fa-stop"></i> Stop Warmup</button>
@@ -290,13 +293,256 @@
   </div>
 </div>
 
+<!-- Edit Settings side panel — slides in from the right, half the viewport
+     wide. One hidden content block per account (at most 2), so opening a
+     different account's panel just swaps which block is visible; no
+     separate page/navigation involved. -->
+<div class="soea-panel-overlay" id="editPanelOverlay"></div>
+<div class="soea-edit-panel" id="editPanel">
+  <div class="soea-edit-panel-head">
+    <div>
+      <p class="aw-panel-title">Edit Email Account</p>
+      <p class="aw-panel-sub soee-email-sub" id="editPanelEmail"></p>
+    </div>
+    <button type="button" class="soea-edit-panel-close" id="editPanelClose" title="Close"><i class="fas fa-xmark"></i></button>
+  </div>
+  <div class="soea-edit-panel-body">
+    {% for acc in accounts %}
+    <div class="soee-edit-content" id="soeeEditContent-{{ acc.id }}" data-email="{{ acc.email }}" hidden>
+
+      <div class="soee-tabs" data-account="{{ acc.id }}">
+        <button type="button" class="soee-tab active" data-tab="accounts">Accounts</button>
+        <button type="button" class="soee-tab" data-tab="warmup">Warmup</button>
+      </div>
+
+      <!-- ═══ ACCOUNTS TAB ═══ -->
+      <div class="soee-tab-panel visible" id="soeeTabPanel-accounts-{{ acc.id }}">
+        <div class="soee-section-title">Account Details</div>
+        <div class="so-field">
+          <label>Display Name</label>
+          <input type="text" id="eeaDisplay-{{ acc.id }}" value="{{ acc.display_name }}" placeholder="e.g. Sales Team" maxlength="200"/>
+        </div>
+        <div class="so-field">
+          <label>Email Address</label>
+          <input type="text" value="{{ acc.email }}" disabled/>
+        </div>
+        <div class="so-field">
+          <label>Provider</label>
+          <input type="text" value="{{ acc.get_provider_display }}" disabled/>
+        </div>
+        <div class="so-field">
+          <label>Connection Status</label>
+          <p class="soee-status-row"><span class="so-badge {{ acc.status }}">{{ acc.get_status_display }}</span></p>
+        </div>
+
+        <div class="soee-section-title">Sending Settings</div>
+        <div class="so-field">
+          <label>Daily Sending Limit</label>
+          <input type="number" id="eeaDailyLimit-{{ acc.id }}" min="1" max="120" step="1" value="{{ acc.daily_limit }}"/>
+          <p class="soee-hint"><i class="fas fa-info-circle"></i> Up to 120 emails per day.</p>
+        </div>
+
+        <p class="aw-err" id="eeaErr-{{ acc.id }}" hidden></p>
+        <div class="aw-actions">
+          <button class="aw-btn-next" onclick="saveEditPanel({{ acc.id }})">
+            <i class="fas fa-save"></i> Save Changes
+          </button>
+        </div>
+      </div>
+
+      <!-- ═══ WARMUP TAB ═══ -->
+      <div class="soee-tab-panel" id="soeeTabPanel-warmup-{{ acc.id }}">
+        <div class="soee-section-title">Warmup Status</div>
+        {% if acc.warmup.started_at %}
+          <div class="soee-warmup-status-grid">
+            <div class="soee-warmup-stat">
+              <span class="soee-warmup-stat-label">Status</span>
+              <span class="so-badge {{ acc.warmup_analytics.status }}">{{ acc.warmup_analytics.status_display }}</span>
+            </div>
+            <div class="soee-warmup-stat">
+              <span class="soee-warmup-stat-label">Daily Target</span>
+              <span class="soee-warmup-stat-value">{{ acc.warmup_analytics.daily_target }}/day</span>
+            </div>
+            <div class="soee-warmup-stat">
+              <span class="soee-warmup-stat-label">Today's Target</span>
+              <span class="soee-warmup-stat-value">{{ acc.warmup_analytics.todays_target }}</span>
+            </div>
+            <div class="soee-warmup-stat">
+              <span class="soee-warmup-stat-label">Sent Today</span>
+              <span class="soee-warmup-stat-value">{{ acc.warmup_analytics.today.sent }}</span>
+            </div>
+            <div class="soee-warmup-stat">
+              <span class="soee-warmup-stat-label">Inbox Placement</span>
+              <span class="soee-warmup-stat-value">{% if acc.warmup_analytics.placement_pct.inbox is not None %}{{ acc.warmup_analytics.placement_pct.inbox }}%{% else %}—{% endif %}</span>
+            </div>
+          </div>
+
+          <div class="soee-ramp-progress">
+            <div class="soee-ramp-progress-label">
+              <span>Ramp-up progress</span>
+              <span>{{ acc.warmup_analytics.todays_target }} / {{ acc.warmup_analytics.daily_target }}</span>
+            </div>
+            <div class="soee-ramp-progress-bar">
+              <div class="soee-ramp-progress-fill" style="width:{% widthratio acc.warmup_analytics.todays_target acc.warmup_analytics.daily_target 100 %}%;"></div>
+            </div>
+          </div>
+          <p class="soee-hint"><i class="fas fa-info-circle"></i> Daily Target, Ramp-up Days, and Daily Increment are managed from the Start Warmup flow — not editable here.</p>
+        {% else %}
+          <p class="soee-status-row"><span class="so-badge stopped">Warmup has not been started</span></p>
+          <p class="soee-hint"><i class="fas fa-info-circle"></i> Start warmup from the row's ⋮ menu when you're ready — you can configure the email content below first.</p>
+        {% endif %}
+
+        <div class="soee-section-title">Warmup Email Content</div>
+        <div class="so-field">
+          <label>Subject</label>
+          <input type="text" id="eeaWarmupSubject-{{ acc.id }}" value="{{ acc.warmup.warmup_subject|default:'' }}" placeholder="Leave blank to use the built-in templates" maxlength="500"/>
+        </div>
+        <div class="so-field">
+          <label>Body</label>
+          <div id="eeaWarmupBodyEditor-{{ acc.id }}" class="soee-quill-editor"></div>
+        </div>
+        <p class="soee-hint"><i class="fas fa-info-circle"></i> Leave both Subject and Body blank to keep using the built-in rotating templates.</p>
+
+        {% with acc_id_str=acc.id|stringformat:"s" %}{% with body_data_id="eeaWarmupBodyData-"|add:acc_id_str %}{{ acc.warmup.warmup_body|default:''|json_script:body_data_id }}{% endwith %}{% endwith %}
+
+        <p class="aw-err" id="eeaWarmupErr-{{ acc.id }}" hidden></p>
+        <p class="soee-save-ok" id="eeaWarmupOk-{{ acc.id }}" hidden><i class="fas fa-check-circle"></i> Saved.</p>
+        <div class="aw-actions">
+          <button class="aw-btn-next" onclick="saveWarmupContentPanel({{ acc.id }})">
+            <i class="fas fa-save"></i> Save Warmup Content
+          </button>
+        </div>
+      </div>
+
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
 <script src="{% static 'Email_validate_app/js/pf_filters.js' %}"></script>
+<script src="{% static 'Email_validate_app/js/quill.min.js' %}"></script>
 <script>
 var CSRF       = '{{ csrf_token }}';
 var ACTION_URL = '{% url "so_email_account_action" %}';
 var WARMUP_ACTION_URL = '{% url "warmup_sender_action" %}';
 var _editId = null, _delEmail = null, _delId = null, _delRow = null;
 var _warmupStartId = null;
+
+/* ── Edit Settings side panel — one hidden content block per account
+   already in the DOM (see the template loop above); opening just swaps
+   which block is visible and slides the panel in. No page navigation. ── */
+var _editPanelQuills = {};   // account id -> Quill instance, created lazily on first open
+
+function openEditPanel(accountId) {
+  document.querySelectorAll('.soee-edit-content').forEach(function (el) { el.hidden = true; });
+  var content = document.getElementById('soeeEditContent-' + accountId);
+  if (!content) return;
+  content.hidden = false;
+  document.getElementById('editPanelEmail').textContent = content.dataset.email || '';
+
+  document.getElementById('editPanelOverlay').classList.add('open');
+  document.getElementById('editPanel').classList.add('open');
+
+  // Quill needs a visible (non display:none) container to size itself
+  // correctly at creation time — content.hidden was just cleared above,
+  // so it's safe to create it now, once per account, on first open.
+  if (!_editPanelQuills[accountId] && typeof Quill !== 'undefined') {
+    var editorEl = document.getElementById('eeaWarmupBodyEditor-' + accountId);
+    if (editorEl) {
+      var quill = new Quill('#eeaWarmupBodyEditor-' + accountId, {
+        theme: 'snow',
+        modules: {
+          toolbar: [['bold', 'italic', 'underline'], [{ list: 'ordered' }, { list: 'bullet' }], ['link'], ['clean']],
+        },
+      });
+      var dataEl = document.getElementById('eeaWarmupBodyData-' + accountId);
+      var initialHtml = dataEl ? JSON.parse(dataEl.textContent) : '';
+      if (initialHtml) quill.clipboard.dangerouslyPasteHTML(initialHtml);
+      _editPanelQuills[accountId] = quill;
+    }
+  }
+}
+
+function closeEditPanel() {
+  document.getElementById('editPanelOverlay').classList.remove('open');
+  document.getElementById('editPanel').classList.remove('open');
+}
+document.getElementById('editPanelClose').addEventListener('click', closeEditPanel);
+document.getElementById('editPanelOverlay').addEventListener('click', closeEditPanel);
+
+/* Tabs — each account's block has its own data-account-scoped trigger row,
+   so the listener resolves which account's panels to toggle from the
+   clicked button's own container rather than a page-global id. */
+document.querySelectorAll('.soee-tabs').forEach(function (tabs) {
+  var accountId = tabs.dataset.account;
+  tabs.addEventListener('click', function (e) {
+    var btn = e.target.closest('.soee-tab');
+    if (!btn) return;
+    var tab = btn.dataset.tab;
+    tabs.querySelectorAll('.soee-tab').forEach(function (b) { b.classList.remove('active'); });
+    btn.classList.add('active');
+    var content = tabs.closest('.soee-edit-content');
+    content.querySelectorAll('.soee-tab-panel').forEach(function (p) { p.classList.remove('visible'); });
+    document.getElementById('soeeTabPanel-' + tab + '-' + accountId).classList.add('visible');
+  });
+});
+
+function saveEditPanel(accountId) {
+  var err = document.getElementById('eeaErr-' + accountId);
+  err.hidden = true;
+
+  var payload = {
+    action: 'edit',
+    id: accountId,
+    display_name: document.getElementById('eeaDisplay-' + accountId).value,
+    daily_limit: document.getElementById('eeaDailyLimit-' + accountId).value,
+  };
+
+  fetch(ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(payload),
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.status === 'ok') {
+      WTI.toast('Account updated.', 'success');
+      setTimeout(function () { location.reload(); }, 500);
+    } else {
+      var msg = d.errors ? Object.values(d.errors).join(' ') : (d.message || 'Error.');
+      err.textContent = msg; err.hidden = false;
+    }
+  }).catch(function () {
+    err.textContent = 'Network error.'; err.hidden = false;
+  });
+}
+
+function saveWarmupContentPanel(accountId) {
+  var err = document.getElementById('eeaWarmupErr-' + accountId);
+  var ok  = document.getElementById('eeaWarmupOk-' + accountId);
+  err.hidden = true; ok.hidden = true;
+
+  var quill = _editPanelQuills[accountId];
+  var payload = {
+    action: 'edit_warmup_content',
+    id: accountId,
+    warmup_subject: document.getElementById('eeaWarmupSubject-' + accountId).value,
+    warmup_body: quill ? quill.root.innerHTML : '',
+  };
+
+  fetch(ACTION_URL, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+    body: JSON.stringify(payload),
+  }).then(function (r) { return r.json(); }).then(function (d) {
+    if (d.status === 'ok') {
+      ok.hidden = false;
+      setTimeout(function () { ok.hidden = true; }, 2500);
+    } else {
+      var msg = d.errors ? Object.values(d.errors).join(' ') : (d.message || 'Error.');
+      err.textContent = msg; err.hidden = false;
+    }
+  }).catch(function () {
+    err.textContent = 'Network error.'; err.hidden = false;
+  });
+}
+
 
 /* ── Row action menu (kebab) — one trigger+menu pair per row, only one
    open at a time, closes on any outside click, scroll, or once an action
@@ -593,7 +839,7 @@ document.getElementById('delInput').addEventListener('input', function() {
 });
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    closeDelModal(); closeUpdatePwd();
+    closeDelModal(); closeUpdatePwd(); closeEditPanel();
     document.getElementById('startWarmupModal').classList.remove('open');
   }
 });

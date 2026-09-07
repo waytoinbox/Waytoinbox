@@ -1526,6 +1526,14 @@ class SOEmailAccountWarmup(models.Model):
     started_at        = models.DateTimeField(null=True, blank=True)
     status            = models.CharField(max_length=20, choices=STATUS_CHOICES, default='active')
 
+    # Per-account warmup email content (Edit Settings' Warmup tab). Blank
+    # means "use the built-in fallback templates" — see
+    # services/warmup_sender.py::build_warmup_content — so every account
+    # created before this field existed keeps sending exactly as before
+    # with no backfill needed.
+    warmup_subject = models.CharField(max_length=500, blank=True, default='')
+    warmup_body    = models.TextField(blank=True, default='')
+
     class Meta:
         db_table = 'so_email_account_warmups'
 
