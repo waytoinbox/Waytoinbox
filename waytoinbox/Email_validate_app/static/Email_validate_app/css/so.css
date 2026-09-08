@@ -114,7 +114,17 @@
   overflow: hidden;
   margin-bottom: 24px;
 }
-.so-table-wrap { overflow-x: auto; }
+.so-table-wrap {
+  overflow-x: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.so-table-wrap::-webkit-scrollbar { height: 8px; }
+.so-table-wrap::-webkit-scrollbar-track { background: transparent; }
+.so-table-wrap::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.so-table-wrap::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+/* Just the bar — no left/right step-arrow buttons at the track ends
+   (Windows Chrome/Edge render these by default unless explicitly hidden). */
+.so-table-wrap::-webkit-scrollbar-button { display: none; }
 .so-table {
   width: 100%;
   border-collapse: collapse;
@@ -189,6 +199,15 @@
 .so-badge.connected    { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
 .so-badge.unchecked    { background: var(--bg-2); color: var(--ink-3); border: 1px solid var(--border); }
 
+/* SPF/DKIM/DMARC pass/fail (SOEmailAccount sender authentication) */
+.so-badge.pass         { background: #F0FDF4; color: #15803D; border: 1px solid #BBF7D0; }
+.so-badge.fail         { background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA; }
+
+/* Small secondary SPF/DKIM/DMARC badges shown under the main Active/
+   Failed/Inactive badge on the Email Accounts page. */
+.soea-auth-row { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+.soea-auth-row .so-badge { font-size: 10px; padding: 2px 7px; }
+
 /* SOCampaignContact sequence-status modifiers (Email Sender's Campaign
    Detail "Sequence Status" column) — pending/completed/stopped/skipped
    weren't covered by any of the modifiers above. */
@@ -211,9 +230,11 @@
 [data-theme="dark"] .so-badge.sent,
 [data-theme="dark"] .so-badge.active,
 [data-theme="dark"] .so-badge.completed,
-[data-theme="dark"] .so-badge.connected { background: rgba(34,197,94,.12); color: #86EFAC; border-color: rgba(34,197,94,.3); }
+[data-theme="dark"] .so-badge.connected,
+[data-theme="dark"] .so-badge.pass      { background: rgba(34,197,94,.12); color: #86EFAC; border-color: rgba(34,197,94,.3); }
 [data-theme="dark"] .so-badge.failed,
-[data-theme="dark"] .so-badge.bounced   { background: rgba(239,68,68,.12); color: #FCA5A5; border-color: rgba(239,68,68,.3); }
+[data-theme="dark"] .so-badge.bounced,
+[data-theme="dark"] .so-badge.fail      { background: rgba(239,68,68,.12); color: #FCA5A5; border-color: rgba(239,68,68,.3); }
 [data-theme="dark"] .so-badge.sending,
 [data-theme="dark"] .so-badge.unsubscribed { background: rgba(249,115,22,.12); color: #FDBA74; border-color: rgba(249,115,22,.3); }
 [data-theme="dark"] .so-badge.skipped { background: rgba(202,138,4,.15); color: #FDE047; border-color: rgba(202,138,4,.3); }

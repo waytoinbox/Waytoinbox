@@ -194,6 +194,33 @@ class ScoreEmailPersonalizationAndComplianceTests(TestCase):
         r = score_email(CLEAN_SUBJECT, CLEAN_BODY)
         self.assertFalse(any('No unsubscribe link' in t for t in _reason_texts(r)))
 
+    def test_unsubscribe_merge_tag_inside_href_recognized_even_without_the_word(self):
+        """The exact false-positive the tag-based check exists to fix: a
+        real, working unsubscribe mechanism ({{unsubscribe_url}}) whose
+        visible link text never contains the literal word 'unsubscribe' --
+        the old word-only check would have wrongly flagged this."""
+        html = '<p>Hi {{first_name}}, hope this helps.</p><a href="{{unsubscribe_url}}">Click here to opt out</a>'
+        r = score_email(CLEAN_SUBJECT, html)
+        self.assertFalse(any('No unsubscribe link' in t for t in _reason_texts(r)))
+
+    def test_unsubscribe_merge_tag_as_bare_text_recognized(self):
+        html = '<p>Hi {{first_name}}. Manage preferences: {{unsubscribe_url}}</p>'
+        r = score_email(CLEAN_SUBJECT, html)
+        self.assertFalse(any('No unsubscribe link' in t for t in _reason_texts(r)))
+
+    def test_literal_word_fallback_still_works_without_the_tag(self):
+        """The pre-existing word-based detection must still work as a
+        fallback for a manual, non-tag process -- not removed, only
+        supplemented."""
+        html = '<p>Hi {{first_name}}, reply STOP to unsubscribe at any time.</p>'
+        r = score_email(CLEAN_SUBJECT, html)
+        self.assertFalse(any('No unsubscribe link' in t for t in _reason_texts(r)))
+
+    def test_neither_tag_nor_word_still_flagged(self):
+        html = '<p>Hi {{first_name}}, hope this helps you out today.</p>'
+        r = score_email(CLEAN_SUBJECT, html)
+        self.assertTrue(any('No unsubscribe link' in t for t in _reason_texts(r)))
+
 
 class ScoreEmailCleanAndSchemaTests(TestCase):
     """Rule 18 (clean email) + rules 19-22 (response schema)."""

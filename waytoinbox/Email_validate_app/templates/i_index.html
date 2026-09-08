@@ -332,6 +332,30 @@
               <i class="fas fa-user-circle"></i>
             </button>
             <div class="profile-dropdown" id="profileDropdown">
+              {% if nav_is_main_account and not nav_is_acting_as %}
+                <div class="profile-dropdown-label">Account</div>
+                <div class="profile-dropdown-account profile-dropdown-account--active">
+                  <i class="fas fa-check"></i> Main Account
+                </div>
+                {% for sub in nav_sub_accounts %}
+                <button type="button" class="profile-dropdown-account profile-dropdown-switch-btn" data-email="{{ sub.user_email }}" title="{{ sub.user_email }}">
+                  {{ sub.user_email }}
+                </button>
+                {% endfor %}
+                <a href="{% url 'sub_accounts_overview' %}" class="profile-dropdown-item">
+                  <i class="fas fa-users"></i> Manage Sub Accounts
+                </a>
+                <div class="profile-dropdown-divider"></div>
+              {% elif nav_is_acting_as %}
+                <div class="profile-dropdown-label">Current Account</div>
+                <div class="profile-dropdown-account profile-dropdown-account--active">
+                  <i class="fas fa-check"></i> {{ nav_active_email }}
+                </div>
+                <button type="button" id="returnToMainBtn" class="profile-dropdown-item profile-dropdown-item--btn">
+                  <i class="fas fa-arrow-left"></i> Return to Main Account
+                </button>
+                <div class="profile-dropdown-divider"></div>
+              {% endif %}
               <a href="{% url 'profile' %}" class="profile-dropdown-item">
                 <i class="fas fa-id-badge"></i> Profile
               </a>
@@ -640,6 +664,49 @@ document.addEventListener('DOMContentLoaded', () => {
       btn.setAttribute('aria-expanded', 'false');
     }
   });
+})();
+</script>
+
+<script>
+// ── Account switcher (Main <-> Sub Accounts) ─────────────────────────
+(function() {
+  var switchBtns = document.querySelectorAll('.profile-dropdown-switch-btn');
+  var returnBtn  = document.getElementById('returnToMainBtn');
+  if (!switchBtns.length && !returnBtn) return;
+
+  var CSRF = '{{ csrf_token }}';
+
+  function post(url, body) {
+    return fetch(url, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF},
+      body: JSON.stringify(body || {}),
+    }).then(function(r) { return r.json(); });
+  }
+
+  switchBtns.forEach(function(b) {
+    b.addEventListener('click', function() {
+      post('{% url "switch_account" %}', {email: b.dataset.email}).then(function(data) {
+        if (data.status === 'ok') {
+          window.location.href = '{% url "dashboard" %}';
+        } else if (window.WTI && WTI.toast) {
+          WTI.toast(data.message || 'Could not switch account.', 'error');
+        }
+      });
+    });
+  });
+
+  if (returnBtn) {
+    returnBtn.addEventListener('click', function() {
+      post('{% url "return_to_main" %}', {}).then(function(data) {
+        if (data.status === 'ok') {
+          window.location.href = '{% url "dashboard" %}';
+        } else if (window.WTI && WTI.toast) {
+          WTI.toast(data.message || 'Could not return to Main Account.', 'error');
+        }
+      });
+    });
+  }
 })();
 </script>
 {% endif %}

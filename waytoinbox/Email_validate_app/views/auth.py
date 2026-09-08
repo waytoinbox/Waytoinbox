@@ -9,13 +9,17 @@ from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth.tokens import default_token_generator
 
 logger = logging.getLogger(__name__)
-from Email_validate_app.models import UserTable, ListFiles
+from Email_validate_app.models import UserTable, ListFiles, FreeEmailSignupRequest
 from Email_validate_app.forms import CustomSignupForm
+from Email_validate_app.services.email_domain_policy import is_free_email_domain
 from django.conf import settings
+from django.core.validators import validate_email
+from django.core.exceptions import ValidationError
 import json
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.mailer import (
     send_verification_email, send_welcome_email, send_admin_signup_notification,
+    send_admin_free_email_request_notification,
 )
 from django.utils import timezone
 from datetime import timedelta
@@ -178,6 +182,20 @@ def signup(request):
             else:
                 return JsonResponse({"status": "error", "message": "This email is already registered. Please log in."})
 
+        # New-account gate only — existing rows (both branches above) are
+        # handled first and never reach here, so this never applies
+        # retroactively to an already-existing free-email account.
+        if is_free_email_domain(email):
+            return JsonResponse({
+                "status": "error",
+                "message": (
+                    "Please use your business email address to sign up. Personal email "
+                    "providers (Gmail, Outlook, Hotmail, Yahoo, etc.) are not supported "
+                    "for self-service signup. If you need to use a personal email, you can "
+                    '<a href="#" id="requestApprovalLink">request approval</a> from our team.'
+                ),
+            })
+
         form = CustomSignupForm(request.POST)
         if form.is_valid():
             user = form.save(commit=False)
@@ -212,6 +230,59 @@ def signup(request):
         form = CustomSignupForm()
 
     return render(request, "i_signup.html", {"form": form})
+
+
+def request_free_email_signup(request):
+    """Public intake for the one sanctioned exception to the free-email
+    signup block: a request that only an admin can approve
+    (views/admin/free_email_requests.py). Never creates a UserTable row --
+    only a FreeEmailSignupRequest, and deliberately never calls
+    is_free_email_domain() (that's the whole point of this endpoint)."""
+    if request.method != 'POST':
+        return JsonResponse({"status": "error", "message": "POST required"}, status=405)
+
+    ip = _get_client_ip(request)
+    if _rate_check(ip, 'free_email_request', 5):
+        return JsonResponse({"status": "error", "message": "Too many requests. Please try again later."}, status=429)
+    _rate_increment(ip, 'free_email_request', 600)  # 10-minute window
+
+    name = request.POST.get('name', '').strip()
+    email = request.POST.get('email', '').strip().lower()
+    reason = request.POST.get('reason', '').strip()
+
+    if not name:
+        return JsonResponse({"status": "error", "message": "Please enter your name."})
+    if not email:
+        return JsonResponse({"status": "error", "message": "Please enter your email address."})
+    try:
+        validate_email(email)
+    except ValidationError:
+        return JsonResponse({"status": "error", "message": "Please enter a valid email address."})
+
+    if UserTable.objects.filter(user_email=email).exists():
+        return JsonResponse({
+            "status": "error",
+            "message": "An account with this email already exists. Please log in instead.",
+        })
+
+    if FreeEmailSignupRequest.objects.filter(email=email, status='pending').exists():
+        return JsonResponse({
+            "status": "error",
+            "message": "A request for this email is already pending review. Our team will be in touch by email.",
+        })
+
+    req = FreeEmailSignupRequest.objects.create(
+        name=name, email=email, reason=reason, ip_address=ip,
+    )
+    try:
+        send_admin_free_email_request_notification(name, email, reason, req.id)
+    except Exception as e:
+        logger.error("Free-email request admin notification failed for %s: %s", email, e)
+
+    return JsonResponse({
+        "status": "ok",
+        "message": "Your request has been submitted. Our team will review it and contact you by email.",
+    })
 
 
 _LOGIN_MAX_ATTEMPTS = 5

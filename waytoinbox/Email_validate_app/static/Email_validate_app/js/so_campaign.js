@@ -171,6 +171,7 @@ var SOCampaignPage = (function () {
       sender_send_count_enabled: !!($('socSendCountToggle') && $('socSendCountToggle').checked),
       sender_name: ($('socSenderName') ? $('socSenderName').value.trim() : ''),
       reply_to:    ($('socReplyTo') ? $('socReplyTo').value.trim() : ''),
+      reply_to_enabled: !!($('socReplyToToggle') && $('socReplyToToggle').checked),
       schedule_date: $('socScheduleDate') ? $('socScheduleDate').value : '',
       schedule_time: (function () {
         try { return WTITZ.get24hrTime(TZCFG); } catch (e) { return ''; }
@@ -1017,7 +1018,15 @@ var SOCampaignPage = (function () {
       var b = e.target.closest('button');
       if (!b || !subQuill) return;
       var range = subQuill.getSelection(true);
-      subQuill.insertText(range ? range.index : subQuill.getLength(), b.dataset.tag, 'user');
+      var idx = range ? range.index : subQuill.getLength();
+      // Same "Unsubscribe" (link) vs raw-tag (plain text) distinction as
+      // the main editor's insertUnsubscribeLink() -- recipients must never
+      // see the literal {{unsubscribe_url}} tag.
+      if (b.dataset.tag === '{{unsubscribe_url}}') {
+        subQuill.insertText(idx, 'Unsubscribe', { link: '{{unsubscribe_url}}' }, 'user');
+      } else {
+        subQuill.insertText(idx, b.dataset.tag, 'user');
+      }
       menu.hidden = true;
       markDirty(); updateSubCharCount();
     });
@@ -1109,7 +1118,7 @@ var SOCampaignPage = (function () {
 
   function renderScoreModal(scoreData) {
     var summary = $('socScoreSummary');
-    summary.textContent = 'Score ' + scoreData.score + ' — ' + scoreData.label + '. Lower is better.';
+    summary.textContent = 'Spam score ' + scoreData.score + ' — ' + scoreData.label + '. Lower is better.';
     summary.className = 'soc-score-summary ' + scoreData.label.toLowerCase();
 
     var cats = scoreData.categories;
@@ -1600,7 +1609,10 @@ var SOCampaignPage = (function () {
       return;
     }
     var fromName = ($('socSenderName') && $('socSenderName').value) || '';
-    var fromEmail = ($('socReplyTo') && $('socReplyTo').value) || '';
+    // Only reflects Reply-To when its toggle is on -- an address sitting
+    // in a disabled, unused field must not appear as if it were live.
+    var replyToOn = !!($('socReplyToToggle') && $('socReplyToToggle').checked);
+    var fromEmail = (replyToOn && $('socReplyTo') && $('socReplyTo').value) || '';
     var fromLine = fromName ? (fromName + (fromEmail ? ' <' + fromEmail + '>' : '')) : (fromEmail || '—');
 
     el.innerHTML =
@@ -2338,6 +2350,30 @@ var SOCampaignPage = (function () {
     updateCharCount();
   }
 
+  /* Recipients must never see the raw {{unsubscribe_url}} tag -- only the
+     word "Unsubscribe" as clickable text. In source mode the textarea IS
+     the raw HTML the recipient's email is built from, so inserting the
+     literal anchor tag as text is correct there; in the normal (Quill)
+     editor, the same visible result requires Quill's own link format
+     (the same mechanism its existing ql-link toolbar button already
+     uses) rather than plain text insertion. substitute_tags() at send
+     time replaces {{unsubscribe_url}} wherever it sits, including inside
+     this href, so this needs no other send-path change. */
+  function insertUnsubscribeLink() {
+    if (!quill && !sourceMode) return;
+    if (sourceMode) {
+      var ta = $('socSourceArea'), p = ta.selectionStart || 0;
+      var linkHtml = '<a href="{{unsubscribe_url}}">Unsubscribe</a>';
+      ta.value = ta.value.slice(0, p) + linkHtml + ta.value.slice(ta.selectionEnd || p);
+      ta.focus();
+    } else {
+      var range = quill.getSelection(true);
+      quill.insertText(range ? range.index : quill.getLength(), 'Unsubscribe', { link: '{{unsubscribe_url}}' }, 'user');
+    }
+    markDirty();
+    updateCharCount();
+  }
+
   function buildPopovers() {
     $('socEmojiGrid').innerHTML = EMOJI.map(function (e) {
       return '<button type="button">' + e + '</button>';
@@ -2352,7 +2388,10 @@ var SOCampaignPage = (function () {
     }).join('');
     $('socTagList').addEventListener('click', function (e) {
       var b = e.target.closest('button');
-      if (b) { insertAtCursor(b.dataset.tag); closePops(); }
+      if (!b) return;
+      if (b.dataset.tag === '{{unsubscribe_url}}') insertUnsubscribeLink();
+      else insertAtCursor(b.dataset.tag);
+      closePops();
     });
 
     var grid = $('socTableGrid'), html = '';
@@ -2950,6 +2989,10 @@ var SOCampaignPage = (function () {
     $('socName').value = d.name || '';
     if ($('socSenderName')) $('socSenderName').value = d.sender_name || '';
     if ($('socReplyTo'))    $('socReplyTo').value    = d.reply_to || '';
+    if ($('socReplyToToggle')) {
+      $('socReplyToToggle').checked = !!d.reply_to_enabled;
+      $('socReplyTo').disabled = !d.reply_to_enabled;
+    }
     function check(listId, type, ids) {
       var list = $(listId);
       if (!list) return;
@@ -3308,6 +3351,13 @@ var SOCampaignPage = (function () {
       });
       if ($('socSenderName')) $('socSenderName').addEventListener('input', markDirty);
       if ($('socReplyTo'))    $('socReplyTo').addEventListener('input', markDirty);
+    }
+    if ($('socReplyToToggle')) {
+      $('socReplyToToggle').addEventListener('change', function () {
+        $('socReplyTo').disabled = !this.checked;
+        markDirty();
+        renderEmailPreview();
+      });
     }
 
     /* test send */

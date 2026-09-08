@@ -1,0 +1,149 @@
+{% extends 'admin/base.html' %}
+{% block title %}Free Email Request — {{ req.email }}{% endblock %}
+{% block breadcrumb %}
+  <a href="{% url 'admin_dashboard' %}">Dashboard</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <a href="{% url 'admin_free_email_requests' %}">Free Email Requests</a>
+  <span class="sep"><i class="fas fa-chevron-right"></i></span>
+  <span class="current">{{ req.email }}</span>
+{% endblock %}
+
+{% block content %}
+
+<!-- Page Header -->
+<div class="admin-page-header">
+  <div>
+    <h1 class="admin-page-title" style="margin-bottom:4px;">{{ req.name }}</h1>
+    <div style="font-size:13px;color:var(--ink-3);">
+      {{ req.email }}
+      &nbsp;·&nbsp;
+      {% if req.status == 'pending' %}
+        <span class="badge badge-warning"><span class="badge-dot"></span>Pending</span>
+      {% elif req.status == 'approved' %}
+        <span class="badge badge-success"><span class="badge-dot"></span>Approved</span>
+      {% else %}
+        <span class="badge badge-danger"><span class="badge-dot"></span>Rejected</span>
+      {% endif %}
+    </div>
+  </div>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a href="{% url 'admin_free_email_requests' %}" class="btn-admin btn-admin-outline">
+      <i class="fas fa-arrow-left"></i> Back
+    </a>
+  </div>
+</div>
+
+<div class="admin-card">
+  <div class="admin-card-header">
+    <span class="admin-card-title"><i class="fas fa-user-check" style="color:var(--teal);margin-right:6px;"></i>Request Details</span>
+  </div>
+  <div style="padding:16px 20px;">
+    <dl style="margin:0;display:grid;grid-template-columns:auto 1fr;gap:10px 16px;font-size:13px;">
+      <dt style="color:var(--ink-3);font-weight:600;">Name</dt>
+      <dd style="margin:0;color:var(--ink);">{{ req.name }}</dd>
+
+      <dt style="color:var(--ink-3);font-weight:600;">Email</dt>
+      <dd style="margin:0;color:var(--ink);">{{ req.email }}</dd>
+
+      <dt style="color:var(--ink-3);font-weight:600;">Reason</dt>
+      <dd style="margin:0;color:var(--ink);white-space:pre-wrap;">{{ req.reason|default:"—" }}</dd>
+
+      <dt style="color:var(--ink-3);font-weight:600;">Submitted</dt>
+      <dd style="margin:0;color:var(--ink);">{{ req.created_at|date:"M j, Y H:i" }}{% if req.ip_address %} &nbsp;·&nbsp; {{ req.ip_address }}{% endif %}</dd>
+
+      <dt style="color:var(--ink-3);font-weight:600;">Reviewed</dt>
+      <dd style="margin:0;color:var(--ink);">
+        {% if req.reviewed_at %}
+          {{ req.reviewed_at|date:"M j, Y H:i" }}{% if req.reviewed_by %} by {{ req.reviewed_by.user_email }}{% endif %}
+        {% else %}—{% endif %}
+      </dd>
+
+      {% if req.status == 'rejected' %}
+      <dt style="color:var(--ink-3);font-weight:600;">Rejection Reason</dt>
+      <dd style="margin:0;color:var(--ink);white-space:pre-wrap;">{{ req.rejection_reason|default:"—" }}</dd>
+      {% endif %}
+
+      {% if req.status == 'approved' and req.created_user %}
+      <dt style="color:var(--ink-3);font-weight:600;">Created Account</dt>
+      <dd style="margin:0;">
+        <a href="{% url 'admin_user_detail' req.created_user.pk %}" style="color:var(--teal);">{{ req.created_user.user_email }}</a>
+      </dd>
+      {% endif %}
+    </dl>
+  </div>
+
+  {% if req.status == 'pending' %}
+  <div style="padding:16px 20px;border-top:1px solid var(--border);">
+    <div style="margin-bottom:14px;">
+      <label style="display:block;font-size:12.5px;font-weight:600;color:var(--ink-3);margin-bottom:6px;">
+        Rejection reason (required if rejecting)
+      </label>
+      <textarea id="rejectionReasonInput" rows="3" style="width:100%;max-width:480px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;"></textarea>
+      <div id="rejectionReasonError" style="display:none;color:#ef4444;font-size:12px;margin-top:4px;"></div>
+    </div>
+    <div style="display:flex;gap:10px;">
+      <button type="button" class="btn-admin btn-admin-primary" onclick="confirmApprove()">
+        <i class="fas fa-check"></i> Approve
+      </button>
+      <button type="button" class="btn-admin btn-admin-danger" onclick="confirmReject()">
+        <i class="fas fa-times"></i> Reject
+      </button>
+    </div>
+  </div>
+  {% endif %}
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+var rid = {{ req.pk }};
+
+function confirmApprove() {
+  Admin.Modal.confirm(
+    'Approve this request?',
+    'An account will be created for {{ req.email|escapejs }}.',
+    function () {
+      WTI.apiFetch('/wti-admin/free-email-requests/' + rid + '/approve/', { method: 'POST' }).then(function (res) {
+        if (res.ok) {
+          WTI.toast(res.data.message || 'Approved.', 'success');
+          setTimeout(function () { location.reload(); }, 900);
+        }
+      });
+    },
+    'Approve',
+    false
+  );
+}
+
+function confirmReject() {
+  var reasonEl = document.getElementById('rejectionReasonInput');
+  var errEl = document.getElementById('rejectionReasonError');
+  var reason = reasonEl.value.trim();
+  if (!reason) {
+    errEl.textContent = 'Please enter a rejection reason.';
+    errEl.style.display = 'block';
+    reasonEl.focus();
+    return;
+  }
+  errEl.style.display = 'none';
+
+  Admin.Modal.confirm(
+    'Reject this request?',
+    'The requester will not get an account. This cannot be undone.',
+    function () {
+      var fd = new FormData();
+      fd.append('reason', reason);
+      WTI.apiFetch('/wti-admin/free-email-requests/' + rid + '/reject/', { method: 'POST', body: fd }).then(function (res) {
+        if (res.ok) {
+          WTI.toast(res.data.message || 'Rejected.', 'success');
+          setTimeout(function () { location.reload(); }, 900);
+        }
+      });
+    },
+    'Reject',
+    true
+  );
+}
+</script>
+{% endblock %}

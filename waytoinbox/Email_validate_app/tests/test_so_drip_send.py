@@ -112,6 +112,7 @@ class SendNextStepTests(TestCase):
             email='drip-test-sender@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='drip-test-sender@example.com',
             password='x', daily_limit=50, status='connected',
+            spf_status='pass', dkim_status='pass', dmarc_status='pass',
         )
         self.prospect = SOProspect.objects.create(
             user_id=self.user.id, email='drip-test-recipient@example.com', first_name='T', last_name='P',
@@ -220,6 +221,7 @@ class TrialDoesNotNarrowSalesOutreachQuotaTests(TestCase):
             email=f'trial-sender-{daily_limit}@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username=f'trial-sender-{daily_limit}@example.com',
             password='x', daily_limit=daily_limit, status='connected',
+            spf_status='pass', dkim_status='pass', dmarc_status='pass',
         )
         self.campaign = SOCampaign.objects.create(
             user_id=self.user.id, name=f'Trial No-Cap Campaign {daily_limit}', subject='s', html_body='<p>x</p>',
@@ -263,6 +265,7 @@ class CampaignSendingCountTests(TestCase):
             email='count-sender@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='count-sender@example.com',
             password='x', daily_limit=50, status='connected',
+            spf_status='pass', dkim_status='pass', dmarc_status='pass',
         )
 
     def _campaign(self, enabled):

@@ -40,7 +40,7 @@
         <input type="hidden" name="action" value="profile">
         <div class="admin-form-group">
           <label class="admin-form-label">Display Name</label>
-          <input type="text" name="user_name" class="admin-input" value="{{ admin_user.user_name }}" maxlength="50">
+          <input type="text" name="user_name" class="admin-input" value="{{ admin_user.user_name }}" maxlength="50" autocomplete="name">
         </div>
         <div class="admin-form-group">
           <label class="admin-form-label">Email</label>
@@ -51,7 +51,7 @@
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
           <div class="admin-form-group">
             <label class="admin-form-label">Company</label>
-            <input type="text" name="company" class="admin-input" value="{{ admin_user.company|default:'' }}" maxlength="100">
+            <input type="text" name="company" class="admin-input" value="{{ admin_user.company|default:'' }}" maxlength="100" autocomplete="organization">
           </div>
           <div class="admin-form-group">
             <label class="admin-form-label">Role</label>

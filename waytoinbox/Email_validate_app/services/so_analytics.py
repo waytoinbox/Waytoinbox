@@ -194,6 +194,32 @@ def _pct(numerator, denominator):
 
 # ── Core event aggregation ──────────────────────────────────────────────────
 
+def _exclude_bounced_engagement(campaign, events_qs):
+    """Drop delivered/opened/clicked rows for any email that has a
+    'bounced' OR 'soft_bounced' event anywhere in this campaign's full
+    history — regardless of the [start, end) window the caller is
+    reporting on, since "did this address's send bounce" is a durable,
+    all-time fact, not something tied to whichever date range is currently
+    being viewed. 'sent'/'bounced'/'soft_bounced' rows themselves are never
+    excluded. Cheap: a bounced address is the rare case, and this campaign
+    already has to be loaded either way.
+
+    Both bounce types are included here even though, going forward, each
+    already deletes these rows outright at detection time (see
+    services/so_imap.py::_invalidate_post_bounce_engagement) — this stays
+    as a read-side backstop for any data that predates that cleanup."""
+    from Email_validate_app.models import SOEvent
+    bounced_emails = list(
+        SOEvent.objects.filter(campaign=campaign, event_type__in=('bounced', 'soft_bounced'))
+        .values_list('email', flat=True)
+    )
+    if not bounced_emails:
+        return events_qs
+    return events_qs.exclude(
+        event_type__in=('delivered', 'opened', 'clicked'), email__in=bounced_emails,
+    )
+
+
 def event_totals(events_qs):
     """One aggregate query -> {event_type: {'total': N, 'unique': N}}."""
     agg_kwargs = {}
@@ -270,10 +296,20 @@ def compute_overview(campaign, start=None, end=None):
     """Campaign-level totals + rates for [start, end). Handles
     campaign.tracking_enabled (V2.3.4): when tracking is off, opened/clicked
     are reported as None (not 0) so callers can render 'Tracking disabled'
-    instead of a misleading 0-engagement campaign."""
+    instead of a misleading 0-engagement campaign.
+
+    A hard-bounced message never reached the recipient, so its
+    delivered/opened/clicked events (whether written before this exclusion
+    existed, or via the narrow race views/so_tracking.py's atomic check
+    can't fully close) must never count toward these totals/rates — see
+    _exclude_bounced_engagement. 'sent'/'bounced'/'failed' are unaffected:
+    a message genuinely was sent and later bounced, which is not a
+    contradiction. This is a read-side exclusion only; no SOEvent row or
+    SOCampaign.total_* counter is ever mutated by it."""
     from Email_validate_app.models import SOEvent, SOCampaignContact
 
     events = _apply_date(SOEvent.objects.filter(campaign=campaign), start, end)
+    events = _exclude_bounced_engagement(campaign, events)
     counts = event_totals(events)
 
     # SOCampaignContact records no timestamp at all for when a send
@@ -325,10 +361,15 @@ def compute_funnel(campaign, start=None, end=None):
     """Sent -> Delivered -> Opened -> Clicked -> Replied, contact-level
     (unique emails) at every stage — a funnel is inherently a per-recipient
     journey, so this deliberately differs from the 'Sent' KPI number (which
-    counts total emails including every sequence step)."""
+    counts total emails including every sequence step).
+
+    Same bounced-email exclusion as compute_overview (see
+    _exclude_bounced_engagement) — a bounced recipient must never show as
+    having reached Delivered/Opened/Clicked in the funnel."""
     from Email_validate_app.models import SOEvent
 
     events = _apply_date(SOEvent.objects.filter(campaign=campaign), start, end)
+    events = _exclude_bounced_engagement(campaign, events)
     counts = event_totals(events)
     tracking_off = not campaign.tracking_enabled
     stages = [

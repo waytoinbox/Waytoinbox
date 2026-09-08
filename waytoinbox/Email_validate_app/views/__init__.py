@@ -1,4 +1,7 @@
-from .auth import services, logout, signup, login, forgot_password, reset_password, verify_email
+from .auth import (
+    services, logout, signup, login, forgot_password, reset_password, verify_email,
+    request_free_email_signup,
+)
 from .dashboard import home, dashboard, get_data, dashboard_chart_data
 from .billing import pricing, order_payment, payment, manage_credits, download_results, delete_query, receipt_list, hide_billing_row, preview, generate_pdf, contact_us, get_current_credit
 from .subscription import subscription, subscription_success, subscription_cancel, create_subscription, subs_payment
@@ -37,3 +40,6 @@ from .so_inbox import (
 )
 from .warmup_dashboard import warmup_dashboard
 from .warmup_senders import warmup_sender_action
+from .sub_accounts import (
+    sub_accounts_overview, create_sub_account, switch_account, return_to_main,
+)

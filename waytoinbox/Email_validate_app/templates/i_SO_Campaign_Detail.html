@@ -145,7 +145,8 @@
                   <span class="socd-ev-node {% if row.opened %}opened{% else %}inactive{% endif %}" title="Opened"></span>
                   <span class="socd-ev-node {% if row.clicked %}clicked{% else %}inactive{% endif %}" title="Clicked"></span>
                   <span class="socd-ev-node {% if row.replied %}replied{% else %}inactive{% endif %}" title="Replied"></span>
-                  <span class="socd-ev-node {% if row.bounced %}bounced{% else %}inactive{% endif %}" title="Bounced"></span>
+                  <span class="socd-ev-node {% if row.bounced %}bounced{% else %}inactive{% endif %}" title="Hard Bounce"></span>
+                  <span class="socd-ev-node {% if row.soft_bounced %}soft_bounced{% else %}inactive{% endif %}" title="Soft Bounce"></span>
                   <span class="socd-ev-node {% if row.complained %}complained{% else %}inactive{% endif %}" title="Complained"></span>
                   <span class="socd-ev-node {% if row.unsubscribed %}unsubscribed{% else %}inactive{% endif %}" title="Unsubscribed"></span>
                 </div>
@@ -158,7 +159,8 @@
                   {% elif row.last_event == 'opened' %}Opened
                   {% elif row.last_event == 'clicked' %}Clicked
                   {% elif row.last_event == 'replied' %}Replied
-                  {% elif row.last_event == 'bounced' %}Bounced
+                  {% elif row.last_event == 'bounced' %}Hard Bounce
+                  {% elif row.last_event == 'soft_bounced' %}Soft Bounce
                   {% elif row.last_event == 'complained' %}Complained
                   {% elif row.last_event == 'unsubscribed' %}Unsubscribed
                   {% endif %}
@@ -225,7 +227,11 @@
             {% for r in campaign.account_rotations.all %}{{ r.account.email }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}
           </dd>
           <dt>Reply-To</dt>
-          <dd>{{ campaign.reply_to|default:"—" }}</dd>
+          <dd>
+            {% if not campaign.reply_to %}—
+            {% elif campaign.reply_to_enabled %}{{ campaign.reply_to }}
+            {% else %}{{ campaign.reply_to }} (disabled){% endif %}
+          </dd>
           <dt>Lists</dt>
           <dd>
             {% for l in campaign.recipient_lists.all %}{{ l.name }}{% if not forloop.last %}, {% endif %}{% empty %}—{% endfor %}

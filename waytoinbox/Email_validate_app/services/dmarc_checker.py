@@ -123,8 +123,50 @@ def check_dkim(domain, selector="default"):
     }
 
 
+def _resolve_mx_hosts(domain):
+    """Shared MX lookup -- used both to fingerprint the ESP for DKIM
+    selector guessing (_detect_esp_selectors below) and to identify/
+    display the email provider (detect_mx_provider). Returns [] on any DNS
+    failure, including no MX record at all, rather than raising."""
+    try:
+        import dns.resolver
+        return [str(mx.exchange).rstrip(".").lower() for mx in dns.resolver.resolve(domain, "MX")]
+    except Exception:
+        return []
+
+
+# Friendly provider label for a subset of MX hostnames. Deliberately
+# narrower than ESP_SELECTOR_MAP (dkim_config.py) -- that map also keys on
+# SPF-include domains (e.g. 'sendgrid.net'), which identify a sending ESP,
+# not an inbound-mail provider a human would recognize by name here.
+_MX_PROVIDER_LABELS = {
+    'aspmx.l.google.com':          'Google Workspace / Gmail',
+    'googlemail.com':               'Google Workspace / Gmail',
+    'google.com':                   'Google Workspace / Gmail',
+    'mail.protection.outlook.com': 'Microsoft 365 / Outlook',
+    'outlook.com':                  'Microsoft 365 / Outlook',
+}
+
+
+def detect_mx_provider(domain):
+    """Identify a domain's email provider from its MX records -- e.g.
+    Google Workspace/Gmail, Microsoft 365/Outlook, or "Other" for anything
+    unrecognized. Purely informational: this never gates SPF/DKIM/DMARC or
+    sending eligibility, it exists so MX is genuinely checked as its own
+    explicit step (per the domain-authentication rule: MX -> SPF -> DKIM ->
+    DMARC), not just used invisibly inside DKIM's own selector-guessing.
+    """
+    hosts = _resolve_mx_hosts(domain)
+    if not hosts:
+        return {"status": "fail", "provider": "Unknown", "reason": "No MX record found", "hosts": []}
+    for host in hosts:
+        for fingerprint, label in _MX_PROVIDER_LABELS.items():
+            if fingerprint in host:
+                return {"status": "pass", "provider": label, "hosts": hosts}
+    return {"status": "pass", "provider": "Other", "hosts": hosts}
+
+
 def _detect_esp_selectors(domain):
-    import dns.resolver
     from Email_validate_app.services.dkim_config import COMMON_SELECTORS, ESP_SELECTOR_MAP
     candidates = []
     seen = set()
@@ -135,15 +177,10 @@ def _detect_esp_selectors(domain):
                 seen.add(s)
                 candidates.append(s)
 
-    try:
-        mx_answers = dns.resolver.resolve(domain, "MX")
-        for mx in mx_answers:
-            host = str(mx.exchange).rstrip(".").lower()
-            for fingerprint, selectors in ESP_SELECTOR_MAP.items():
-                if fingerprint in host:
-                    _add(selectors)
-    except Exception:
-        pass
+    for host in _resolve_mx_hosts(domain):
+        for fingerprint, selectors in ESP_SELECTOR_MAP.items():
+            if fingerprint in host:
+                _add(selectors)
 
     spf = check_spf(domain)
     if spf.get("status") == "pass":

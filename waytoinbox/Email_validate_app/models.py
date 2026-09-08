@@ -79,6 +79,18 @@ class UserTable(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     is_admin = models.BooleanField(default=False)
 
+    # Main Account / Sub Account hierarchy. NULL (the default for every
+    # existing row) means this is an independent/Main Account; set means
+    # this row is a Sub Account of that parent. One level only -- a Sub
+    # Account creating another Sub Account is rejected at the view layer,
+    # not enforced here, since a self-FK can't express "no grandchildren"
+    # on its own. PROTECT (not CASCADE) so a Main Account with existing Sub
+    # Accounts can't be deleted out from under them by accident.
+    parent_account = models.ForeignKey(
+        'self', null=True, blank=True, on_delete=models.PROTECT,
+        related_name='sub_accounts',
+    )
+
     objects = UserManager()
 
     USERNAME_FIELD = 'user_email'
@@ -1473,6 +1485,16 @@ class EmailAccount(models.Model):
 class SOEmailAccount(models.Model):
     STATUS_CHOICES   = (('connected', 'Connected'), ('failed', 'Failed'), ('unchecked', 'Unchecked'))
     PROVIDER_CHOICES = (('google', 'Google'), ('microsoft', 'Microsoft 365'))
+    # SPF/DKIM/DMARC domain-authentication state — independent of, and
+    # additive to, `status` above (which only ever reflects whether the
+    # mailbox's own SMTP/IMAP credentials work; it stays untouched by these
+    # three, and `status` alone is still what the Connection badge shows —
+    # see is_connected()). Populated by views/so_email_accounts.py's `test`
+    # action via the existing services/dmarc_checker.py DNS checker, reused
+    # unchanged. SPF is the primary SENDING-eligibility signal (see
+    # is_sending_eligible() below) — DKIM/DMARC are still checked, stored,
+    # and displayed, but deliberately do not block sending on their own.
+    AUTH_STATUS_CHOICES = (('pass', 'Pass'), ('fail', 'Fail'), ('unchecked', 'Unchecked'))
 
     user         = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='so_email_accounts')
     provider     = models.CharField(max_length=20, choices=PROVIDER_CHOICES)
@@ -1494,6 +1516,9 @@ class SOEmailAccount(models.Model):
     # account itself is configured to send.
     daily_limit  = models.IntegerField(default=120)
     status       = models.CharField(max_length=20, choices=STATUS_CHOICES, default='unchecked')
+    spf_status   = models.CharField(max_length=10, choices=AUTH_STATUS_CHOICES, default='unchecked')
+    dkim_status  = models.CharField(max_length=10, choices=AUTH_STATUS_CHOICES, default='unchecked')
+    dmarc_status = models.CharField(max_length=10, choices=AUTH_STATUS_CHOICES, default='unchecked')
     warmup_enabled  = models.BooleanField(default=False)
     last_imap_sync  = models.DateTimeField(null=True, blank=True)
     # Cached discovered Sent-folder name (e.g. "[Gmail]/Sent Mail", "Sent Items") —
@@ -1510,6 +1535,33 @@ class SOEmailAccount(models.Model):
 
     def __str__(self):
         return f"{self.email} ({self.provider})"
+
+    def is_connected(self):
+        """The ONLY thing the Email Accounts page's Connection badge
+        reflects: does the mailbox's own SMTP/IMAP credentials work.
+        Completely independent of SPF/DKIM/DMARC — a domain that fails all
+        three domain-authentication checks is still Connected here as long
+        as the app password is valid and SMTP/IMAP logged in successfully."""
+        return self.status == 'connected'
+
+    def is_authenticated(self):
+        """True only when SPF, DKIM, and DMARC all read 'pass'. Kept for
+        "every domain-authentication check passed" semantics/display only
+        — do NOT use this for sending eligibility (see is_sending_eligible
+        below); DKIM/DMARC must not block sending on their own."""
+        return self.spf_status == 'pass' and self.dkim_status == 'pass' and self.dmarc_status == 'pass'
+
+    def is_sending_eligible(self):
+        """The real gate for actually sending a campaign email through this
+        account — reused by every enrollment/rotation/send-time check
+        (tasks/so_send_campaign.py, services/so_drip.py). SPF is the
+        primary sending-eligibility signal: a working mailbox connection
+        AND a passing SPF record for its domain. DKIM/DMARC are still
+        checked, stored, and shown on the Email Accounts page, but
+        deliberately do NOT factor in here — see is_authenticated() for
+        the separate "all three passed" concept, which this intentionally
+        does not use."""
+        return self.is_connected() and self.spf_status == 'pass'
 
 
 class SOEmailAccountWarmup(models.Model):
@@ -1659,6 +1711,13 @@ class SOCampaign(models.Model):
     send_mode       = models.CharField(max_length=10, choices=SEND_MODE_CHOICES, default='single')
     from_name       = models.CharField(max_length=255, blank=True, default='')
     reply_to        = models.CharField(max_length=255, blank=True, default='')
+    # The address itself (reply_to above) is always stored/echoed back to
+    # the wizard regardless of this flag, so toggling back on never loses
+    # what was typed -- but every actual send path (services/so_drip.py,
+    # services/so_imap.py::_mailbox_is_valid_for_reply, the Test Send
+    # action) must treat reply_to as unset unless this is True, per the
+    # "off = today's default behavior" requirement.
+    reply_to_enabled = models.BooleanField(default=False)
     status          = models.CharField(max_length=20, choices=STATUS_CHOICES, default='draft')
     schedule_at     = models.DateTimeField(null=True, blank=True)
     schedule_timezone = models.CharField(max_length=64, default='Asia/Kolkata')
@@ -2127,6 +2186,7 @@ class SOEvent(models.Model):
         ('replied',      'Replied'),
         ('unsubscribed', 'Unsubscribed'),
         ('bounced',      'Bounced'),
+        ('soft_bounced', 'Soft Bounced'),
         ('complained',   'Complained'),
     )
 
@@ -2566,3 +2626,63 @@ class WarmupDailyUsage(models.Model):
     class Meta:
         db_table        = 'warmup_daily_usage'
         unique_together = [('account', 'date')]
+
+
+class FreeEmailSignupRequest(models.Model):
+    """A request to create an account on a free/public email domain --
+    self-service signup (views/auth.py::signup) always blocks these via
+    is_free_email_domain(); this is the only sanctioned exception, and it
+    requires an explicit admin decision (views/admin/free_email_requests.py)
+    before any UserTable row is ever created. email is deliberately NOT
+    unique=True: a rejected request must not permanently block that address
+    from trying again later. "At most one pending request per email" is
+    enforced in application code instead (see request_free_email_signup()),
+    the same soft-uniqueness approach already used for SOEmailAccount."""
+
+    STATUS_CHOICES = (
+        ("pending", "Pending"),
+        ("approved", "Approved"),
+        ("rejected", "Rejected"),
+    )
+
+    name = models.CharField(max_length=255)
+    email = models.EmailField(max_length=255)
+    reason = models.TextField(blank=True)
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="pending",
+        db_index=True,
+    )
+
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+
+    reviewed_by = models.ForeignKey(
+        UserTable,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="free_email_requests_reviewed",
+    )
+
+    rejection_reason = models.TextField(blank=True)
+
+    created_user = models.ForeignKey(
+        UserTable,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="free_email_signup_request",
+    )
+
+    class Meta:
+        db_table = "free_email_signup_request"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.email} ({self.status})"

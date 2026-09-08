@@ -31,13 +31,13 @@
     <div class="admin-form-group">
       <label class="admin-form-label" for="user_name">Display Name <span style="color:#ef4444;">*</span></label>
       <input type="text" id="user_name" name="user_name" value="{{ target_user.user_name }}"
-        class="admin-input" maxlength="50" required/>
+        class="admin-input" maxlength="50" required autocomplete="off"/>
     </div>
 
     <div class="admin-form-group">
       <label class="admin-form-label" for="company">Company</label>
       <input type="text" id="company" name="company" value="{{ target_user.company|default:'' }}"
-        class="admin-input" maxlength="255" placeholder="Optional"/>
+        class="admin-input" maxlength="255" placeholder="Optional" autocomplete="off"/>
     </div>
 
     <div class="admin-form-group">

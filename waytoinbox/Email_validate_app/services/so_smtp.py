@@ -134,12 +134,22 @@ def inject_tracking(html: str, cc, site_url: str = SITE_URL, enable_tracking: bo
     # is not fixed here; see so_tracking.py/so_analytics.py for the
     # forensic-only (never gating) mitigation that is in place instead.
 
-    footer = (
-        f'<div style="text-align:center;padding:16px 0 8px;font-size:12px;color:#999;">'
-        f'If you no longer wish to receive these emails, '
-        f'<a href="{unsub_url}" style="color:#999;">unsubscribe here</a>.'
-        f'</div>'
-    )
+    # Skipped when the draft already contains a manual unsubscribe link —
+    # substitute_tags() above already replaced every {{unsubscribe_url}}
+    # occurrence with this exact unsub_url string, whether the user typed
+    # it as bare text or used it as an <a href="{{unsubscribe_url}}">
+    # Unsubscribe</a> link (see the editor's merge-tag insertion), so its
+    # presence in `html` is a reliable, single-source-of-truth signal —
+    # never both a manual link and this footer.
+    if unsub_url in html:
+        footer = ''
+    else:
+        footer = (
+            f'<div style="text-align:center;padding:16px 0 8px;font-size:12px;color:#999;">'
+            f'If you no longer wish to receive these emails, '
+            f'<a href="{unsub_url}" style="color:#999;">unsubscribe here</a>.'
+            f'</div>'
+        )
     pixel = f'<img src="{open_url}" width="1" height="1" alt="" style="display:none;border:0;" />'
 
     if '</body>' in html:

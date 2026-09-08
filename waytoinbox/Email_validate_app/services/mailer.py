@@ -449,3 +449,76 @@ def send_delete_request_email(user_id, user_name, user_email, joined, active_pla
         logger.info("Delete request email sent for %s", user_email)
     except Exception as e:
         logger.error("Delete request email error for %s: %s", user_email, e)
+
+
+def send_admin_free_email_request_notification(name, email, reason, request_id):
+    from django.utils.timezone import now
+    separator = "-" * 44
+    message = (
+        "A visitor has requested approval to sign up with a personal/free "
+        "email address (self-service signup blocks these).\n\n"
+        + separator + "\n"
+        "REQUEST DETAILS\n"
+        + separator + "\n"
+        f"Request ID : {request_id}\n"
+        f"Name       : {name}\n"
+        f"Email      : {email}\n"
+        f"Reason     : {reason or '—'}\n"
+        f"Submitted  : {now().strftime('%d %b %Y, %I:%M %p UTC')}\n"
+        + separator + "\n\n"
+        "Review it in the admin panel under Free Email Requests.\n"
+    )
+    try:
+        send_mail(
+            subject=f"Free Email Signup Request — {email}",
+            message=message,
+            from_email=settings.EMAIL_HOST_USER,
+            recipient_list=[ADMIN_EMAIL],
+        )
+        logger.info("Admin notified of free-email signup request: %s", email)
+    except Exception as e:
+        logger.error("Free-email request admin notification error for %s: %s", email, e)
+
+
+def send_free_email_request_approved_email(user_name, user_email, password_setup_link):
+    """Deliberately does NOT swallow its own exception (unlike every other
+    function in this file) -- this is the user's only way into the account
+    an admin just created for them, so services/admin/free_email_request_service.py
+    ::approve_request() needs to know if it failed, the same way
+    services/admin/user_service.py::trigger_password_reset()'s inline
+    send_mail() already lets admin_user_reset_password() report a failure
+    rather than silently losing it."""
+    subject = "Your Waytoinbox Account Has Been Approved"
+    message = f"""Hi {user_name},
+
+Good news — your request to sign up with a personal email address has been reviewed and approved.
+
+Your account has been created. Set your password to finish activating it:
+{password_setup_link}
+
+This link will expire in 1 hour. If it expires, use "Forgot password" on the login page to request a new one.
+
+— The Waytoinbox Team
+support@waytoinbox.com
+"""
+    send_mail(subject, message, settings.EMAIL_HOST_USER, [user_email], fail_silently=False)
+    logger.info("Free-email request approval email sent to %s", user_email)
+
+
+def send_free_email_request_rejected_email(name, email, rejection_reason):
+    subject = "Update on Your Waytoinbox Signup Request"
+    message = f"""Hi {name},
+
+Thanks for your interest in Waytoinbox. After review, we're not able to approve signup with this email address at this time.
+{f"Reason: {rejection_reason}" if rejection_reason else ""}
+
+If you have a business/work email address, you're welcome to sign up directly at any time.
+
+— The Waytoinbox Team
+support@waytoinbox.com
+"""
+    try:
+        send_mail(subject, message, settings.EMAIL_HOST_USER, [email], fail_silently=False)
+        logger.info("Free-email request rejection email sent to %s", email)
+    except Exception as e:
+        logger.error("Free-email request rejection email error for %s: %s", email, e)

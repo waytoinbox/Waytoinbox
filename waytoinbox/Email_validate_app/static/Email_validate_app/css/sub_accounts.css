@@ -1,0 +1,45 @@
+/* Main Account -> Sub Accounts overview page. Reuses global tokens/db-*
+   classes (dashboard.css) for the header/table/chip conventions already
+   established elsewhere -- only the create-account form styling below is
+   new. */
+
+.sa-header {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap;
+}
+.sa-header h1 {
+  font-family: var(--font-head); font-size: 22px; margin: 0 0 4px; color: var(--ink);
+}
+.sa-header p { margin: 0; color: var(--ink-2); font-size: 13.5px; }
+
+.sa-create-card {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 20px; box-shadow: var(--shadow-sm);
+}
+.sa-form-row {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px;
+}
+.sa-field label {
+  display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px;
+}
+.sa-input {
+  width: 100%; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); font-family: var(--font-body);
+  font-size: 14px; background: var(--bg); color: var(--ink);
+}
+.sa-input:focus { outline: none; border-color: var(--teal); }
+.sa-form-actions { display: flex; justify-content: flex-end; gap: 10px; }
+
+.sa-alert {
+  padding: 10px 14px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 14px;
+}
+.sa-alert--error {
+  background: #FFF3EF; color: #C94A1D; border: 1px solid rgba(255,107,53,.2);
+}
+.sa-alert--success {
+  background: var(--mint-lt); color: #007A5E; border: 1px solid rgba(0,198,162,.2);
+}
+
+@media (max-width: 720px) {
+  .sa-form-row { grid-template-columns: 1fr; }
+}

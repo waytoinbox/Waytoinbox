@@ -29,4 +29,5 @@ urlpatterns = [
     path('', include('Email_validate_app.urls.so_inbox')),
     path('', include('Email_validate_app.urls.so_tracking')),
     path('', include('Email_validate_app.urls.warmup')),
+    path('', include('Email_validate_app.urls.sub_accounts')),
 ]

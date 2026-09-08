@@ -6,7 +6,8 @@ from datetime import timedelta, timezone as dt_timezone
 from email.header import decode_header
 from email.utils import parseaddr, parsedate_to_datetime
 
-from django.db.models import F
+from django.db.models import BigIntegerField, F, Value
+from django.db.models.functions import Cast, Greatest
 from django.utils.html import strip_tags
 from django.utils.timezone import now
 
@@ -61,6 +62,70 @@ def _discover_sent_folder(imap, account):
     return folder
 
 
+def _invalidate_post_bounce_engagement(campaign_id, email):
+    """A confirmed hard bounce means this address never actually received
+    the message — any 'delivered'/'opened'/'clicked' SOEvent already on
+    record for this exact (campaign, email), whether written before the
+    bounce was ever detected (the ordinary case: IMAP sync discovers a DSN
+    up to ~15 minutes after the fact, by which point a tracking pixel may
+    already have fired) or by a race that slipped past
+    views/so_tracking.py's is_contact_bounced() check, is no longer valid
+    engagement history and must stop counting.
+
+    Deletes those SOEvent rows outright rather than adding a new
+    "invalidated" flag/column — reusing the existing event model exactly as
+    asked, with no new model or migration. The bounce itself (already
+    created by the caller, immediately before this runs) is the permanent
+    record of what happened to this address; the delivery/open/click
+    attempts that preceded it don't need to survive as engagement once it's
+    known they never reached anyone. 'sent' is deliberately never touched
+    here — the SMTP hand-off genuinely occurred; only what claims to have
+    happened to the message AFTER that hand-off is invalidated.
+
+    Decrements each SOCampaign.total_* counter by exactly the number of
+    rows this call actually deletes (never a flat -1), so a contact that
+    had e.g. two prior opens loses exactly 2 from total_opened. Called only
+    from _record_once's own "newly created" branch below — never on a
+    repeat sighting of an already-recorded bounce — so this naturally runs
+    at most once per (campaign, email) and can't double-decrement on IMAP's
+    repeated re-scan of the same DSN.
+    """
+    from Email_validate_app.models import SOCampaign, SOEvent
+
+    counter_fields = {'delivered': 'total_delivered', 'opened': 'total_opened', 'clicked': 'total_clicked'}
+    deltas = {}
+    for event_type, counter_field in counter_fields.items():
+        n = SOEvent.objects.filter(campaign_id=campaign_id, email=email, event_type=event_type).count()
+        if n:
+            deltas[counter_field] = n
+    if not deltas:
+        return
+    SOEvent.objects.filter(
+        campaign_id=campaign_id, email=email, event_type__in=list(counter_fields),
+    ).delete()
+    # Floored at 0 via GREATEST, not a bare F(field) - n: these are unsigned
+    # DB columns, so if a counter were ever out of sync with its own event
+    # rows (should never happen -- every write path increments the counter
+    # in the same call that creates the event -- but this cleanup must not
+    # be able to crash bounce recording over it), a bare subtraction can
+    # underflow. Worse, on MySQL the underflow happens while evaluating the
+    # subtraction itself (still in unsigned arithmetic) — GREATEST alone
+    # doesn't save it, since by the time GREATEST compares, the DB has
+    # already raised. Casting the column to a SIGNED BigIntegerField first
+    # moves the subtraction out of unsigned arithmetic entirely, so GREATEST
+    # can then safely clamp a genuinely negative intermediate result to 0
+    # before it's written back into the unsigned column.
+    zero = Value(0, output_field=BigIntegerField())
+    SOCampaign.objects.filter(id=campaign_id).update(**{
+        field: Greatest(Cast(F(field), output_field=BigIntegerField()) - n, zero)
+        for field, n in deltas.items()
+    })
+    logger.info(
+        'so_imap: invalidated post-bounce engagement for campaign %s / %s: %s',
+        campaign_id, email, deltas,
+    )
+
+
 def _record_once(cc, event_type, counter_field, metadata=None, ref_ids=None):
     """Record an SOEvent for a campaign contact at most once.
 
@@ -68,6 +133,10 @@ def _record_once(cc, event_type, counter_field, metadata=None, ref_ids=None):
     so the same reply/bounce is seen repeatedly. Without this guard the counters
     inflate on every pass (the previous behaviour: one reply sitting in the inbox
     for a week added ~672 to total_replied).
+
+    event_type == 'bounced' additionally invalidates this (campaign, email)'s
+    prior delivered/opened/clicked history on the same first-recording branch
+    below — see _invalidate_post_bounce_engagement.
     """
     from Email_validate_app.models import SOCampaign, SOEvent
 
@@ -129,6 +198,40 @@ def _record_once(cc, event_type, counter_field, metadata=None, ref_ids=None):
     SOCampaign.objects.filter(id=cc.campaign_id).update(
         **{counter_field: F(counter_field) + 1}
     )
+    if event_type == 'bounced':
+        _invalidate_post_bounce_engagement(cc.campaign_id, cc.email)
+    return True
+
+
+def _record_soft_bounce(cc, metadata):
+    """A soft (4.x.x, transient) bounce — recorded as its own event_type so
+    is_contact_bounced()/stop_all_for_email's cross-campaign suppression
+    (both keyed off event_type='bounced' specifically) are never triggered,
+    per the business rule that a soft bounce must not globally suppress an
+    address the way a hard bounce does. Still retracts this (campaign,
+    email)'s stale delivered/opened/clicked history exactly like a hard
+    bounce does — reuses _invalidate_post_bounce_engagement unchanged,
+    since "did this specific send get engaged with" is invalid the moment
+    ANY bounce (soft or hard) proves the message didn't actually land.
+
+    Mirrors _record_once's own dedupe-by-existence guard so IMAP's repeated
+    ~15-minute re-scan of the same DSN can't create a second soft_bounced
+    row or invalidate/decrement anything a second time.
+    """
+    from Email_validate_app.models import SOEvent
+
+    exists = SOEvent.objects.filter(
+        campaign_id=cc.campaign_id, email=cc.email, event_type='soft_bounced',
+    ).exists()
+    if exists:
+        return False
+    SOEvent.objects.create(
+        campaign=cc.campaign, prospect=cc.prospect,
+        account_id=cc.account_id, message_id=cc.message_id,
+        email=cc.email, event_type='soft_bounced', metadata=metadata or {},
+        step_order=cc.current_step - 1 if cc.current_step > 0 else None,
+    )
+    _invalidate_post_bounce_engagement(cc.campaign_id, cc.email)
     return True
 
 
@@ -207,24 +310,25 @@ def _handle_bounce_candidate(imap, msg, num, account, from_hdr, subject_hdr, in_
     DSN quoting the original Message-ID in In-Reply-To/References (which
     every well-formed bounce does) can never be misread as a reply first.
 
-    A real, parseable soft (4.x.x) DSN is logged only — a temporary failure
-    is not a permanent delivery failure and must not suppress future sends.
-    Everything else (a hard 5.x.x DSN, or bounce-looking mail whose body
-    isn't a parseable DSN at all) uses the existing match-and-suppress
-    logic unchanged, so today's Gmail bounce handling keeps working exactly
-    as it did before DSN-body parsing existed.
+    A real, parseable soft (4.x.x) DSN still retracts the matched
+    contact(s)' stale delivered/opened/clicked history (see
+    _record_soft_bounce) but never suppresses future sends — a temporary
+    failure is not a permanent delivery failure. Everything else (a hard
+    5.x.x DSN, or bounce-looking mail whose body isn't a parseable DSN at
+    all) uses the existing match-and-suppress logic unchanged, so today's
+    Gmail bounce handling keeps working exactly as it did before DSN-body
+    parsing existed.
     """
     from Email_validate_app.models import SOCampaignContact
     from Email_validate_app.services.so_drip import stop_all_for_email
 
     severity = _parse_dsn_severity(imap, num)
-    if severity == 'soft':
-        logger.info('so_imap: soft (temporary) bounce for account %s, not suppressing: %s',
-                    account.id, subject_hdr[:120])
-        return
 
     # Gmail and most MTAs name the dead address in X-Failed-Recipients;
-    # fall back to the original Message-ID when the DSN quotes it.
+    # fall back to the original Message-ID when the DSN quotes it. Matching
+    # happens BEFORE branching on severity — both a soft and a hard bounce
+    # need to know which contact(s) it's about; only what's done with the
+    # match differs below.
     failed = _decode_header_value(msg.get('X-Failed-Recipients', '')).strip().lower()
     bounced_ccs = []
     if failed:
@@ -251,17 +355,25 @@ def _handle_bounce_candidate(imap, msg, num, account, from_hdr, subject_hdr, in_
                 message_id__in=ref_ids, campaign__user_id=account.user_id,
             ).select_related('prospect', 'campaign')
         )
-    if bounced_ccs:
-        for cc in bounced_ccs:
-            _record_once(cc, 'bounced', 'total_bounced',
-                         {'subject': subject_hdr[:200], 'severity': severity or 'unknown'})
-            # Stops this contact AND every other in-flight contact for the
-            # same address across this same user's other currently-running
-            # campaigns.
-            stop_all_for_email(account.user_id, cc.email, 'bounced')
-    else:
+    if not bounced_ccs:
         logger.info('so_imap: bounce for account %s could not be matched: %s',
                     account.id, subject_hdr[:120])
+        return
+
+    if severity == 'soft':
+        logger.info('so_imap: soft (temporary) bounce for account %s, not suppressing: %s',
+                    account.id, subject_hdr[:120])
+        for cc in bounced_ccs:
+            _record_soft_bounce(cc, {'subject': subject_hdr[:200], 'severity': 'soft'})
+        return
+
+    for cc in bounced_ccs:
+        _record_once(cc, 'bounced', 'total_bounced',
+                     {'subject': subject_hdr[:200], 'severity': severity or 'unknown'})
+        # Stops this contact AND every other in-flight contact for the
+        # same address across this same user's other currently-running
+        # campaigns.
+        stop_all_for_email(account.user_id, cc.email, 'bounced')
 
 
 def _mailbox_is_valid_for_reply(sending_account_id, campaign, syncing_account):
@@ -273,10 +385,12 @@ def _mailbox_is_valid_for_reply(sending_account_id, campaign, syncing_account):
       1. Same account — the ordinary case, a reply landing back in the
          mailbox that actually sent it.
       2. A DIFFERENT account, but only when it's this exact campaign's own
-         configured Reply-To Address (SOCampaign.reply_to) — the outbound
-         send now puts a real Reply-To header on the message (see
-         so_smtp.py::build_message), so a genuine reply legitimately lands
-         in that other mailbox instead of the sender's own.
+         configured AND enabled Reply-To Address (SOCampaign.reply_to,
+         gated on reply_to_enabled) — the outbound send only puts a real
+         Reply-To header on the message when that toggle is on (see
+         services/so_drip.py and so_smtp.py::build_message), so a genuine
+         reply legitimately lands in that other mailbox instead of the
+         sender's own only in that case.
 
     Message-ID (what ref_ids in sync_account_inbox is built from) is UUID4-
     generated and therefore globally unique on its own — this check isn't
@@ -291,6 +405,7 @@ def _mailbox_is_valid_for_reply(sending_account_id, campaign, syncing_account):
         return True
     return (
         campaign.user_id == syncing_account.user_id
+        and campaign.reply_to_enabled
         and bool(campaign.reply_to)
         and campaign.reply_to.strip().lower() == syncing_account.email.strip().lower()
     )

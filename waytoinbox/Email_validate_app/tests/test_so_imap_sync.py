@@ -31,6 +31,7 @@ import uuid
 from datetime import time
 from unittest.mock import MagicMock, patch
 
+from django.db.models import F
 from django.test import TestCase, override_settings
 
 from Email_validate_app.models import (
@@ -51,6 +52,11 @@ def make_account(user, email, sent_folder='Sent'):
         email=email, smtp_host='smtp.test', smtp_port=587,
         imap_host='imap.test', imap_port=993, username=email,
         password='x', daily_limit=50, status='connected',
+        # Fully authenticated by default — this fixture represents a
+        # normal, working sender account throughout this file's tests;
+        # individual sender-authentication tests set these explicitly
+        # instead (see tests/test_so_sender_authentication.py).
+        spf_status='pass', dkim_status='pass', dmarc_status='pass',
         # Pre-set so _discover_sent_folder never needs a real IMAP LIST.
         sent_folder=sent_folder,
     )
@@ -281,6 +287,64 @@ class SoftBounceTests(TestCase):
         cc.refresh_from_db()
         self.assertNotEqual(cc.status, 'stopped')
 
+    def test_soft_bounce_deletes_delivered_opened_clicked_but_keeps_sent(self):
+        """FINAL RULE (soft-bounce cleanup): a soft bounce must ALSO retract
+        stale delivered/opened/clicked -- the address didn't validly
+        receive/open/click that message either -- while total_bounced,
+        'bounced'/'replied' events, and cc.status stay exactly as asserted
+        in test_soft_bounce_is_not_recorded_or_suppressed above (untouched
+        by this new cleanup, which is scoped to a distinct 'soft_bounced'
+        event type)."""
+        msg_id = _msgid()
+        cc = make_sent_contact(self.campaign, self.account, 'wasengaged@example.com', msg_id)
+        # Mirrors real counter state _record_success/views/so_tracking.py
+        # would have left -- make_sent_contact only writes the SOEvent rows.
+        SOCampaign.objects.filter(id=self.campaign.id).update(
+            total_sent=F('total_sent') + 1, total_delivered=F('total_delivered') + 1,
+        )
+        SOEvent.objects.create(campaign=self.campaign, email=cc.email, event_type='opened', metadata={})
+        SOEvent.objects.create(campaign=self.campaign, email=cc.email, event_type='clicked', metadata={})
+        SOCampaign.objects.filter(id=self.campaign.id).update(
+            total_opened=F('total_opened') + 1, total_clicked=F('total_clicked') + 1,
+        )
+
+        dsn = _raw_dsn('mailer-daemon@googlemail.com', self.account.email,
+                       status='4.2.2', in_reply_to=msg_id, failed_recipient=cc.email)
+        _sync(self.account, {b'1': dsn})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='sent').count(), 1)
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='delivered').count(), 0)
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='opened').count(), 0)
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='clicked').count(), 0)
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='soft_bounced').count(), 1)
+        self.campaign.refresh_from_db()
+        self.assertEqual(self.campaign.total_sent, 1)
+        self.assertEqual(self.campaign.total_delivered, 0)
+        self.assertEqual(self.campaign.total_opened, 0)
+        self.assertEqual(self.campaign.total_clicked, 0)
+        self.assertEqual(self.campaign.total_bounced, 0)
+        cc.refresh_from_db()
+        self.assertNotEqual(cc.status, 'stopped')
+
+    def test_reprocessing_the_same_soft_bounce_is_idempotent(self):
+        """IMAP's ~15-minute re-scan seeing the identical DSN twice must not
+        create a second soft_bounced row or invalidate/decrement anything
+        a second time."""
+        msg_id = _msgid()
+        cc = make_sent_contact(self.campaign, self.account, 'repeatsoft@example.com', msg_id)
+        dsn = _raw_dsn('mailer-daemon@googlemail.com', self.account.email,
+                       status='4.2.2', in_reply_to=msg_id, failed_recipient=cc.email)
+
+        _sync(self.account, {b'1': dsn})
+        self.assertEqual(
+            SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='soft_bounced').count(), 1,
+        )
+
+        _sync(self.account, {b'1': dsn})
+        self.assertEqual(
+            SOEvent.objects.filter(campaign=self.campaign, email=cc.email, event_type='soft_bounced').count(), 1,
+        )
+
     def test_unparseable_bounce_still_defaults_to_hard_for_backward_compatibility(self):
         """A bounce-looking message that isn't a well-formed DSN body (the
         old subject/From heuristic only) keeps today's exact behavior --
@@ -311,6 +375,7 @@ class SMTPTimeRejectionTests(TestCase):
             email='smtpsender@example.com', smtp_host='smtp.test', smtp_port=587,
             imap_host='imap.test', imap_port=993, username='smtpsender@example.com',
             password='x', daily_limit=50, status='connected',
+            spf_status='pass', dkim_status='pass', dmarc_status='pass',
         )
         self.campaign = make_campaign(self.user)
         self.prospect = SOProspect.objects.create(
@@ -583,9 +648,10 @@ class ReplyToHeaderTests(TestCase):
         raw = mock_server.sendmail.call_args[0][2]
         return email_pkg.message_from_bytes(raw)
 
-    def test_reply_to_header_present_when_campaign_has_one(self):
+    def test_reply_to_header_present_when_enabled(self):
         self.campaign.reply_to = 'sales@company.com'
-        self.campaign.save(update_fields=['reply_to'])
+        self.campaign.reply_to_enabled = True
+        self.campaign.save(update_fields=['reply_to', 'reply_to_enabled'])
 
         msg = self._sent_message()
 
@@ -601,18 +667,32 @@ class ReplyToHeaderTests(TestCase):
         """Scenario A -- regression guard: an empty/blank reply_to (the
         model default) must never emit a Reply-To header at all."""
         self.assertEqual(self.campaign.reply_to, '')
+        self.assertFalse(self.campaign.reply_to_enabled)
 
         msg = self._sent_message()
 
         self.assertIsNone(msg['Reply-To'])
         self.assertIn(self.account.email, msg['From'])
 
+    def test_reply_to_toggle_off_suppresses_header_even_when_address_is_set(self):
+        """THE toggle: a Reply-To Address typed in but left disabled must
+        behave exactly like today's default (no address configured at
+        all) -- the stored address is never used while the toggle is off."""
+        self.campaign.reply_to = 'sales@company.com'
+        self.campaign.reply_to_enabled = False
+        self.campaign.save(update_fields=['reply_to', 'reply_to_enabled'])
+
+        msg = self._sent_message()
+
+        self.assertIsNone(msg['Reply-To'])
+
     def test_other_headers_unaffected_by_reply_to(self):
         """Adding Reply-To must not disturb Message-ID/In-Reply-To/
         List-Unsubscribe -- set up a second step so In-Reply-To is
         populated too."""
         self.campaign.reply_to = 'sales@company.com'
-        self.campaign.save(update_fields=['reply_to'])
+        self.campaign.reply_to_enabled = True
+        self.campaign.save(update_fields=['reply_to', 'reply_to_enabled'])
         prior_msg_id = _msgid()
         self.cc.message_id = prior_msg_id
         self.cc.save(update_fields=['message_id'])
@@ -643,7 +723,8 @@ class ReplyToMailboxTrackingTests(TestCase):
         self.reply_mailbox = make_account(self.user, 'sales@company.com', sent_folder='Sent2')
         self.campaign = make_campaign(self.user, name='Reply-To Campaign')
         self.campaign.reply_to = self.reply_mailbox.email
-        self.campaign.save(update_fields=['reply_to'])
+        self.campaign.reply_to_enabled = True
+        self.campaign.save(update_fields=['reply_to', 'reply_to_enabled'])
 
     def test_reply_landing_in_the_reply_to_mailbox_is_matched(self):
         """Scenario B, tier 1a: strong Message-ID match, but the incoming
@@ -764,6 +845,29 @@ class ReplyToMailboxTrackingTests(TestCase):
         _sync(self.sender, {b'2': reply2})
         self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
 
+    def test_reply_to_toggle_off_falls_back_to_sending_account_only(self):
+        """THE toggle: an address still configured but disabled must behave
+        like Scenario A (no Reply-To) -- a reply landing in that mailbox
+        does NOT match, even though campaign.reply_to itself is unchanged."""
+        self.campaign.reply_to_enabled = False
+        self.campaign.save(update_fields=['reply_to_enabled'])
+        msg_id = _msgid()
+        make_sent_contact(self.campaign, self.sender, 'john@gmail.com', msg_id)
+
+        reply = _raw_message({
+            'From': 'john@gmail.com', 'To': self.reply_mailbox.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Should not match while the Reply-To toggle is off.')
+        _sync(self.reply_mailbox, {b'1': reply})
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 0)
+
+        reply2 = _raw_message({
+            'From': 'john@gmail.com', 'To': self.sender.email, 'Subject': 'Re: Hello',
+            'Message-ID': _msgid(), 'In-Reply-To': msg_id, 'References': msg_id,
+        }, body='Should still match at the real sending account.')
+        _sync(self.sender, {b'2': reply2})
+        self.assertEqual(SOEvent.objects.filter(campaign=self.campaign, event_type='replied').count(), 1)
+
     def test_syncing_the_same_reply_twice_does_not_duplicate(self):
         """Idempotency (_record_once): re-syncing the same message must
         never create a second 'replied' SOEvent or double-increment
@@ -823,7 +927,8 @@ class ReplyToMailboxTrackingTests(TestCase):
         )
         campaign = make_campaign(cross_provider_user, name='Cross-Provider Campaign')
         campaign.reply_to = m365_reply_to.email
-        campaign.save(update_fields=['reply_to'])
+        campaign.reply_to_enabled = True
+        campaign.save(update_fields=['reply_to', 'reply_to_enabled'])
 
         # Prospect on a third provider (Yahoo) -- irrelevant to matching
         # (the prospect has no SOEmailAccount at all), included only to

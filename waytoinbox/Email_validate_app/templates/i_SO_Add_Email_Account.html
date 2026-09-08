@@ -106,17 +106,17 @@
       </div>
       <div class="so-field">
         <label>Display Name</label>
-        <input type="text" id="awDisplay" placeholder="Your Name" maxlength="200"/>
+        <input type="text" id="awDisplay" placeholder="Your Name" maxlength="200" autocomplete="name"/>
       </div>
       <div class="so-field">
         <label>Email <span class="req">*</span></label>
-        <input type="email" id="awEmail" placeholder="you@gmail.com" maxlength="255" autocomplete="email"/>
+        <input type="email" id="awEmail" placeholder="you@yourcompany.com" maxlength="255" autocomplete="email"/>
       </div>
       <div class="so-field">
         <label>App Password <span class="req">*</span></label>
         <div class="aw-pwd-wrap">
           <input type="password" id="awPassword" placeholder="Enter your app password" maxlength="200"
-                 autocomplete="off" class="aw-pwd-input"/>
+                 autocomplete="new-password" class="aw-pwd-input"/>
           <button type="button" tabindex="-1" onclick="togglePwd()" class="aw-pwd-toggle">
             <i class="fas fa-eye" id="awPwdEye"></i>
           </button>
@@ -190,7 +190,16 @@ function saveAccount() {
     body:JSON.stringify({action:'add',provider:_provider,display_name:document.getElementById('awDisplay').value.trim(),email:email,password:pwd}),
   }).then(r=>r.json()).then(d=>{
     if(d.status!=='ok'){btn.disabled=false;btn.innerHTML='<i class="fas fa-save"></i> Save Account';err.textContent=d.message||'Error.';err.hidden=false;return;}
-    WTI.toast('Account connected!','success');
+    // The account is saved either way, but 'result' reflects the REAL SMTP/
+    // IMAP login attempt -- never claim "connected" for an invalid App
+    // Password. A failed login still redirects (the account row exists and
+    // is visible on the list page, e.g. to Reconnect after fixing the
+    // password), but with a warning toast instead of a false success one.
+    if (d.result === 'connected') {
+      WTI.toast('Account connected!', 'success');
+    } else {
+      WTI.toast(d.error_msg || 'Account saved, but the connection failed. Check the App Password and Reconnect.', 'error');
+    }
     setTimeout(()=>window.location.href=LIST_URL,700);
   }).catch(()=>{btn.disabled=false;btn.innerHTML='<i class="fas fa-save"></i> Save Account';err.textContent='Network error.';err.hidden=false;});
 }

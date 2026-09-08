@@ -3,6 +3,7 @@ from django.http import JsonResponse, HttpResponse, FileResponse
 from django.contrib import messages
 from django.urls import reverse
 from django.conf import settings
+from django.core.cache import cache
 from django.views.decorators.http import require_POST
 from django.db.models import Sum, Max
 from django.utils import timezone
@@ -59,6 +60,28 @@ from Email_validate_app.services.credit_manager import (
     insert_ac_credits, insert_cc_credits,
     calculate_price, manage_credits,
 )
+
+
+# Binds a legacy (non-service-credit) Razorpay order to the account that
+# created it, so that switching the active Main/Sub Account context between
+# order creation and verification can never move a payment/credits to a
+# different account than the one that started the purchase. Mirrors the
+# invariant views/credits.py already gets for free from its ServiceOrder
+# row (order_id + user_id, checked together at verify time) -- these two
+# legacy flows never persisted a creator identity anywhere, so a lightweight
+# cache entry is the smallest fix that doesn't touch Payment/SubsPayment's
+# existing "only real completed payments" semantics. TTL is generous (1
+# hour) so a normal, slow checkout never gets rejected; a peek (not pop) so
+# a legitimate double-click/retry by the same account still finds it.
+_LEGACY_ORDER_OWNER_TTL = 3600
+
+
+def _remember_legacy_order_owner(order_id, user_id):
+    cache.set(f'legacy_order_owner:{order_id}', user_id, _LEGACY_ORDER_OWNER_TTL)
+
+
+def _get_legacy_order_owner(order_id):
+    return cache.get(f'legacy_order_owner:{order_id}') if order_id else None
 
 
 def fetch_user_data(user_id):
@@ -261,6 +284,7 @@ def order_payment(request):
         try:
             payment = client.order.create(data=data)
             payment['display_amount'] = payment['amount'] / 100
+            _remember_legacy_order_owner(payment['id'], user_id)
         except BadRequestError as e:
             logger.error("Razorpay bad request error: %s", e)
             if is_ajax:
@@ -336,6 +360,25 @@ def payment(request):
         plans_val          = request.POST.get('plan')
         description        = request.POST.get('description')
         payer_name         = request.POST.get('user_name')
+
+        # SEC-XX: the account active now must be the same one that created
+        # this order -- switching Main/Sub Account context between order
+        # creation and verification must never move a payment to a
+        # different account than the one that started it. order_payment()/
+        # download_results() record the creator in cache; a miss (expired,
+        # or no matching entry) is treated as unverifiable and rejected
+        # rather than trusting whichever account happens to be active now.
+        order_owner_id = _get_legacy_order_owner(order_id)
+        if order_owner_id != user_id:
+            logger.warning(
+                "Payment order/account mismatch: order=%s created_by=%s current_active=%s",
+                order_id, order_owner_id, user_id)
+            if is_ajax:
+                return JsonResponse({"status": "error",
+                                     "message": "This order was started under a different account. Please start a new purchase."},
+                                    status=403)
+            messages.error(request, "This order was started under a different account. Please start a new purchase.")
+            return redirect('pricing')
 
         # SEC-02: verify Razorpay payment signature before crediting
         if payment_id and order_id and razorpay_signature:
@@ -510,6 +553,11 @@ def download_results(request):
                     "currency": "USD",
                     "receipt": receipt_id,
                 })
+                # This order is completed via the same payment() verify view
+                # as order_payment()'s -- must be recorded here too, or a
+                # perfectly normal (non-switched) download-triggered
+                # purchase would start failing once payment() requires this.
+                _remember_legacy_order_owner(payment_rz['id'], user_id)
             except razorpay.errors.BadRequestError as e:
                 return JsonResponse({"status": "error", "message": "Invalid request to payment gateway."}, status=400)
             except razorpay.errors.RazorpayError as e:
@@ -732,15 +780,14 @@ def generate_pdf(request, id):
 
 @require_POST
 def contact_us(request):
-    user_id = get_user_id(request)
-    if not user_id:
-        return JsonResponse({"status": "error", "message": "Login required"}, status=401)
-
+    # Anonymous submissions are allowed (e.g. a visitor blocked at signup,
+    # who by definition has no session) alongside the pre-existing
+    # logged-in path — the form's own name/email/message fields are
+    # already independent of any logged-in user's identity.
     from django.core.mail import send_mail
 
-    user = fetch_user_data(user_id)
-    user_name = user.user_name
-    user_email = user.user_email
+    user_id = get_user_id(request)
+    user = fetch_user_data(user_id) if user_id else None
 
     name = request.POST.get('name')
     email = request.POST.get('email')
@@ -750,9 +797,9 @@ def contact_us(request):
     full_message = (
         f"Name: {name}\n"
         f"Email: {email}\n"
-        f"User Id: {user_id}\n"
-        f"User Name: {user_name}\n"
-        f"User Email: {user_email}\n"
+        f"User Id: {user_id or 'N/A (not logged in)'}\n"
+        f"User Name: {user.user_name if user else 'N/A (not logged in)'}\n"
+        f"User Email: {user.user_email if user else 'N/A (not logged in)'}\n"
         f"Message: {message}"
     )
 

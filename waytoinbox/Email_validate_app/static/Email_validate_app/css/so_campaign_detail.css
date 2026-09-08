@@ -169,6 +169,7 @@
 .socd-ev-node.clicked      { background: #7C3AED; box-shadow: 0 0 0 2px rgba(124,58,237,.25); }
 .socd-ev-node.replied      { background: #009977; box-shadow: 0 0 0 2px rgba(0,153,119,.25); }
 .socd-ev-node.bounced      { background: #E11D48; box-shadow: 0 0 0 2px rgba(225,29,72,.25); }
+.socd-ev-node.soft_bounced { background: #F59E0B; box-shadow: 0 0 0 2px rgba(245,158,11,.25); }
 .socd-ev-node.complained   { background: #EA580C; box-shadow: 0 0 0 2px rgba(234,88,12,.25); }
 .socd-ev-node.unsubscribed { background: #CA8A04; box-shadow: 0 0 0 2px rgba(202,138,4,.25); }
 .socd-ev-node.inactive     { background: var(--bg); border: 1.5px solid var(--border); }
@@ -184,6 +185,7 @@
 .socd-ev-badge.clicked      { background: #F3F0FF;        color: #6C4BC9;        border: 1px solid rgba(108,75,201,.2); }
 .socd-ev-badge.replied      { background: var(--mint-lt); color: #009977;        border: 1px solid rgba(0,153,119,.2); }
 .socd-ev-badge.bounced      { background: #FFF3EF;        color: #C94A1D;        border: 1px solid rgba(255,107,53,.2); }
+.socd-ev-badge.soft_bounced { background: #FFF8EB;        color: #B45309;        border: 1px solid rgba(245,158,11,.2); }
 .socd-ev-badge.complained   { background: #FFFBEF;        color: #9A6800;        border: 1px solid rgba(255,188,0,.2); }
 .socd-ev-badge.unsubscribed { background: #F3F0FF;        color: #7C3AED;        border: 1px solid rgba(124,58,237,.2); }
 
@@ -219,5 +221,6 @@
 [data-theme="dark"] .socd-stat { background: var(--bg-2); }
 [data-theme="dark"] .socd-ev-badge.clicked      { background: rgba(108,75,201,.2); color: #C4ADFF; border-color: rgba(108,75,201,.3); }
 [data-theme="dark"] .socd-ev-badge.bounced      { background: rgba(201,74,29,.18);  color: #FF8060; border-color: rgba(201,74,29,.3); }
+[data-theme="dark"] .socd-ev-badge.soft_bounced { background: rgba(180,83,9,.18);   color: #FBBF24; border-color: rgba(180,83,9,.3); }
 [data-theme="dark"] .socd-ev-badge.complained   { background: rgba(200,150,0,.16);  color: #FFB83F; border-color: rgba(200,150,0,.28); }
 [data-theme="dark"] .socd-ev-badge.unsubscribed { background: rgba(124,58,237,.2);  color: #C9A8FF; border-color: rgba(124,58,237,.3); }

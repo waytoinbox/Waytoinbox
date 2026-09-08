@@ -115,8 +115,24 @@
 .soea-col-warmup      { width: 130px; }
 .soea-col-reply       { width: 84px; }
 .soea-col-campaigns   { width: 84px; }
+.soea-col-auth        { width: 84px; text-align: center; }
+.soea-auth-cell       { text-align: center; }
 .soea-col-actions     { width: 150px; text-align: center; }
 .soea-actions-cell    { text-align: center; }
+
+/* SPF/DKIM/DMARC column — icons only, one row, tooltip carries the
+   protocol name + pass/fail/unchecked (the full-text badges still used
+   in the Edit panel's own Sender Authentication section are unaffected
+   -- .soea-auth-row/.so-badge.pass/.fail there, so.css). One icon per
+   protocol so they stay visually distinguishable without text:
+   envelope=SPF, key=DKIM, shield=DMARC. */
+.soea-auth-icons { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+.soea-auth-icon  { font-size: 14px; cursor: default; }
+.soea-auth-icon--pass      { color: #15803D; }
+.soea-auth-icon--fail      { color: #B91C1C; }
+.soea-auth-icon--unchecked { color: var(--ink-3); }
+[data-theme="dark"] .soea-auth-icon--pass { color: #86EFAC; }
+[data-theme="dark"] .soea-auth-icon--fail { color: #FCA5A5; }
 
 /* Actions column (V4.7) — Analytics and the kebab menu now share one cell
    instead of two separate columns. Inner-div flex wrapper (not on the

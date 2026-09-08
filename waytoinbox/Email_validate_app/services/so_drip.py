@@ -235,9 +235,15 @@ def _get_contact_account(cc):
     if cc.account_id:
         return cc.account
 
+    # Sending eligibility = connected AND SPF pass (SOEmailAccount.
+    # is_sending_eligible()) -- can't call the model method directly in a
+    # QuerySet filter, so this mirrors it field-by-field. DKIM/DMARC are
+    # deliberately NOT filtered on here; they're checked/shown but must
+    # never block a self-heal pick the way a failed SPF record does.
     rotations = list(
         cc.campaign.account_rotations
-        .filter(account__deleted_at__isnull=True, account__status='connected')
+        .filter(account__deleted_at__isnull=True, account__status='connected',
+                account__spf_status='pass')
         .select_related('account')
         .order_by('order')
     )
@@ -496,6 +502,39 @@ def send_next_step(cc):
             )
         return False
 
+    # Re-verified on every send, not just at enrollment/self-heal
+    # (_get_contact_account's own rotations filter already excludes a
+    # non-eligible account there, but that filter never re-runs for a
+    # contact that already has cc.account set, sticky from step 1 onward —
+    # so an account that becomes SMTP/IMAP-disconnected or SPF-fail AFTER a
+    # contact was assigned to it must still be caught here, every step).
+    # is_sending_eligible() == connected AND SPF pass -- DKIM/DMARC never
+    # block a send on their own (see SOEmailAccount.is_sending_eligible's
+    # own docstring). Same bounded-retry mechanism as "no valid sender
+    # account" immediately above, reused rather than inventing a second
+    # one, per instructions to use the application's existing validation/
+    # error mechanism.
+    if not account.is_sending_eligible():
+        attempts = cc.attempts + 1
+        if attempts >= MAX_ATTEMPTS:
+            SOCampaignContact.objects.filter(id=cc.id, status='sending').update(
+                status='failed', attempts=attempts,
+                error='sender account is not eligible to send (SMTP/IMAP disconnected or SPF failed)',
+                next_action_at=None,
+            )
+            SOCampaign.objects.filter(id=campaign.id).update(total_failed=F('total_failed') + 1)
+            logger.error('so_drip: campaign %s contact %s failed permanently — sender account %s '
+                        'not sending-eligible (SMTP/IMAP disconnected or SPF failed) after %s attempts',
+                        campaign.id, cc.id, account.id, attempts)
+        else:
+            logger.error('so_drip: campaign %s contact %s — sender account %s not sending-eligible '
+                         '(SMTP/IMAP disconnected or SPF failed), attempt %s/%s',
+                         campaign.id, cc.id, account.id, attempts, MAX_ATTEMPTS)
+            SOCampaignContact.objects.filter(id=cc.id, status='sending').update(
+                status='active', attempts=attempts, next_action_at=now() + RETRY_DELAY,
+            )
+        return False
+
     claimed, effective_limit = _reserve_quota_slot(campaign, account)
     if not claimed:
         next_at = _next_utc_midnight()
@@ -546,7 +585,11 @@ def send_next_step(cc):
             msg = build_message(from_nm, account.email, cc.email,
                                 variant.subject, personalized_html, unsub_url, msg_id,
                                 in_reply_to=cc.message_id or None,
-                                reply_to=campaign.reply_to or '')
+                                # Only used when the campaign's Reply-To toggle is on --
+                                # off means today's default behavior (replies go back to
+                                # the sending account), regardless of what's still typed
+                                # into reply_to itself.
+                                reply_to=campaign.reply_to if campaign.reply_to_enabled else '')
             refused = server.sendmail(account.email, cc.email, msg.as_bytes())
             if refused and cc.email in refused:
                 raise smtplib.SMTPRecipientsRefused(refused)
@@ -652,6 +695,25 @@ def _record_conversation_send(cc, campaign, account, subject, html, msg_id, sent
     )
 
 
+def is_contact_bounced(campaign_id, email):
+    """True if THIS exact campaign+email already has a recorded hard bounce.
+
+    Deliberately scoped tight to (campaign, email) -- NOT the broader,
+    already-existing per-user cross-campaign suppression check used at
+    enrollment time (tasks/so_send_campaign.py) and before every send
+    (send_next_step below). This answers a narrower question: "did this
+    specific message bounce", used by views/so_tracking.py to stop
+    recording new opened/clicked events for a message that never actually
+    reached the recipient -- a hard bounce on Campaign X must not block
+    tracking for an unrelated, successfully-delivered send to the same
+    address on Campaign Y.
+    """
+    from Email_validate_app.models import SOEvent
+    return SOEvent.objects.filter(
+        campaign_id=campaign_id, email=email, event_type='bounced',
+    ).exists()
+
+
 def _record_success(cc, campaign, step, variant, msg_id, account, personalized_html):
     from Email_validate_app.models import SOCampaignContact, SOEvent, SOCampaign
 
@@ -683,6 +745,25 @@ def _record_success(cc, campaign, step, variant, msg_id, account, personalized_h
         event_type='sent', metadata={'step': cc.current_step, 'account_id': account.id},
         step_order=cc.current_step,
     )
+    # 'delivered' here means "the sending mailbox's own SMTP relay accepted
+    # this message" -- it is NOT a genuine recipient-side delivery
+    # confirmation, because this system has no such signal (no ESP
+    # webhook/CloudWatch-style event feed for Sales Outreach, unlike the
+    # separate Email Marketing product's CampaignStats/cloudwatch_sync.py).
+    # Writing it here, unconditionally, is deliberately left unchanged: it's
+    # the best available proxy for "sent and not yet known to have failed",
+    # and every non-bounced recipient's open/click tracking (and the
+    # delivered-based percentages in services/so_analytics.py) depends on
+    # this event existing. Inventing a delayed/fake "real" delivered signal
+    # would need new infrastructure this task explicitly avoids.
+    #
+    # If this same (campaign, email) later hard-bounces, this event (and any
+    # opened/clicked recorded against it) is retracted then, not now:
+    # services/so_imap.py::_invalidate_post_bounce_engagement deletes it and
+    # decrements total_delivered back out, at the moment the bounce is first
+    # recorded (called from _record_once, so it fires at most once). Until
+    # and unless that happens, this is the correct, best-available signal —
+    # so it's written here exactly as before.
     SOEvent.objects.create(
         campaign_id=campaign.id, prospect_id=cc.prospect_id, account_id=account.id,
         message_id=msg_id, email=cc.email,

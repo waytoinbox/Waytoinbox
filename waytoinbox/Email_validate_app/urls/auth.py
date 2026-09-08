@@ -4,6 +4,7 @@ from Email_validate_app import views
 urlpatterns = [
     path("", views.home, name="home"),
     path("signup/", views.signup, name="signup"),
+    path("request-free-email-signup/", views.request_free_email_signup, name="request_free_email_signup"),
     path("login/", views.login, name="login"),
     path("logout/", views.logout, name="logout"),
     path("verify/<uidb64>/<token>/", views.verify_email, name="verify_email"),

@@ -16,6 +16,12 @@ urlpatterns = [
     path('wti-admin/users/<int:uid>/reset-password/',      av.admin_user_reset_password, name='admin_user_reset_pw'),
     path('wti-admin/users/<int:uid>/delete/',              av.admin_user_delete,         name='admin_user_delete'),
 
+    # Free Email Signup Requests
+    path('wti-admin/free-email-requests/',                     av.admin_free_email_requests,        name='admin_free_email_requests'),
+    path('wti-admin/free-email-requests/<int:rid>/',            av.admin_free_email_request_detail,  name='admin_free_email_request_detail'),
+    path('wti-admin/free-email-requests/<int:rid>/approve/',    av.admin_free_email_request_approve, name='admin_free_email_request_approve'),
+    path('wti-admin/free-email-requests/<int:rid>/reject/',     av.admin_free_email_request_reject,  name='admin_free_email_request_reject'),
+
     # Campaign Management
     path('wti-admin/campaigns/',                           av.admin_campaigns,           name='admin_campaigns'),
     path('wti-admin/campaigns/<int:cid>/',                 av.admin_campaign_detail,     name='admin_campaign_detail'),

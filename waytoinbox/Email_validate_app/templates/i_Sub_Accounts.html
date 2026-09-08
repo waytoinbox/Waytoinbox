@@ -1,0 +1,183 @@
+{% extends 'i_index.html' %}
+{% load static %}
+{% block extra_css %}
+<link rel="stylesheet" href="{% static 'Email_validate_app/css/sub_accounts.css' %}"/>
+{% endblock %}
+{% block content %}
+<div class="db-page">
+
+  <div class="sa-header">
+    <div>
+      <h1>Sub Accounts</h1>
+      <p>Create and manage independent Sub Accounts. Each has its own login, dashboard, credits, and data.</p>
+    </div>
+    <button class="btn btn-primary" id="saCreateToggle" type="button">
+      <i class="fas fa-plus"></i> Create Sub Account
+    </button>
+  </div>
+
+  <div class="sa-create-card" id="saCreateCard" hidden>
+    <div id="saCreateAlert"></div>
+    <form id="saCreateForm" novalidate>
+      {% csrf_token %}
+      <div class="sa-form-row">
+        <div class="sa-field">
+          <label for="saName">Name</label>
+          <input class="sa-input" type="text" name="user_name" id="saName" autocomplete="off" required/>
+        </div>
+        <div class="sa-field">
+          <label for="saEmail">Business Email</label>
+          <input class="sa-input" type="email" name="user_email" id="saEmail" placeholder="sub1@yourcompany.com" autocomplete="off" required/>
+        </div>
+      </div>
+      <div class="sa-form-row">
+        <div class="sa-field">
+          <label for="saPassword">Password</label>
+          <div class="login-input-wrap">
+            <input class="sa-input" type="password" name="password" id="saPassword" autocomplete="new-password" required style="padding-right:42px"/>
+            <i class="fa-solid fa-eye-slash login-toggle-pw" id="saTogglePassword"></i>
+          </div>
+        </div>
+        <div class="sa-field">
+          <label for="saConfirm">Confirm Password</label>
+          <div class="login-input-wrap">
+            <input class="sa-input" type="password" name="confirm_password" id="saConfirm" autocomplete="new-password" required style="padding-right:42px"/>
+            <i class="fa-solid fa-eye-slash login-toggle-pw" id="saToggleConfirm"></i>
+          </div>
+        </div>
+      </div>
+      <div class="sa-form-actions">
+        <button type="button" class="btn btn-outline btn-sm" id="saCreateCancel">Cancel</button>
+        <button type="submit" class="btn btn-primary btn-sm" id="saCreateSubmit">Create Sub Account</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="db-section">
+    <div class="db-sec-head">Your Sub Accounts ({{ sub_accounts|length }})</div>
+    {% if sub_accounts %}
+    <table class="db-act-table" id="saTable">
+      <thead>
+        <tr>
+          <th>Email</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for sub in sub_accounts %}
+        <tr>
+          <td>{{ sub.user_email }}</td>
+          <td>
+            {% if sub.is_verified %}
+              <span class="db-chip db-chip--success">Verified</span>
+            {% else %}
+              <span class="db-chip db-chip--pending">Unverified</span>
+            {% endif %}
+          </td>
+          <td>
+            <span class="local-dt" data-utc="{{ sub.created_date|date:'c' }}" data-format="date">{{ sub.created_date|date:"M j, Y" }}</span>
+          </td>
+          <td>
+            <button class="btn btn-outline btn-sm sa-open-btn" type="button" data-email="{{ sub.user_email }}">Open</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="db-act-empty">
+      <i class="fas fa-users" aria-hidden="true"></i>
+      <p>No Sub Accounts yet. Create one to get started.</p>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+<script>
+(function () {
+  var CSRF = document.querySelector('#saCreateForm [name=csrfmiddlewaretoken]').value;
+
+  var toggleBtn  = document.getElementById('saCreateToggle');
+  var card       = document.getElementById('saCreateCard');
+  var cancelBtn  = document.getElementById('saCreateCancel');
+  var form       = document.getElementById('saCreateForm');
+  var alertEl    = document.getElementById('saCreateAlert');
+  var submitBtn  = document.getElementById('saCreateSubmit');
+
+  function showCreateCard(show) {
+    card.hidden = !show;
+    if (show) document.getElementById('saName').focus();
+  }
+  toggleBtn.addEventListener('click', function () { showCreateCard(card.hidden); });
+  cancelBtn.addEventListener('click', function () { showCreateCard(false); form.reset(); alertEl.innerHTML = ''; });
+
+  /* Password visibility toggles — same show/hide behavior as the signup
+     form's own eye icons (i_signup.html). */
+  function wirePasswordToggle(toggleId, inputId) {
+    var icon = document.getElementById(toggleId);
+    var input = document.getElementById(inputId);
+    icon.addEventListener('click', function () {
+      var isHidden = input.type === 'password';
+      input.type = isHidden ? 'text' : 'password';
+      icon.classList.toggle('fa-eye-slash', !isHidden);
+      icon.classList.toggle('fa-eye', isHidden);
+    });
+  }
+  wirePasswordToggle('saTogglePassword', 'saPassword');
+  wirePasswordToggle('saToggleConfirm', 'saConfirm');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    alertEl.innerHTML = '';
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating…';
+
+    fetch("{% url 'create_sub_account' %}", { method: 'POST', body: new FormData(form) })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.status !== 'ok') {
+          var msg = data.message || 'Please fix the errors below.';
+          alertEl.innerHTML = '<div class="sa-alert sa-alert--error">' + msg + '</div>';
+          return;
+        }
+        if (window.WTI && WTI.toast) WTI.toast('Sub Account created — a verification email has been sent.', 'success');
+        window.location.reload();
+      })
+      .catch(function () {
+        alertEl.innerHTML = '<div class="sa-alert sa-alert--error">Something went wrong. Please try again.</div>';
+      })
+      .finally(function () {
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = 'Create Sub Account';
+      });
+  });
+
+  document.querySelectorAll('.sa-open-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var email = btn.dataset.email;
+      btn.disabled = true;
+      fetch("{% url 'switch_account' %}", {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF },
+        body: JSON.stringify({ email: email }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data.status !== 'ok') {
+            if (window.WTI && WTI.toast) WTI.toast(data.message || 'Could not open that account.', 'error');
+            btn.disabled = false;
+            return;
+          }
+          window.location.href = "{% url 'dashboard' %}";
+        })
+        .catch(function () {
+          if (window.WTI && WTI.toast) WTI.toast('Something went wrong. Please try again.', 'error');
+          btn.disabled = false;
+        });
+    });
+  });
+})();
+</script>
+{% endblock %}

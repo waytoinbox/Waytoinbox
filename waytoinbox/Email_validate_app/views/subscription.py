@@ -24,6 +24,8 @@ from .billing import (
     insert_vc_credits,
     insert_ac_credits,
     insert_cc_credits,
+    _remember_legacy_order_owner,
+    _get_legacy_order_owner,
 )
 
 
@@ -174,6 +176,7 @@ def create_subscription(request):
         try:
             payment_rz = client.order.create(data=data)
             payment_rz['display_amount'] = payment_rz['amount'] / 100
+            _remember_legacy_order_owner(payment_rz['id'], user_id)
         except razorpay.errors.BadRequestError as e:
             if is_ajax:
                 return JsonResponse({"status": "error", "message": "Invalid request to payment gateway."}, status=400)
@@ -240,6 +243,21 @@ def subs_payment(request):
         description        = request.POST.get('description')
         payer_name         = request.POST.get('user_name')
         cc_credits_count   = int(request.POST.get('contacts', 0) or 0)
+
+        # SEC-XX: the account active now must be the same one that created
+        # this order -- see billing.py::payment()'s identical check for the
+        # full rationale. create_subscription() records the creator here.
+        order_owner_id = _get_legacy_order_owner(order_id)
+        if order_owner_id != user_id:
+            logger.warning(
+                "Subs payment order/account mismatch: order=%s created_by=%s current_active=%s",
+                order_id, order_owner_id, user_id)
+            if is_ajax:
+                return JsonResponse({"status": "error",
+                                     "message": "This order was started under a different account. Please start a new purchase."},
+                                    status=403)
+            messages.error(request, "This order was started under a different account. Please start a new purchase.")
+            return redirect('subscription')
 
         # SEC-02: verify Razorpay signature before activating subscription
         if payment_id and order_id and razorpay_signature:

@@ -247,7 +247,15 @@ def score_email(subject, html, preheader=''):
                 f'Preheader is {len(preheader)} characters — most inboxes only show the first ~100, so trim it.')
 
     # ── Compliance ────────────────────────────────────────────────────────────
-    if 'unsubscribe' not in html.lower():
+    # 'unsubscribe_url' in tag_names is the precise signal: a real,
+    # functional unsubscribe mechanism (send_next_step/inject_tracking
+    # actually substitutes this at send time — see so_smtp.py), whether it
+    # sits as bare text or inside an <a href="{{unsubscribe_url}}">
+    # Unsubscribe</a> link (the merge-tag regex above doesn't care about
+    # surrounding HTML). The literal-word check is kept as a fallback for
+    # a manual, non-tag process (e.g. "reply STOP to unsubscribe") rather
+    # than replaced, so this only adds a more precise positive match.
+    if 'unsubscribe_url' not in tag_names and 'unsubscribe' not in html.lower():
         hit('Compliance', 2, 'warn', 'No unsubscribe link — add {{unsubscribe_url}}. Required for compliant outreach.')
 
     label = 'Good' if score <= _GOOD_MAX else ('Fair' if score <= _FAIR_MAX else 'Poor')

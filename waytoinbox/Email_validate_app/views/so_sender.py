@@ -116,13 +116,24 @@ def so_campaigns(request):
     page_campaign_ids = [c.id for c in page_obj]
     engagement_counts = {cid: {'opened': 0, 'clicked': 0} for cid in page_campaign_ids}
     if page_campaign_ids:
+        # A bounced (hard or soft) message never validly reached its
+        # recipient — exclude that (campaign, email)'s opened/clicked from
+        # these counts, same definition services/so_analytics.py::
+        # compute_overview now uses (see _exclude_bounced_engagement
+        # there), so this list keeps matching the campaign detail page for
+        # the same campaign exactly as the comment above already documents.
+        bounced_pairs = set(
+            SOEvent.objects.filter(campaign_id__in=page_campaign_ids, event_type__in=('bounced', 'soft_bounced'))
+                            .values_list('campaign_id', 'email')
+        )
         rows = (
             SOEvent.objects.filter(campaign_id__in=page_campaign_ids, event_type__in=('opened', 'clicked'))
-                            .values('campaign_id', 'event_type')
-                            .annotate(unique=Count('email', distinct=True))
+                            .values_list('campaign_id', 'event_type', 'email')
+                            .distinct()
         )
-        for row in rows:
-            engagement_counts[row['campaign_id']][row['event_type']] = row['unique']
+        for campaign_id, event_type, email in rows:
+            if (campaign_id, email) not in bounced_pairs:
+                engagement_counts[campaign_id][event_type] += 1
     for c in page_obj:
         c.unique_opened_count  = engagement_counts[c.id]['opened']
         c.unique_clicked_count = engagement_counts[c.id]['clicked']
@@ -252,8 +263,13 @@ def _new_campaign_context(request, campaign=None):
     from Email_validate_app.services.so_segment_builder import count_so_segment_prospects
 
     user_id  = get_user_id(request)
+    # "Send From *" only ever offers sending-eligible accounts: SMTP/IMAP
+    # connected AND SPF pass (SOEmailAccount.is_sending_eligible()) --
+    # can't call the model method directly in a QuerySet filter, so this
+    # mirrors it field-by-field. DKIM/DMARC are deliberately NOT filtered
+    # on here; an account failing only those is still offered.
     accounts = SOEmailAccount.objects.filter(
-        user_id=user_id, status='connected', deleted_at__isnull=True,
+        user_id=user_id, status='connected', spf_status='pass', deleted_at__isnull=True,
     ).order_by('email')
     lists = SOList.objects.filter(
         user_id=user_id, status='active', deleted_at__isnull=True,
@@ -288,6 +304,7 @@ def _new_campaign_context(request, campaign=None):
             'sender_send_count_enabled': campaign.sender_send_count_enabled,
             'sender_name':          campaign.from_name,
             'reply_to':             campaign.reply_to,
+            'reply_to_enabled':     campaign.reply_to_enabled,
             'tracking_enabled':     campaign.tracking_enabled,
             'schedule_at':          campaign.schedule_at.isoformat() if campaign.schedule_at else '',
             'schedule_timezone':    campaign.schedule_timezone or 'Asia/Kolkata',
@@ -382,8 +399,22 @@ def so_campaign_detail(request, cid):
     # the same recipient can show Sent→Delivered→Opened→...→Replied at a glance).
     # Built from `contacts` (not just SOEvent) so a contact with zero events yet
     # — e.g. a later sequence step not due yet — still gets a row.
-    _ORDERED_TYPES  = ['sent', 'delivered', 'opened', 'clicked', 'replied', 'bounced', 'complained', 'unsubscribed']
+    _ORDERED_TYPES  = ['sent', 'delivered', 'opened', 'clicked', 'replied', 'bounced', 'soft_bounced', 'complained', 'unsubscribed']
     _EVENT_PRIORITY = {et: i for i, et in enumerate(_ORDERED_TYPES)}
+    # Bounced (hard or soft)/complained is a terminal, negative signal that
+    # proves the message never validly reached the recipient (or was
+    # reported as spam) — once it's this contact's _last_event, nothing
+    # recorded afterward (a stale tracking hit from before
+    # views/so_tracking.py started blocking new ones, or a race that check
+    # can't fully close) may ever replace it as the displayed "final"
+    # status, even though it may have a later timestamp. delivered/opened/
+    # clicked are forced False below for any such row too — for a NEW
+    # bounce these rows no longer even exist in SOEvent (see
+    # services/so_imap.py::_invalidate_post_bounce_engagement/
+    # _record_soft_bounce, which delete them outright), so this is a
+    # display-layer backstop that only matters for legacy pre-fix data
+    # still sitting in the database.
+    _TERMINAL_NEGATIVE = {'bounced', 'soft_bounced', 'complained'}
 
     events_qs = (
         SOEvent.objects.filter(campaign=campaign)
@@ -395,6 +426,8 @@ def so_campaign_detail(request, cid):
         addr = ev['email']
         entry = email_map.setdefault(addr, {'_last_event': None, '_last_time': None})
         entry[ev['event_type']] = True
+        if entry['_last_event'] in _TERMINAL_NEGATIVE:
+            continue
         if entry['_last_time'] is None or ev['created_at'] > entry['_last_time']:
             entry['_last_event'] = ev['event_type']
             entry['_last_time'] = ev['created_at']
@@ -411,6 +444,15 @@ def so_campaign_detail(request, cid):
         }
         for et in _ORDERED_TYPES:
             row[et] = bool(data.get(et))
+        if row['bounced'] or row['soft_bounced'] or row['complained']:
+            # A bounced (hard or soft)/complained address never validly
+            # received the message — delivered/opened/clicked must not
+            # display as engagement for it, whether or not a stray SOEvent
+            # row for one of them still exists (only possible for legacy
+            # data from before _invalidate_post_bounce_engagement/
+            # _record_soft_bounce started deleting these rows at
+            # bounce-recording time).
+            row['delivered'] = row['opened'] = row['clicked'] = False
         recipient_rows.append(row)
     recipient_rows.sort(key=lambda r: _EVENT_PRIORITY.get(r['last_event'] or '', 99))
 
@@ -1139,6 +1181,7 @@ def _duplicate_campaign(campaign, user_id):
         send_mode=campaign.send_mode,
         from_name=campaign.from_name,
         reply_to=campaign.reply_to,
+        reply_to_enabled=campaign.reply_to_enabled,
         schedule_timezone=campaign.schedule_timezone,
         send_weekdays=campaign.send_weekdays,
         send_hour_start=campaign.send_hour_start,
@@ -1445,6 +1488,7 @@ def _apply_campaign_payload(request, data, strict):
     campaign.send_mode         = 'sequence'
     campaign.from_name         = (data.get('sender_name') or '').strip()[:255]
     campaign.reply_to          = (data.get('reply_to') or '').strip()[:255]
+    campaign.reply_to_enabled  = bool(data.get('reply_to_enabled', False))
     # Default True (same as the model field default) when the key is
     # missing entirely — preserves the safe "tracking on" default rather
     # than silently turning tracking off for a payload that predates this
@@ -1846,10 +1890,17 @@ def so_test_send(request):
         })
 
     try:
-        account = SOEmailAccount.objects.get(
-            id=account_id_int, user_id=user_id, status='connected', deleted_at__isnull=True)
+        account = SOEmailAccount.objects.get(id=account_id_int, user_id=user_id, deleted_at__isnull=True)
     except SOEmailAccount.DoesNotExist:
-        return JsonResponse({'status': 'error', 'message': 'Email account not found or not connected.'})
+        return JsonResponse({'status': 'error', 'message': 'Email account not found.'})
+    # A test send is a real outbound email through this account, so it goes
+    # through the same server-side gate as an actual campaign send
+    # (SOEmailAccount.is_sending_eligible() -- connected AND SPF pass).
+    if not account.is_sending_eligible():
+        return JsonResponse({
+            'status': 'error',
+            'message': 'This account is not eligible to send (connection inactive or SPF check failed).',
+        })
 
     from_name = (data.get('sender_name') or '').strip() or account.display_name or account.email
 
@@ -1877,7 +1928,10 @@ def so_test_send(request):
             msg = build_message(
                 from_name, account.email, to_email, f'[TEST] {personalized_subject}',
                 personalized_html, '', f'<test-{now().timestamp()}@{account.smtp_host}>',
-                reply_to=campaign.reply_to or '',
+                # Same reply_to_enabled gate as the real send path
+                # (services/so_drip.py) -- a test send must preview
+                # exactly what a real send would do.
+                reply_to=campaign.reply_to if campaign.reply_to_enabled else '',
             )
             server.sendmail(account.email, to_email, msg.as_bytes())
             sent += 1

@@ -89,9 +89,18 @@ def nav_credits(request):
     try:
         from Email_validate_app.models import SERVICE_CHOICES, UserTable
         from Email_validate_app.services.trial_manager import can_offer_trial
+        from Email_validate_app.utils import get_true_user, get_active_user
 
-        email = request.session['logged_in']
-        user = UserTable.objects.filter(user_email=email).first()
+        # true_user is who actually authenticated (session['logged_in']);
+        # user is the active account this page's data/credits belong to --
+        # a Sub Account while the true user is switched into one (see
+        # utils.get_active_user). Balances/trial must key off the ACTIVE
+        # account, not the true login, or the topbar would keep showing the
+        # Main Account's numbers while acting as a Sub Account.
+        true_user = get_true_user(request)
+        if not true_user:
+            return {}
+        user = get_active_user(request)
         if not user:
             return {}
         balances = get_all_service_balances(user.id)
@@ -101,6 +110,9 @@ def nav_credits(request):
 
         current_service = _current_service(request.path)
         service_labels = dict(SERVICE_CHOICES)
+
+        is_acting_as    = user.id != true_user.id
+        is_main_account = true_user.parent_account_id is None
 
         return {
             'nav_current_service':         current_service,
@@ -115,6 +127,18 @@ def nav_credits(request):
             # retires the trial offer once the user has ever made a real
             # payment, even if they never activated a trial at all.
             'nav_trial_eligible':  can_offer_trial(user),
+            # Main Account / Sub Account switcher (templates/i_index.html).
+            # nav_sub_accounts is only ever the TRUE user's direct children,
+            # and only populated for a Main Account currently NOT acting as
+            # one of them -- while acting as a Sub Account, the switcher
+            # must show just "Return to Main", never the sibling list.
+            'nav_active_email':    user.user_email,
+            'nav_is_acting_as':    is_acting_as,
+            'nav_is_main_account': is_main_account,
+            'nav_sub_accounts': (
+                list(UserTable.objects.filter(parent_account_id=true_user.id).order_by('user_email'))
+                if is_main_account and not is_acting_as else []
+            ),
         }
     except Exception:
         return {}

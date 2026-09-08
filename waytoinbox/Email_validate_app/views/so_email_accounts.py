@@ -12,11 +12,66 @@ from django.urls import reverse
 from django.utils.timezone import now
 
 from Email_validate_app.utils import get_user_id
+from Email_validate_app.services.email_domain_policy import is_free_email_domain
 
 
 def _auth(request):
     if not request.session.get('logged_in'):
         return redirect(reverse('login'))
+
+
+def _test_smtp_connection(acc, plain_pwd):
+    """Real SMTP/IMAP-credential validation — the ONLY thing that
+    determines Connection status (SOEmailAccount.is_connected()). Shared
+    by the 'add' and 'test'/'reconnect' actions so there is exactly one
+    place performing this check, never two copies that could drift.
+    Returns (new_status, error_msg); error_msg is always a safe,
+    user-facing message — it never echoes plain_pwd, only the server's own
+    response/exception text, so the app password itself is never exposed
+    in an error message, log, or API response."""
+    try:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP(acc.smtp_host, acc.smtp_port, timeout=12) as server:
+            server.ehlo(); server.starttls(context=ctx); server.ehlo()
+            server.login(acc.username, plain_pwd)
+        return 'connected', None
+    except smtplib.SMTPAuthenticationError:
+        return 'failed', ('Authentication failed. Make sure: (1) 2-Step Verification is enabled, '
+                           '(2) you are using an App Password, (3) the App Password has no spaces.')
+    except Exception as e:
+        return 'failed', f'Connection error: {e}'
+
+
+def _check_domain_authentication(email_address):
+    """Domain-authentication check for a sender account — reuses the
+    existing DNS checker (services/dmarc_checker.py) exactly as it stands,
+    no new DNS/lookup code. Order matches the domain-authentication rule:
+    MX (identifies the email provider — informational only, never gates
+    anything) -> SPF (the PRIMARY sending-eligibility signal, see
+    SOEmailAccount.is_sending_eligible) -> DKIM -> DMARC (both still
+    checked/stored/displayed, but never block sending on their own).
+
+    DKIM uses check_dkim_auto's existing best-effort ESP-fingerprint +
+    common-selector guessing (no manual selector is collected here,
+    matching this app's one existing DKIM mechanism); a legitimately-
+    configured domain using an unrecognized selector can still come back
+    'fail' — an accepted, pre-existing limitation of that checker. This is
+    fine: SPF passing is what actually gates sending, not DKIM."""
+    from Email_validate_app.services.dmarc_checker import (
+        check_spf, check_dmarc, check_dkim_auto, detect_mx_provider,
+    )
+
+    domain = email_address.split('@', 1)[1] if '@' in email_address else ''
+    mx_result    = detect_mx_provider(domain)
+    spf_result   = check_spf(domain)
+    dkim_result  = check_dkim_auto(domain)
+    dmarc_result = check_dmarc(domain)
+    return {
+        'mx_provider': mx_result.get('provider', 'Unknown'),
+        'spf':   'pass' if spf_result.get('status') == 'pass' else 'fail',
+        'dkim':  'pass' if dkim_result.get('status') == 'pass' else 'fail',
+        'dmarc': 'pass' if dmarc_result.get('status') == 'pass' else 'fail',
+    }
 
 
 def so_email_accounts(request):
@@ -179,6 +234,18 @@ def so_email_account_action(request):
                 if not password:
                     return JsonResponse({'status': 'error', 'message': 'App password is required.'})
 
+                # Sales Outreach sender accounts must be on a business/own
+                # domain, regardless of which provider (google/microsoft) is
+                # chosen for SMTP/IMAP hosts -- reused as-is from the signup
+                # restriction (services/email_domain_policy.py).
+                if is_free_email_domain(email):
+                    return JsonResponse({
+                        'status': 'error',
+                        'message': "Please use a business email address. Personal providers "
+                                   "like Gmail, Outlook, Hotmail, and Yahoo aren't supported "
+                                   "as Sales Outreach sender accounts.",
+                    })
+
                 # Duplicate guard, before any credit is spent. `email` is
                 # already lower-cased above, so this is belt-and-braces for
                 # rows written before that normalisation existed.
@@ -218,7 +285,31 @@ def so_email_account_action(request):
                            'Please buy credits to add another email account.'
             })
 
-        return JsonResponse({'status': 'ok', 'id': acc.id})
+        # Validate the App Password through the actual SMTP connection —
+        # never trust just its presence. Runs outside the transaction above
+        # (already committed) since this is slow network I/O, not something
+        # that should hold a DB lock open. Reuses the exact same check
+        # 'test'/Reconnect performs (_test_smtp_connection), so there is one
+        # SMTP-validation code path, not two. `password` here is the plain
+        # value already in scope from the form payload — never re-decrypted
+        # or logged, so it's never exposed in an error message or log line.
+        new_status, error_msg = _test_smtp_connection(acc, password)
+        auth = _check_domain_authentication(acc.email)
+        acc.status       = new_status
+        acc.spf_status   = auth['spf']
+        acc.dkim_status  = auth['dkim']
+        acc.dmarc_status = auth['dmarc']
+        acc.save(update_fields=['status', 'spf_status', 'dkim_status', 'dmarc_status', 'updated_at'])
+
+        # The account row is kept either way (so a bad password doesn't
+        # waste the credit already spent and force the user to retype
+        # everything — Reconnect/Update Password can fix it later), but a
+        # failed SMTP login must be reported as a clear warning, never as a
+        # successful connection.
+        return JsonResponse({
+            'status': 'ok', 'id': acc.id, 'result': new_status, 'error_msg': error_msg,
+            'active': acc.is_connected(), 'sending_eligible': acc.is_sending_eligible(),
+        })
 
     # ── Test (SMTP) ───────────────────────────────────────────────────────────
     if action == 'test':
@@ -232,24 +323,30 @@ def so_email_account_action(request):
         except Exception:
             return JsonResponse({'status': 'error', 'message': 'Could not decrypt password.'})
 
-        error_msg = None
-        try:
-            ctx = ssl.create_default_context()
-            with smtplib.SMTP(acc.smtp_host, acc.smtp_port, timeout=12) as server:
-                server.ehlo(); server.starttls(context=ctx); server.ehlo()
-                server.login(acc.username, plain_pwd)
-            new_status = 'connected'
-        except smtplib.SMTPAuthenticationError:
-            new_status = 'failed'
-            error_msg  = ('Authentication failed. Make sure: (1) 2-Step Verification is enabled, '
-                          '(2) you are using an App Password, (3) the App Password has no spaces.')
-        except Exception as e:
-            new_status = 'failed'
-            error_msg  = f'Connection error: {e}'
-
+        new_status, error_msg = _test_smtp_connection(acc, plain_pwd)
         acc.status = new_status
-        acc.save(update_fields=['status', 'updated_at'])
-        return JsonResponse({'status': 'ok', 'result': new_status, 'error_msg': error_msg})
+        # Domain authentication (MX/SPF/DKIM/DMARC) is independent of the
+        # SMTP credential check above — run it regardless of new_status so
+        # a user gets both diagnostics from one "Test"/"Reconnect" click
+        # rather than only ever seeing whichever one happens to fail first.
+        auth = _check_domain_authentication(acc.email)
+        acc.spf_status   = auth['spf']
+        acc.dkim_status  = auth['dkim']
+        acc.dmarc_status = auth['dmarc']
+        acc.save(update_fields=['status', 'spf_status', 'dkim_status', 'dmarc_status', 'updated_at'])
+        return JsonResponse({
+            'status': 'ok', 'result': new_status, 'error_msg': error_msg,
+            'spf_status': acc.spf_status, 'dkim_status': acc.dkim_status, 'dmarc_status': acc.dmarc_status,
+            'mx_provider': auth['mx_provider'],
+            # 'active' reflects the Connection badge ONLY (SMTP/IMAP) —
+            # SPF/DKIM/DMARC must never change it (see
+            # SOEmailAccount.is_connected). 'sending_eligible' is the
+            # separate, real gate for actually sending a campaign through
+            # this account (connected AND SPF pass — DKIM/DMARC never
+            # block it on their own; see is_sending_eligible).
+            'active': acc.is_connected(),
+            'sending_eligible': acc.is_sending_eligible(),
+        })
 
     # ── Update Password ───────────────────────────────────────────────────────
     if action == 'update_password':

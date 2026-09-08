@@ -71,6 +71,7 @@
             <th class="soea-col-warmup">Warmup</th>
             <th class="soea-col-reply">Reply</th>
             <th class="soea-col-campaigns">Campaigns</th>
+            <th class="soea-col-auth" title="SPF / DKIM / DMARC">Auth</th>
             <th class="soea-col-actions">Actions</th>
           </tr>
         </thead>
@@ -97,6 +98,10 @@
               </span>
             </td>
             <td class="soea-status-cell">
+              {% comment %}
+                Connection reflects SMTP/IMAP ONLY (acc.status) -- SPF/DKIM/DMARC
+                must never change this badge, see SOEmailAccount.is_connected().
+              {% endcomment %}
               {% if acc.status == 'connected' %}
                 <span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>
               {% elif acc.status == 'failed' %}
@@ -146,18 +151,29 @@
                 <span class="soea-campaigns-count">{{ acc.campaigns_count }}</span>
               </span>
             </td>
+            <td class="soea-auth-cell">
+              <span class="soea-auth-icons">
+                <i class="fas fa-envelope soea-auth-icon soea-auth-icon--{{ acc.spf_status }}" title="SPF: {{ acc.get_spf_status_display }}"></i>
+                <i class="fas fa-key soea-auth-icon soea-auth-icon--{{ acc.dkim_status }}" title="DKIM: {{ acc.get_dkim_status_display }}"></i>
+                <i class="fas fa-shield-halved soea-auth-icon soea-auth-icon--{{ acc.dmarc_status }}" title="DMARC: {{ acc.get_dmarc_status_display }}"></i>
+              </span>
+            </td>
             <td class="soea-actions-cell">
               <div class="soea-actions-inner">
                 <a class="so-icon-btn" href="{% url 'so_analytics_overview' %}?account={{ acc.id }}" title="View Analytics"><i class="fas fa-chart-line"></i></a>
-                {% if acc.status == 'failed' %}
-                  <button type="button" class="so-icon-btn soea-reconnect-btn" title="Reconnect" onclick="openUpdatePwd({{ acc.id }}, '{{ acc.email|escapejs }}')"><i class="fas fa-rotate"></i></button>
-                {% elif acc.status == 'unchecked' %}
-                  <button type="button" class="so-icon-btn soea-reconnect-btn" title="Reconnect" onclick="checkAccount({{ acc.id }}, this)"><i class="fas fa-rotate"></i></button>
-                {% endif %}
+                {% comment %}
+                  Reconnect is ALWAYS visible regardless of current status --
+                  never hide it. Always re-runs the full check (SMTP + IMAP +
+                  MX + SPF + DKIM + DMARC) via checkAccount(); it never jumps
+                  straight to the password modal any more (see "Update App
+                  Password" in the menu below for that).
+                {% endcomment %}
+                <button type="button" class="so-icon-btn soea-reconnect-btn" title="Reconnect" onclick="checkAccount({{ acc.id }}, this)"><i class="fas fa-rotate"></i></button>
                 <div class="soea-row-menu-wrap">
                   <button type="button" class="so-icon-btn soea-row-menu-trigger" title="More actions"><i class="fas fa-ellipsis-v"></i></button>
                   <div class="soea-row-menu" hidden>
                     <a href="#" onclick="openEditPanel({{ acc.id }}); return false;"><i class="fas fa-pen"></i> Edit Settings</a>
+                    <a href="#" onclick="openUpdatePwd({{ acc.id }}, '{{ acc.email|escapejs }}'); return false;"><i class="fas fa-key"></i> Update App Password</a>
                     <hr/>
                     {% if acc.warmup and acc.warmup.status == 'active' %}
                       <button type="button" onclick="warmupAction('pause', {{ acc.id }})"><i class="fas fa-pause"></i> Pause Warmup</button>
@@ -177,7 +193,7 @@
           </tr>
           {% endfor %}
           <tr id="soeaEmptyRow" style="display:none;">
-            <td colspan="7" class="soea-empty-filter-row">No accounts match your filters</td>
+            <td colspan="8" class="soea-empty-filter-row">No accounts match your filters</td>
           </tr>
         </tbody>
       </table>
@@ -333,6 +349,28 @@
         <div class="so-field">
           <label>Connection Status</label>
           <p class="soee-status-row"><span class="so-badge {{ acc.status }}">{{ acc.get_status_display }}</span></p>
+        </div>
+        <div class="so-field">
+          <label>Sending Eligibility</label>
+          <p class="soee-status-row">
+            {% comment %}
+              Sending eligibility = Connection Active AND SPF pass -- this is
+              deliberately NOT the same thing as "all three (SPF/DKIM/DMARC)
+              pass". DKIM/DMARC are checked and shown below for deliverability
+              awareness, but never block sending on their own.
+            {% endcomment %}
+            {% if acc.is_sending_eligible %}
+              <span class="so-badge connected">Eligible</span>
+            {% else %}
+              <span class="so-badge unchecked">Not Eligible</span>
+            {% endif %}
+          </p>
+          <div class="soea-auth-row">
+            <span class="so-badge {{ acc.spf_status }}" title="SPF">SPF {{ acc.get_spf_status_display }}</span>
+            <span class="so-badge {{ acc.dkim_status }}" title="DKIM">DKIM {{ acc.get_dkim_status_display }}</span>
+            <span class="so-badge {{ acc.dmarc_status }}" title="DMARC">DMARC {{ acc.get_dmarc_status_display }}</span>
+          </div>
+          <p class="soee-hint"><i class="fas fa-info-circle"></i> An account can send campaigns once its mailbox Connection is Active <strong>and</strong> SPF passes. DKIM/DMARC are checked and shown here for deliverability awareness, but do not block sending. Run "Reconnect" to re-check.</p>
         </div>
 
         <div class="soee-section-title">Sending Settings</div>
@@ -751,10 +789,11 @@ function soeaRender() {
 /* ── Check ─────────────────────────────────────────── */
 function checkAccount(id, btn) {
   // btn is the icon-only Reconnect button, which now lives in the Actions
-  // cell (not inside .soea-status-cell) — locate the status cell via the
-  // row instead of via ancestor lookup.
+  // cell (not inside .soea-status-cell) — locate the status/auth cells via
+  // the row instead of via ancestor lookup.
   var row = btn.closest('tr');
   var statusTd = row.querySelector('.soea-status-cell');
+  var authTd = row.querySelector('.soea-auth-cell');
   var email = row.dataset.search;
   var original = btn.innerHTML;
   btn.disabled = true;
@@ -770,20 +809,35 @@ function checkAccount(id, btn) {
       WTI.toast(d.message || 'Check failed.', 'error');
       return;
     }
+    // The main Connection badge reflects SMTP/IMAP ONLY (d.active, which
+    // the server now defines as acc.is_connected()) — SPF/DKIM/DMARC must
+    // never change it. The three Auth icons (own column, between Campaigns
+    // and Actions) are always refreshed alongside it so they surface
+    // exactly which check needs attention — same icon-per-protocol +
+    // title tooltip as the server-rendered row.
+    var authIconMap = { spf: 'fa-envelope', dkim: 'fa-key', dmarc: 'fa-shield-halved' };
+    if (authTd) {
+      authTd.innerHTML = '<span class="soea-auth-icons">' + ['spf', 'dkim', 'dmarc'].map(function (k) {
+        var val = d[k + '_status'], label = val === 'pass' ? 'Pass' : (val === 'fail' ? 'Fail' : 'Unchecked');
+        return '<i class="fas ' + authIconMap[k] + ' soea-auth-icon soea-auth-icon--' + val + '" title="'
+             + k.toUpperCase() + ': ' + label + '"></i>';
+      }).join('') + '</span>';
+    }
+
+    // Reconnect ALWAYS stays as itself — it never disappears and never
+    // gets repurposed into an "open password modal" shortcut; Update App
+    // Password is its own permanent item in the row's "More actions" menu.
+    btn.disabled = false;
+    btn.innerHTML = original;
+
     if (d.result === 'connected') {
       statusTd.innerHTML = '<span class="so-badge connected"><i class="fas fa-plug"></i> Active</span>';
-      WTI.toast('Connection successful!', 'success');
-      // Active accounts never show a Reconnect button.
-      btn.remove();
+      WTI.toast(d.sending_eligible ? 'Connection successful!' :
+                'Connection successful — but this account can\'t send campaigns yet (SPF check failed).',
+                d.sending_eligible ? 'success' : 'error');
     } else {
       statusTd.innerHTML = '<span class="so-badge failed"><i class="fas fa-times-circle"></i> Failed</span>';
       WTI.toast(d.error_msg || 'Connection failed.', 'error');
-      // Stays a Reconnect button, but now opens Update Password directly
-      // (the almost-always cause of a failed SMTP test) instead of
-      // re-running the same test.
-      btn.disabled = false;
-      btn.innerHTML = original;
-      btn.onclick = function () { openUpdatePwd(id, email); };
     }
   }).catch(() => {
     btn.disabled = false;

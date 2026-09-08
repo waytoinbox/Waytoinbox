@@ -15,7 +15,7 @@ from Email_validate_app.models import (
     UserTable, SOCampaign, SOCampaignContact, SOProspect, SOEvent,
     SOTrackedLink, SOOpenPixel,
 )
-from Email_validate_app.services.so_smtp import inject_tracking
+from Email_validate_app.services.so_smtp import inject_tracking, SITE_URL
 
 
 def make_user(email):
@@ -72,6 +72,48 @@ class InjectTrackingTests(_TrackingTestCase):
         self.assertEqual(tracked_links, [])
         self.assertIsNone(open_pixel)
         self.assertNotIn('/so/track/', html)
+
+    def test_no_manual_unsubscribe_gets_the_automatic_footer(self):
+        """Baseline/regression: fallback footer must still appear exactly
+        as before when the draft has no manual unsubscribe mechanism."""
+        html, _, _ = inject_tracking('<p>Hi there.</p>', self.cc, enable_tracking=True)
+        self.assertIn('unsubscribe here', html)
+        self.assertIn(f'/so/unsubscribe/{self.cc.tracking_token}/', html)
+
+    def test_manual_unsubscribe_tag_as_plain_text_suppresses_footer(self):
+        raw_html = '<p>Hi there. Reply STOP or go to {{unsubscribe_url}} to opt out.</p>'
+        html, _, _ = inject_tracking(raw_html, self.cc, enable_tracking=True)
+        self.assertNotIn('unsubscribe here', html)  # automatic footer's own wording
+        self.assertIn(f'/so/unsubscribe/{self.cc.tracking_token}/', html)  # tag still substituted
+        # Exactly one occurrence of the unsubscribe URL -- not duplicated.
+        self.assertEqual(html.count(f'/so/unsubscribe/{self.cc.tracking_token}/'), 1)
+
+    def test_manual_unsubscribe_link_suppresses_footer_and_is_not_click_wrapped(self):
+        raw_html = '<p>Hi there.</p><a href="{{unsubscribe_url}}">Unsubscribe</a>'
+        html, tracked_links, _ = inject_tracking(raw_html, self.cc, enable_tracking=True)
+        self.assertNotIn('unsubscribe here', html)
+        expected_link = f'<a href="{SITE_URL}/so/unsubscribe/{self.cc.tracking_token}/">Unsubscribe</a>'
+        self.assertIn(expected_link, html)
+        # The manual link itself must not be rewritten into a click-tracked
+        # /so/track/click/ URL -- so_smtp.py's existing exclusion already
+        # skips any href containing /so/unsubscribe/, this just proves it
+        # still holds with the new footer-suppression logic in place.
+        self.assertEqual(len(tracked_links), 0)
+        self.assertNotIn('/so/track/click/', html)
+
+    def test_manual_unsubscribe_tag_substituted_even_when_tracking_disabled(self):
+        """Case F: unsubscribe resolution must never depend on tracking
+        being enabled -- substitute_tags() runs before the enable_tracking
+        gate in inject_tracking()."""
+        raw_html = '<p>Hi there. {{unsubscribe_url}}</p>'
+        html, tracked_links, open_pixel = inject_tracking(raw_html, self.cc, enable_tracking=False)
+        self.assertIn(f'/so/unsubscribe/{self.cc.tracking_token}/', html)
+        self.assertNotIn('{{unsubscribe_url}}', html)
+        self.assertEqual(tracked_links, [])
+        self.assertIsNone(open_pixel)
+        # No automatic footer either way when tracking is off (pre-existing
+        # behavior, unchanged) -- the manual tag is the only mechanism here.
+        self.assertNotIn('unsubscribe here', html)
 
 
 class OpenTrackingEndpointTests(_TrackingTestCase):

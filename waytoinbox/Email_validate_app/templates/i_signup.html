@@ -58,20 +58,46 @@
 
     <div id="signupAlert"></div>
 
+    <!-- Free/public email request-approval form -- hidden until the
+         blocked-signup message's "request approval" link is clicked. -->
+    <div id="freeEmailRequestCard" class="signup-field" style="display:none;border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:18px;">
+      <p style="margin:0 0 12px;font-size:13px;color:var(--ink-2,#555);">
+        Personal/free email accounts require manual approval. Tell us a little about your use case and our team will review it.
+      </p>
+      <div id="freeEmailRequestAlert"></div>
+      <form id="freeEmailRequestForm" novalidate>
+        <div class="signup-field">
+          <label class="signup-label" for="freEmailReqName">Name</label>
+          <input class="signup-input" type="text" id="freEmailReqName" autocomplete="name" required/>
+        </div>
+        <div class="signup-field">
+          <label class="signup-label" for="freEmailReqEmail">Email address</label>
+          <input class="signup-input" type="email" id="freEmailReqEmail" autocomplete="email" required/>
+        </div>
+        <div class="signup-field">
+          <label class="signup-label" for="freEmailReqReason">Reason</label>
+          <textarea class="signup-input" id="freEmailReqReason" rows="3" placeholder="Why do you need to use a personal email?"></textarea>
+        </div>
+        <button type="submit" class="signup-btn" id="freeEmailReqBtn">
+          <i class="fas fa-paper-plane"></i> Submit Request
+        </button>
+      </form>
+    </div>
+
     <form id="signupForm" novalidate>
       {% csrf_token %}
 
       <!-- Username -->
       <div class="signup-field">
         <label class="signup-label" for="username">Username</label>
-        <input class="signup-input" type="text" name="user_name" id="username" placeholder="johndoe" autocomplete="off" required/>
+        <input class="signup-input" type="text" name="user_name" id="username" placeholder="johndoe" autocomplete="username" required/>
         <div class="signup-error" id="username-error"></div>
       </div>
 
       <!-- Email -->
       <div class="signup-field">
         <label class="signup-label" for="email">Email address</label>
-        <input class="signup-input" type="email" name="user_email" id="email" placeholder="you@company.com" autocomplete="off" required/>
+        <input class="signup-input" type="email" name="user_email" id="email" placeholder="you@company.com" autocomplete="email" required/>
         <div class="signup-error" id="email-error"></div>
       </div>
 
@@ -79,7 +105,7 @@
       <div class="signup-field">
         <label class="signup-label" for="password">Password</label>
         <div class="signup-input-wrap">
-          <input class="signup-input" type="password" name="password" id="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="off" required style="padding-right:42px"/>
+          <input class="signup-input" type="password" name="password" id="password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required style="padding-right:42px"/>
           <i class="fa-solid fa-eye-slash signup-toggle-pw" id="togglePassword"></i>
         </div>
         <div class="signup-error" id="password-error"></div>
@@ -89,7 +115,7 @@
       <div class="signup-field">
         <label class="signup-label" for="confirm-password">Confirm password</label>
         <div class="signup-input-wrap">
-          <input class="signup-input" type="password" name="confirm_password" id="confirm-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="off" required style="padding-right:42px"/>
+          <input class="signup-input" type="password" name="confirm_password" id="confirm-password" placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;" autocomplete="new-password" required style="padding-right:42px"/>
           <i class="fa-solid fa-eye-slash signup-toggle-pw" id="toggleConfirm"></i>
         </div>
         <div class="signup-error" id="confirm-password-error"></div>
@@ -200,6 +226,57 @@ document.getElementById('signupForm').addEventListener('submit', async function 
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fas fa-user-plus"></i> Create account';
+  }
+});
+
+/* Free/public email "request approval" flow -- the blocked-signup message
+   above renders a #requestApprovalLink dynamically via innerHTML, so it
+   needs a delegated click listener rather than a direct one. */
+document.getElementById('signupAlert').addEventListener('click', function (e) {
+  if (e.target && e.target.id === 'requestApprovalLink') {
+    e.preventDefault();
+    var card = document.getElementById('freeEmailRequestCard');
+    card.style.display = 'block';
+    var emailField = document.getElementById('freEmailReqEmail');
+    var attempted = document.getElementById('email').value.trim();
+    if (attempted) emailField.value = attempted;
+    document.getElementById('freEmailReqName').focus();
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+});
+
+document.getElementById('freeEmailRequestForm').addEventListener('submit', async function (e) {
+  e.preventDefault();
+  var alertEl = document.getElementById('freeEmailRequestAlert');
+  var btn     = document.getElementById('freeEmailReqBtn');
+  var name    = document.getElementById('freEmailReqName').value.trim();
+  var email   = document.getElementById('freEmailReqEmail').value.trim();
+  var reason  = document.getElementById('freEmailReqReason').value.trim();
+
+  if (!name || !email) {
+    alertEl.innerHTML = '<div class="signup-alert signup-alert--error">Please enter your name and email address.</div>';
+    return;
+  }
+
+  alertEl.innerHTML = '';
+  btn.disabled = true;
+  btn.innerHTML = '<span class="signup-btn-spinner"></span> Submitting...';
+
+  try {
+    var fd = new FormData();
+    fd.append('name', name);
+    fd.append('email', email);
+    fd.append('reason', reason);
+    var res  = await fetch("{% url 'request_free_email_signup' %}", { method: 'POST', body: fd });
+    var data = await res.json();
+    var cls  = data.status === 'ok' ? 'success' : 'error';
+    alertEl.innerHTML = '<div class="signup-alert signup-alert--' + cls + '">' + data.message + '</div>';
+    if (data.status === 'ok') this.reset();
+  } catch (err) {
+    alertEl.innerHTML = '<div class="signup-alert signup-alert--error">Something went wrong. Please try again.</div>';
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Request';
   }
 });
 </script>

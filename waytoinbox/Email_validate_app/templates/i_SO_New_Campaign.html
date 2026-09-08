@@ -270,11 +270,18 @@
         </div>
         <div class="soc-form-group">
           <label for="socSenderName">Sender Name</label>
-          <input type="text" id="socSenderName" maxlength="255" placeholder="e.g. Alex from Acme"/>
+          <input type="text" id="socSenderName" maxlength="255" placeholder="e.g. Alex from Acme" autocomplete="off"/>
         </div>
         <div class="soc-form-group">
-          <label for="socReplyTo">Reply-To Address</label>
-          <input type="email" id="socReplyTo" maxlength="255" placeholder="replies@yourdomain.com"/>
+          <div class="soc-include-head">
+            <label for="socReplyTo" class="soc-sub-label soc-label-flush">Reply-To Address</label>
+            <label class="soc-replyto-toggle">
+              <input type="checkbox" id="socReplyToToggle"/>
+              <span>Enable</span>
+            </label>
+          </div>
+          <input type="email" id="socReplyTo" maxlength="255" placeholder="replies@yourdomain.com" autocomplete="email" disabled/>
+          <p class="soc-hint">Off by default — replies go back to the sending account, exactly as before.</p>
         </div>
       </div>
 

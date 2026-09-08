@@ -68,11 +68,13 @@ def so_send_campaign_task(self, campaign_id):
         # pool each new contact is assigned across below — kept as
         # SOEmailAccountRotation objects, not just .account, so each one's
         # own .daily_send_count is available to pick_sender_account. Only
-        # connected accounts participate — a failed/unchecked account must
-        # never be handed out to a brand-new contact.
+        # sending-eligible accounts participate — is_sending_eligible() ==
+        # connected AND SPF pass (DKIM/DMARC never block this on their
+        # own) — a disconnected or SPF-failing account must never be
+        # handed out to a brand-new contact.
         rotations = [
             r for r in campaign.account_rotations.all()
-            if not r.account.deleted_at and r.account.status == 'connected'
+            if not r.account.deleted_at and r.account.is_sending_eligible()
         ]
         if not rotations:
             logger.error('so_send: no valid email account for campaign %s', campaign_id)

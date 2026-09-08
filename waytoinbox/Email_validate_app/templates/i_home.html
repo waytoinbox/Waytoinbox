@@ -820,10 +820,10 @@
     <form id="Contact_Us">
       {% csrf_token %}
       <div class="demo-label">Name</div>
-      <input class="demo-input" type="text" name="name" required style="margin-bottom:12px"/>
+      <input class="demo-input" type="text" name="name" required autocomplete="name" style="margin-bottom:12px"/>
 
       <div class="demo-label">Email</div>
-      <input class="demo-input" type="email" name="email" required style="margin-bottom:12px"/>
+      <input class="demo-input" type="email" name="email" required autocomplete="email" style="margin-bottom:12px"/>
 
       <div class="demo-label">Message</div>
       <textarea class="demo-input" name="message" rows="4" required style="margin-bottom:16px;resize:vertical;height:auto"></textarea>
