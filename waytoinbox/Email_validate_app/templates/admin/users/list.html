@@ -119,6 +119,15 @@
               class="{% if not user.is_active %}action-success{% endif %}">
               <i class="fas {% if user.is_active %}fa-ban{% else %}fa-check{% endif %}"></i>
             </button>
+            {% if not user.is_admin and user.pk != admin_pk %}
+            <button
+              class="admin-impersonate-btn"
+              data-impersonate-url="{% url 'admin_user_impersonate' user.pk %}"
+              data-user-email="{{ user.user_email }}"
+              title="Login as this user">
+              <i class="fas fa-user-secret"></i>
+            </button>
+            {% endif %}
           </td>
         </tr>
         {% empty %}
@@ -176,6 +185,35 @@
         if (e.key === 'Enter') { e.preventDefault(); this.form.submit(); }
       });
     }
+
+    // Login as User -- confirm, then hand off to the target's session.
+    document.addEventListener('click', function (e) {
+      var btn = e.target.closest('.admin-impersonate-btn');
+      if (!btn) return;
+      e.preventDefault();
+      var url = btn.dataset.impersonateUrl;
+      var email = btn.dataset.userEmail;
+      Admin.Modal.confirm(
+        'Login as ' + email + '?',
+        'You will use this account exactly as ' + email + ' would, until you click "Exit Impersonation".',
+        function () {
+          btn.disabled = true;
+          WTI.apiFetch(url, { method: 'POST' }).then(function (res) {
+            // WTI.apiFetch wraps the raw server body as res.data, and
+            // json_ok() nests the payload under its own `data` key --
+            // so the redirect lives at res.data.data.redirect.
+            var redirect = res.ok && res.data && res.data.data && res.data.data.redirect;
+            if (redirect) {
+              window.location.href = redirect;
+            } else {
+              btn.disabled = false;
+            }
+          });
+        },
+        'Login as User',
+        false
+      );
+    });
   });
 </script>
 {% endblock %}

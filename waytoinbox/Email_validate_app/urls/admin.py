@@ -15,6 +15,8 @@ urlpatterns = [
     path('wti-admin/users/<int:uid>/credits/',             av.admin_user_credits,        name='admin_user_credits'),
     path('wti-admin/users/<int:uid>/reset-password/',      av.admin_user_reset_password, name='admin_user_reset_pw'),
     path('wti-admin/users/<int:uid>/delete/',              av.admin_user_delete,         name='admin_user_delete'),
+    path('wti-admin/users/<int:uid>/impersonate/',         av.admin_user_impersonate,    name='admin_user_impersonate'),
+    path('wti-admin/exit-impersonation/',                  av.admin_exit_impersonation,  name='admin_exit_impersonation'),
 
     # Free Email Signup Requests
     path('wti-admin/free-email-requests/',                     av.admin_free_email_requests,        name='admin_free_email_requests'),

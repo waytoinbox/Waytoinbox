@@ -1,20 +1,26 @@
 import secrets
 import re
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytz
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Sum
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
 from Email_validate_app.models import (
     CurrentCredits, TotalCredits, UsedCredits, CreditAuditLog, AllEmails, ListFiles,
-    ServiceCredit, ServiceTrial, TrialUsageLog, UserTable, SERVICE_CHOICES, SERVICE_KEYS,
+    ServiceCredit, ServiceTrial, TrialUsageLog, ServiceCreditLot, UserTable,
+    SERVICE_CHOICES, SERVICE_KEYS,
 )
 
 logger = logging.getLogger(__name__)
+
+# Phase 3 (expiring-credit-lot spending): exact duration, never a
+# calendar-day rule -- a lot paid at 2026-09-11 10:30:00 UTC expires at
+# exactly 2026-10-11 10:30:00 UTC, independent of timezone or DST.
+LOT_LIFETIME = timedelta(hours=720)
 
 
 def generate_receipt_id(timezone='Asia/Kolkata'):
@@ -350,18 +356,15 @@ def manage_credits(selected_option, table_name, user_id, timezone_str):
         logger.warning(f"Insufficient credits: {current_credit} available, {row_count} required.")
         return str(row_count)
 
-    # The charge and the credite_status flag share one transaction. Previously
-    # a failure between them would have spent the credits while leaving the file
-    # unmarked, so the next download attempt would charge for it again.
+    # Phase 3: the charge is now a shared, ListFiles-row-locked helper
+    # (charge_ev_bulk_file, defined below) also used by verify_emails()'s
+    # own start-time charge, so whichever of the two actually fires first
+    # for THIS file is the only one that ever deducts anything.
     try:
-        with transaction.atomic():
-            deduct_service_credits(
-                user_id, 'email_validation', row_count,
-                ref_type='validation',
-                description=f"Bulk download: {table_name}",
-            )
-            file_entry.credite_status = "Credited"
-            file_entry.save()
+        charge_ev_bulk_file(
+            file_entry, row_count, ref_type='validation',
+            description=f"Bulk download: {table_name}",
+        )
     except InsufficientCredits:
         # Lost a race against another spend since the check above. Report it the
         # same way the check does, so download_results() routes into its
@@ -543,9 +546,13 @@ def get_all_service_balances(user_id):
 
 def add_service_credits(user_id, service, amount, ref_type='service_purchase',
                         ref_id='', description=''):
-    """Grant credits to a service wallet. Never expires.
+    """Grant credits directly to the permanent wallet. Never expires.
 
-    Only ever called from a verified payment or an admin adjustment.
+    Phase 3: no longer called by either live purchase flow (service
+    checkout, EV PAYG) — both now call grant_credit_lot() below instead, so
+    a newly successful purchase can never inflate this balance again (it
+    stays exactly what it was before Phase 3, forever). Kept for admin
+    adjustments and any other grandfathered-wallet use; not deleted.
     """
     if service not in SERVICE_KEYS:
         raise ValueError(f"Unknown service: {service!r}")
@@ -571,6 +578,58 @@ def add_service_credits(user_id, service, amount, ref_type='service_purchase',
         )
 
 
+def grant_credit_lot(user_id, service, amount, *, source, purchased_at,
+                     payment=None, order=None, ref_type='service_purchase',
+                     ref_id='', description=''):
+    """Grant NEWLY PURCHASED credit as an expiring lot — the Phase 3 grant
+    path for both live purchase flows (service checkout, EV PAYG). Never
+    touches ServiceCredit.balance or CurrentCredits: those are read by
+    deduct_service_credits() as before, but nothing in this function writes
+    to either, so no new purchase can ever change what they already were.
+
+    `purchased_at` must be the single timestamp the caller already captured
+    once at payment verification (e.g. the same value written to
+    ServiceOrder.paid_at) — never computed fresh in here — so sibling lots
+    created for several services in one multi-service cart share the exact
+    same purchased_at/expires_at pair, with no drift between them.
+
+    expires_at = purchased_at + LOT_LIFETIME (exactly 30*24h, never a
+    calendar-day rule). `payment`/`order` are the FKs the caller already
+    holds locked in its own outer transaction; ServiceCreditLot's own
+    UniqueConstraint(payment, service) is the exactly-once guard for a
+    replayed verification — this function does not need its own duplicate
+    check, matching how add_service_credits()/Payment.objects.create()
+    already rely on a similar constraint plus the caller's IntegrityError
+    handling.
+    """
+    if service not in SERVICE_KEYS:
+        raise ValueError(f"Unknown service: {service!r}")
+    amount = int(amount or 0)
+    if amount <= 0:
+        return None
+
+    expires_at = purchased_at + LOT_LIFETIME
+
+    with transaction.atomic():
+        lot = ServiceCreditLot.objects.create(
+            user_id=user_id, service=service,
+            payment=payment, order=order, source=source,
+            quantity_purchased=amount, quantity_remaining=amount,
+            quantity_used=0, quantity_expired=0, quantity_revoked=0,
+            status=ServiceCreditLot.STATUS_ACTIVE,
+            purchased_at=purchased_at, expires_at=expires_at,
+        )
+        CreditAuditLog.objects.create(
+            user_id=user_id, credit_type=service, entry_type='credit',
+            amount=amount, balance_before=0, balance_after=amount,
+            ref_type=ref_type, ref_id=str(ref_id), lot=lot, service=service,
+            description=description or
+                f"Purchased {amount} {SERVICE_LABELS[service]} credits "
+                f"(expires {expires_at:%Y-%m-%d %H:%M} UTC)",
+        )
+    return lot
+
+
 def ensure_service_credits(user_id, service, count):
     """Read-only preflight for bulk work: raise InsufficientCredits if the
     user cannot cover `count` right now.
@@ -588,15 +647,20 @@ def ensure_service_credits(user_id, service, count):
 
 
 def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
-                           description=''):
+                           description='', spend_id=None):
     """Spend `count` credits for `service`: trial allowance first (if
-    active), then the new wallet, then the legacy pool for any remainder.
+    active), then active unexpired ServiceCreditLot rows (FEFO — earliest
+    expires_at first), then the permanent wallet, then the legacy pool for
+    any remainder.
 
     Worked example from the spec:
         new email_validation = 20, legacy vc = 100, request 50
         -> 20 from new, 30 from legacy
         -> new = 0, legacy = 70
-    (trial is spent first, ahead of both, whenever it's active — see below.)
+    (trial and lots are spent first, ahead of both permanent sources — see
+    below. For a user with no lots yet — every existing customer as of
+    Phase 3 — the lot step below finds nothing and this is byte-identical
+    to the pre-Phase-3 behavior above.)
 
     Atomicity: the whole read-modify-write is inside one transaction with
     select_for_update() on every row it touches, so concurrent spends cannot
@@ -604,17 +668,30 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
     CurrentCredits row, so two of them racing on a shared AC pool serialise
     correctly and cannot both spend the same credit.
 
-    Lock order is fixed at ServiceCredit -> ServiceTrial -> CurrentCredits
-    everywhere in this module. Any future code touching more than one of
-    these MUST use the same order or it can deadlock against this.
-    ServiceCredit stays locked FIRST specifically because reputation.py,
-    so_email_accounts.py, and blocklist.py all pre-lock ServiceCredit
-    themselves before calling this function (their own comments say so, to
-    serialise concurrent adds) — ServiceTrial's lock has to slot in after
-    that external lock, never before it, or those call sites could deadlock
-    against a path that only ever calls this function directly. Spend
-    ORDER (trial -> new -> legacy) is a business-logic decision and is
-    independent of lock ACQUISITION order — the two don't need to match.
+    Lock order is fixed at ServiceCredit -> ServiceTrial -> ServiceCreditLot
+    -> CurrentCredits everywhere in this module. Any future code touching
+    more than one of these MUST use the same order or it can deadlock
+    against this. ServiceCredit stays locked FIRST specifically because
+    reputation.py, so_email_accounts.py, and blocklist.py all pre-lock
+    ServiceCredit themselves before calling this function (their own
+    comments say so, to serialise concurrent adds) — ServiceTrial's lock has
+    to slot in after that external lock, never before it, or those call
+    sites could deadlock against a path that only ever calls this function
+    directly. ServiceCreditLot rows are locked third: unlike ServiceCredit,
+    a lot is never locked before it exists (it is only ever queried among
+    rows a prior, already-committed purchase created), so the "missing row"
+    hazard that makes ServiceCredit need get_or_create-before-lock does not
+    apply here. Spend ORDER (trial -> lots -> new -> legacy) is a
+    business-logic decision and is independent of lock ACQUISITION order —
+    the two don't need to match.
+
+    `spend_id` groups every CreditAuditLog/TrialUsageLog row this one call
+    writes, so a spend split across several sources (e.g. two lots plus the
+    wallet) can be reconstructed and — for the caller cases that support it
+    — refunded via refund_service_credits(..., spend_id=...). If omitted, a
+    fresh one is generated; existing callers that never mention it are
+    unaffected other than gaining this grouping key. Returns the spend_id
+    actually used (None if count<=0, since nothing was spent).
 
     Raises InsufficientCredits (a ValueError) without writing anything if the
     combined balance cannot cover the request — never partially deducts.
@@ -623,8 +700,9 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         raise ValueError(f"Unknown service: {service!r}")
     count = int(count or 0)
     if count <= 0:
-        return
+        return None
 
+    spend_id = spend_id or secrets.token_hex(18)
     pool = SERVICE_LEGACY_POOL.get(service)
     now_utc = datetime.utcnow().replace(tzinfo=pytz.UTC)
 
@@ -635,7 +713,7 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         row = ServiceCredit.objects.select_for_update().get(
             user_id=user_id, service=service)
 
-        # 2. ServiceTrial — NEW, locked second. No get_or_create: a missing
+        # 2. ServiceTrial — locked second. No get_or_create: a missing
         #    row means "this user never had a trial" (the common case), and
         #    that must stay a single cheap SELECT, not a row-creating write.
         window = UserTable.objects.filter(pk=user_id).values(
@@ -653,10 +731,32 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                 from_trial = min(trial_remaining, count)
 
         remainder = count - from_trial
+
+        # 3. ServiceCreditLot — NEW, locked third. FEFO: earliest expires_at
+        #    first, purchased_at/id as deterministic tie-breakers. Only
+        #    queried when there's still something to cover, so a user with
+        #    no purchases since Phase 3 never touches this table at all.
+        lots_consumed = []  # [(lot, n), ...]
+        if remainder:
+            candidate_lots = ServiceCreditLot.objects.select_for_update().filter(
+                user_id=user_id, service=service,
+                status=ServiceCreditLot.STATUS_ACTIVE,
+                expires_at__gt=now(), quantity_remaining__gt=0,
+            ).order_by('expires_at', 'purchased_at', 'id')
+            for lot in candidate_lots:
+                if remainder <= 0:
+                    break
+                n = min(lot.quantity_remaining, remainder)
+                if n > 0:
+                    lots_consumed.append((lot, n))
+                    remainder -= n
+        from_lots = sum(n for _, n in lots_consumed)
+
+        # 4. Wallet (ServiceCredit.balance) — same row already locked in step 1.
         from_new = min(row.balance, remainder) if remainder else 0
         remainder -= from_new
 
-        # 3. CurrentCredits (legacy) — lock position UNCHANGED, still last.
+        # 5. CurrentCredits (legacy) — lock position UNCHANGED, still last.
         cc = None
         from_legacy = 0
         if remainder and pool:
@@ -669,14 +769,14 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         if remainder > 0:
             # Nothing has been written yet — the transaction simply unwinds.
             raise InsufficientCredits(
-                service, count, from_trial + from_new + from_legacy,
+                service, count, from_trial + from_lots + from_new + from_legacy,
                 trial_active=trial_active,
                 trial_exhausted=bool(trial_active and trial_row is not None
                                      and from_trial == 0),
             )
 
-        # 4. Commit trial spend first, then the (unchanged) new-wallet and
-        #    legacy commits.
+        # 6. Commit trial spend first, then lots (FEFO order), then the
+        #    (unchanged) new-wallet and legacy commits.
         if from_trial:
             trial_before = trial_row.limit - trial_row.used
             trial_row.used += from_trial
@@ -685,9 +785,23 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                 user_id=user_id, service=service, entry_type='debit',
                 amount=-from_trial, balance_before=trial_before,
                 balance_after=trial_row.limit - trial_row.used,
-                ref_type=ref_type, ref_id=str(ref_id),
+                ref_type=ref_type, ref_id=str(ref_id), spend_id=spend_id,
                 description=description or
                     f"Used {from_trial} trial {SERVICE_LABELS[service]} credits",
+            )
+
+        for lot, n in lots_consumed:
+            before = lot.quantity_remaining
+            lot.quantity_remaining = before - n
+            lot.quantity_used      = (lot.quantity_used or 0) + n
+            lot.save(update_fields=['quantity_remaining', 'quantity_used', 'updated_at'])
+            CreditAuditLog.objects.create(
+                user_id=user_id, credit_type=service, entry_type='debit',
+                amount=-n, balance_before=before, balance_after=lot.quantity_remaining,
+                ref_type=ref_type, ref_id=str(ref_id), lot=lot, service=service,
+                spend_id=spend_id,
+                description=description or
+                    f"Used {n} {SERVICE_LABELS[service]} credits (lot #{lot.id})",
             )
 
         if from_new:
@@ -698,7 +812,8 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
             CreditAuditLog.objects.create(
                 user_id=user_id, credit_type=service, entry_type='debit',
                 amount=-from_new, balance_before=before, balance_after=row.balance,
-                ref_type=ref_type, ref_id=str(ref_id),
+                ref_type=ref_type, ref_id=str(ref_id), service=service,
+                spend_id=spend_id,
                 description=description or f"Used {from_new} {SERVICE_LABELS[service]} credits",
             )
 
@@ -712,7 +827,8 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                 user_id=user_id, credit_type=pool, entry_type='debit',
                 amount=-from_legacy, balance_before=before,
                 balance_after=before - from_legacy,
-                ref_type=ref_type, ref_id=str(ref_id),
+                ref_type=ref_type, ref_id=str(ref_id), service=service,
+                spend_id=spend_id,
                 description=(description or f"Used {from_legacy} credits") +
                             f" (legacy {pool.upper()} pool)",
             )
@@ -721,13 +837,77 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                 **{f'{pool}_used_credits': from_legacy, f'{pool}_used_date': now_utc},
             )
 
+    return spend_id
+
+
+def charge_ev_bulk_file(file_entry, quantity, ref_type='validation', description=''):
+    """Idempotent, exactly-once EV bulk credit charge shared by
+    views/email_validation.py::verify_emails (charges at upload/start) and
+    manage_credits() above (charges at download, if start never did).
+
+    One billable operation — one uploaded file — gets one stable spend_id
+    derived from the file itself (never from the calling request), so
+    retries or concurrent hits from either entry point collapse onto the
+    same identity instead of each charging independently.
+
+    Locks the ListFiles row FIRST and re-checks credite_status under that
+    lock, closing two pre-existing gaps: the start-path's charge and its
+    credite_status update used to be two separate, non-atomic statements
+    (a crash between them left the charge taken but the file unmarked, so
+    the next attempt charged again), and the download-path's
+    credite_status check was a plain unlocked read (two concurrent
+    downloads of the same file could both pass it before either wrote the
+    flag). Both are now impossible: everything happens inside one
+    transaction, behind one row lock.
+
+    Returns the spend_id used, or None if the file was already credited
+    (by this call or an earlier one) and nothing further was done.
+    Propagates InsufficientCredits uncaught, same as calling
+    deduct_service_credits() directly — existing callers already handle it.
+    """
+    quantity = int(quantity or 0)
+    spend_id = f"ev_bulk_file:{file_entry.file_id}"
+    with transaction.atomic():
+        locked = ListFiles.objects.select_for_update().get(pk=file_entry.pk)
+        if locked.credite_status == "Credited":
+            return None
+        deduct_service_credits(
+            locked.user_id, 'email_validation', quantity,
+            ref_type=ref_type, ref_id=str(locked.file_id),
+            description=description, spend_id=spend_id,
+        )
+        locked.credite_status = "Credited"
+        locked.save(update_fields=['credite_status'])
+    return spend_id
+
 
 def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
-                           description=''):
-    """Return credits to the new wallet (e.g. an action failed after charging).
+                           description='', spend_id=None):
+    """Return credits for a failed/reversed action.
 
-    Always refunds to the NEW wallet even if the original spend came partly
-    from legacy — legacy pools are drain-only by design and must never grow.
+    Phase 3: source-aware for the ServiceCreditLot portion only. When
+    `spend_id` is given and identifies debit(s) that drew from one or more
+    lots (CreditAuditLog rows with `lot` set), the refunded amount for those
+    rows goes back to the SAME lot(s) — quantity_remaining up,
+    quantity_used down, invariant (purchased == remaining+used+expired+
+    revoked) preserved exactly, since neither purchased/expired/revoked nor
+    the total ever changes. A lot that has since expired or been revoked is
+    left alone (its credit is genuinely gone, not resurrected); whatever
+    isn't restorable to a lot falls through to the wallet below.
+
+    Everything else — no spend_id given, a spend_id with no lot component,
+    trial-funded and legacy-funded amounts — is refunded to the wallet
+    exactly as before Phase 3. Trial's own refund semantics are
+    deliberately NOT redesigned here (out of this phase's scope): a
+    trial-funded spend, like a legacy-funded one, still refunds to the
+    wallet, unchanged.
+
+    Idempotent per debit row: each lot debit's refundable capacity is
+    capped at `abs(debit.amount) - Sum(refunds that reverse it)`, so calling
+    this twice for the same spend_id can never refund more than was
+    actually taken, and can never inflate the wallet from a lot twice.
+
+    Never grows the legacy pool — unchanged from before Phase 3.
     """
     if service not in SERVICE_KEYS:
         raise ValueError(f"Unknown service: {service!r}")
@@ -736,17 +916,65 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
         return
 
     with transaction.atomic():
+        # Lock order matches deduct_service_credits(): ServiceCredit anchor
+        # first, unconditionally — even a refund that ends up fully
+        # lot-restored still takes this lock, so a concurrent deduct (which
+        # always locks ServiceCredit before any lot) can never form a cycle
+        # against a concurrent refund locking a lot before ServiceCredit.
         ServiceCredit.objects.get_or_create(user_id=user_id, service=service)
-        row = ServiceCredit.objects.select_for_update().get(
+        wallet_row = ServiceCredit.objects.select_for_update().get(
             user_id=user_id, service=service)
-        before = row.balance
-        row.balance    = before + count
-        row.total_used = max(0, (row.total_used or 0) - count)
-        row.save(update_fields=['balance', 'total_used', 'updated_at'])
 
-        CreditAuditLog.objects.create(
-            user_id=user_id, credit_type=service, entry_type='refund',
-            amount=count, balance_before=before, balance_after=row.balance,
-            ref_type=ref_type, ref_id=str(ref_id),
-            description=description or f"Refunded {count} {SERVICE_LABELS[service]} credits",
-        )
+        remaining = count
+
+        if spend_id:
+            lot_debit_rows = list(
+                CreditAuditLog.objects.select_for_update()
+                    .filter(user_id=user_id, spend_id=spend_id, entry_type='debit',
+                            lot__isnull=False)
+                    .order_by('id')
+            )
+            for debit_row in lot_debit_rows:
+                if remaining <= 0:
+                    break
+                already_refunded = CreditAuditLog.objects.filter(
+                    reverses=debit_row).aggregate(total=Sum('amount'))['total'] or 0
+                capacity = abs(debit_row.amount) - already_refunded
+                if capacity <= 0:
+                    continue
+                n = min(capacity, remaining)
+
+                lot = ServiceCreditLot.objects.select_for_update().get(pk=debit_row.lot_id)
+                if lot.status != ServiceCreditLot.STATUS_ACTIVE:
+                    # Expired/revoked since the spend — that credit is gone;
+                    # do not resurrect it. Left un-refunded here, it falls
+                    # through to the wallet fallback below so the caller
+                    # still gets the full `count` back.
+                    continue
+
+                before = lot.quantity_remaining
+                lot.quantity_remaining = before + n
+                lot.quantity_used      = (lot.quantity_used or 0) - n
+                lot.save(update_fields=['quantity_remaining', 'quantity_used', 'updated_at'])
+                CreditAuditLog.objects.create(
+                    user_id=user_id, credit_type=service, entry_type='refund',
+                    amount=n, balance_before=before, balance_after=lot.quantity_remaining,
+                    ref_type=ref_type, ref_id=str(ref_id), lot=lot, service=service,
+                    spend_id=spend_id, reverses=debit_row,
+                    description=description or
+                        f"Refunded {n} {SERVICE_LABELS[service]} credits to lot #{lot.id}",
+                )
+                remaining -= n
+
+        if remaining > 0:
+            before = wallet_row.balance
+            wallet_row.balance     = before + remaining
+            wallet_row.total_used  = max(0, (wallet_row.total_used or 0) - remaining)
+            wallet_row.save(update_fields=['balance', 'total_used', 'updated_at'])
+            CreditAuditLog.objects.create(
+                user_id=user_id, credit_type=service, entry_type='refund',
+                amount=remaining, balance_before=before, balance_after=wallet_row.balance,
+                ref_type=ref_type, ref_id=str(ref_id), service=service,
+                spend_id=spend_id or '',
+                description=description or f"Refunded {remaining} {SERVICE_LABELS[service]} credits",
+            )

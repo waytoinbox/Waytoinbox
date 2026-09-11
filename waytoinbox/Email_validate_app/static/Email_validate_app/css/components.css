@@ -1285,7 +1285,15 @@
 .signup-right {
   padding: 30px; display: flex; flex-direction: column; justify-content: center;
   max-height: 550px; overflow-y: auto;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
 }
+.signup-right::-webkit-scrollbar { width: 8px; }
+.signup-right::-webkit-scrollbar-track { background: transparent; }
+.signup-right::-webkit-scrollbar-thumb { background: var(--border); border-radius: 20px; }
+.signup-right::-webkit-scrollbar-thumb:hover { background: var(--teal); }
+/* Just the bar — no up/down step-arrow buttons at the track ends (Windows
+   Chrome/Edge render these by default unless explicitly hidden). */
+.signup-right::-webkit-scrollbar-button { display: none; }
 .login-right-head, .signup-right-head { margin-bottom: 24px; }
 .login-right-head h1 { font-family: var(--font-head); font-size: 24px; font-weight: 800; color: var(--ink); margin-bottom: 6px; }
 .signup-right-head h1 { font-family: var(--font-head); font-size: 22px; font-weight: 800; color: var(--ink); margin-bottom: 6px; }
@@ -1471,3 +1479,4 @@ input[type="password"]::-webkit-credentials-auto-fill-button { display: none !im
   .login-right  { padding: 36px 28px; }
   .signup-right { padding: 32px 28px; }
 }
+

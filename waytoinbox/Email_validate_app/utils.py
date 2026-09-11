@@ -18,8 +18,21 @@ def get_true_user(request):
 
 def get_active_user(request):
     """The UserTable row whose data/services/credits this request should
-    operate against: an authorized acting_as_email Sub Account if one is
+    operate against: an admin's impersonate_as_email target if one is set
+    and valid, else an authorized acting_as_email Sub Account if one is
     set, otherwise the true authenticated user.
+
+    impersonate_as_email (admin "Login as User") is checked first and is
+    fully independent of the Sub Account mechanism below -- it is never
+    trusted blindly either: every call re-verifies that the true user is
+    still an active admin and that the target is not itself an admin,
+    clearing the session key and falling back to the true user on any
+    failure (mirrors the exact fail-safe philosophy the Sub Account branch
+    already uses for acting_as_email). session['logged_in']/['is_admin']
+    are never touched by impersonation -- get_true_user always resolves to
+    the real admin, which is what lets admin_required keep working
+    unmodified and "Exit Impersonation" be a plain pop of this one key. See
+    views/admin/impersonation.py.
 
     acting_as_email is never trusted blindly -- every call re-verifies that
     (1) the true authenticated user exists, (2) it is itself a Main Account
@@ -32,6 +45,18 @@ def get_active_user(request):
     true_user = get_true_user(request)
     if not true_user:
         return None
+
+    impersonate_email = request.session.get('impersonate_as_email')
+    if impersonate_email:
+        target = None
+        if true_user.is_admin and true_user.is_active:
+            candidate = UserTable.objects.filter(user_email=impersonate_email).first()
+            if candidate and not candidate.is_admin:
+                target = candidate
+        if target is None:
+            request.session.pop('impersonate_as_email', None)
+            return true_user
+        return target
 
     acting_email = request.session.get('acting_as_email')
     if not acting_email:

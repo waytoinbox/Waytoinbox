@@ -37,11 +37,11 @@ from django.http import JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
-from Email_validate_app.models import UserTable, Payment, ServiceOrder
+from Email_validate_app.models import UserTable, Payment, ServiceOrder, ServiceCreditLot
 from Email_validate_app.services import pricing
 from Email_validate_app.services import coupon_service
 from Email_validate_app.services.credit_manager import (
-    add_service_credits, generate_receipt_id, get_all_service_balances,
+    grant_credit_lot, generate_receipt_id, get_all_service_balances,
 )
 from Email_validate_app.services.mailer import send_payment_success_email, send_trial_activated_email
 from Email_validate_app.services.trial_manager import (
@@ -393,22 +393,35 @@ def subscription_verify(request):
             #
             # This runs BEFORE the credits are added so that every writer takes
             # locks in the same order:
-            #   ServiceOrder -> Coupon -> ServiceCredit -> CurrentCredits
-            # Moving it below add_service_credits() would invert the last two
+            #   ServiceOrder -> Coupon -> ServiceCredit -> ServiceCreditLot -> CurrentCredits
+            # Moving it below grant_credit_lot() would invert the last two
             # and open a deadlock between concurrent checkouts. Keep it here.
             coupon_service.redeem_coupon(locked, payment_obj, user_id=user_id)
 
-            # THE authoritative step: quantities come from the order row, which
-            # was written from a server-side quote — never from this request.
+            # Captured once, reused for every lot below, so sibling lots from
+            # one multi-service cart share the exact same purchased_at and
+            # therefore the exact same expires_at (purchased_at + 720h) — no
+            # drift between two separate now() calls.
+            paid_at = timezone.now()
+
+            # Phase 3: THE authoritative grant step. Quantities still come
+            # from the order row, which was written from a server-side quote
+            # — never from this request. Every service now grants an
+            # expiring ServiceCreditLot instead of adding to the permanent
+            # ServiceCredit.balance (add_service_credits()) — that balance,
+            # and legacy CurrentCredits, are never touched by a new purchase
+            # again.
             for service, qty in locked.cart_json.items():
                 label = pricing.SERVICE_LABELS.get(service, service)
-                add_service_credits(
+                grant_credit_lot(
                     user_id, service, int(qty),
+                    source=ServiceCreditLot.SOURCE_SERVICE_CHECKOUT,
+                    purchased_at=paid_at, payment=payment_obj, order=locked,
                     ref_type='service_purchase', ref_id=order_id,
                     description=f"Purchased {int(qty):,} {label} credits")
 
             locked.status  = ServiceOrder.STATUS_PAID
-            locked.paid_at = timezone.now()
+            locked.paid_at = paid_at
             locked.payment = payment_obj
             locked.save(update_fields=['status', 'paid_at', 'payment'])
     except IntegrityError:

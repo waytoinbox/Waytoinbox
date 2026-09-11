@@ -10,7 +10,6 @@ from threading import Thread
 from datetime import datetime
 
 import pytz
-import razorpay
 
 from django.shortcuts import render, redirect
 from django.http import JsonResponse, HttpResponse, HttpResponseBadRequest
@@ -39,9 +38,9 @@ from Email_validate_app.tasks.verify_emails import (
 )
 from Email_validate_app.services.api_auth import api_key_required
 
-from .billing import get_current_credit, calculate_price, generate_receipt_id
+from .billing import get_current_credit, _create_payg_ev_order, PaygOrderError
 from Email_validate_app.services.credit_manager import (
-    deduct_service_credits, get_effective_balance,
+    get_effective_balance, charge_ev_bulk_file, InsufficientCredits,
 )
 from Email_validate_app.services.email_validation import core_validate_email
 
@@ -417,13 +416,6 @@ def verify_emails(request):
         need_c = total_rows - current_credits
         if need_c < 150:
             need_c += 150
-        result = calculate_price(need_c)
-        if not result[0]:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": str(result[1])}, status=400)
-            messages.error(request, str(result[1]))
-            return redirect("services")
-        price, plan_value = result[1]
         try:
             user_data = UserTable.objects.get(id=uid)
         except UserTable.DoesNotExist:
@@ -437,30 +429,57 @@ def verify_emails(request):
                                      "reason": "not_verified"}, status=403)
             messages.error(request, "Please verify your email before purchasing.")
             return redirect("services")
-        receipt_id = generate_receipt_id("Asia/Kolkata")
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-        payment = client.order.create(data={"amount": int(price * 100), "currency": "USD", "receipt": receipt_id})
+        # SEC-03 (Phase 2): need_c is already fully server-derived above.
+        # _create_payg_ev_order() freezes that exact quantity and its price
+        # into a ServiceOrder(flow='payg_ev') row and creates the Razorpay
+        # order from it -- payment()'s verification reads the quantity back
+        # from that row, never from a repeated POST. This also fixes a
+        # pre-existing bug: this branch never called
+        # _remember_legacy_order_owner(), so its own top-up flow always
+        # failed payment()'s old cache-based ownership check; ServiceOrder's
+        # `user` FK replaces that mechanism entirely, for all three PAYG
+        # order-creation call sites.
+        try:
+            rz_order, service_order = _create_payg_ev_order(uid, need_c)
+        except PaygOrderError as e:
+            if is_ajax:
+                return JsonResponse({"status": "error", "message": str(e)}, status=400)
+            messages.error(request, str(e))
+            return redirect("services")
+        plan_display = f"{(service_order.amount_cents / 100) / need_c:.6f}" if need_c else "0"
         return JsonResponse({
             "status":     "need_credits",
             "key_id":     settings.RAZORPAY_KEY_ID,
-            "order_id":   payment['id'],
-            "amount":     payment['amount'],
-            "currency":   payment.get('currency', 'USD'),
+            "order_id":   rz_order['id'],
+            "amount":     rz_order['amount'],
+            "currency":   rz_order.get('currency', 'USD'),
             "user_name":  user_data.user_name,
             "user_email": user_data.user_email,
             # DB-03: user_id removed — backend derives it from session, never from client
             "credit":     need_c,
-            "plan":       f"{plan_value:.4f}",
+            "plan":       plan_display,
             "flow":       "payg",
             "need":       need_c,
             "current":    current_credits,
         })
 
-    # Enough credits — deduct before validation starts
-    deduct_service_credits(uid, 'email_validation', total_rows,
-                           ref_type='validation',
-                           description=f"Bulk validation: {table}")
-    ListFiles.objects.filter(table_name=table, user_id=uid).update(credite_status="Credited")
+    # Enough credits — deduct before validation starts. Phase 3: shared,
+    # ListFiles-row-locked charge (charge_ev_bulk_file) also used by the
+    # download path (services/credit_manager.py::manage_credits), so
+    # whichever of the two actually fires first for this file is the only
+    # one that ever deducts anything — see that function's own docstring.
+    try:
+        charge_ev_bulk_file(
+            ListFiles.objects.get(table_name=table, user_id=uid), total_rows,
+            ref_type='validation', description=f"Bulk validation: {table}",
+        )
+    except InsufficientCredits:
+        # Lost a race against another spend since the balance check above.
+        if is_ajax:
+            return JsonResponse({"status": "error",
+                                 "message": "Insufficient credits. Please refresh and try again."}, status=402)
+        messages.error(request, "Insufficient credits. Please refresh and try again.")
+        return redirect("services")
 
     # Fetch user details for completion notification
     notify_email = ""

@@ -17,14 +17,15 @@ from Email_validate_app.models import UserTable, SubsPayment
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.mailer import send_payment_success_email
 
+# Phase 2 (PAYG purchase hardening) removed create_subscription()'s order-
+# creation body (see that view's docstring), which was the only caller of
+# generate_receipt_id/_remember_legacy_order_owner in this module.
 from .billing import (
     get_ac_current_credit,
-    generate_receipt_id,
     _razorpay_payer_method,
     insert_vc_credits,
     insert_ac_credits,
     insert_cc_credits,
-    _remember_legacy_order_owner,
     _get_legacy_order_owner,
 )
 
@@ -124,99 +125,35 @@ def subscription_cancel(request):
 
 
 def create_subscription(request):
+    """Legacy Classic/Standard/Advanced plan purchase — order creation.
+
+    SEC-03 (Phase 2, Step 10): confirmed unreachable from any current
+    template (no UI anywhere posts to this view; the pricing/subscription
+    pages were rebuilt around the new service-credit checkout in
+    views/credits.py long ago) but the route itself was still directly
+    POST-callable and trusted `price` from the request with no check
+    against any real price table, and an unrecognized `plan` value fell
+    through to the most generous credit tier at whatever price was posted.
+
+    Per Phase 2's instruction to prefer a safe server-side rejection over
+    silently deleting still-present code: this view now refuses to create
+    any new order. subs_payment() (the matching verify step) is untouched
+    and needs no change — with no new order ever created here again, its
+    own ownership check can never find a match, so it fails closed on its
+    own. Nothing here deletes the model, the URL, the templates, or
+    subs_payment()/SubsPayment (still needed for expiry/receipts/admin).
+    """
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     if request.method == 'POST':
-        subs_plan     = request.POST.get('plan')
-        subs_price    = request.POST.get('price')
-        billing_cycle = request.POST.get('billing_cycle', 'monthly')
-        contacts      = request.POST.get('contacts', '0')
-
-        if not subs_plan or not subs_price:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Missing required fields."}, status=400)
-            from django.http import HttpResponseBadRequest
-            return HttpResponseBadRequest("Missing required fields.")
-
-        user_id = get_user_id(request)
-        try:
-            user = UserTable.objects.get(id=user_id)
-        except UserTable.DoesNotExist:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "User not found. Please log in."}, status=404)
-            messages.error(request, "User not found.")
-            return redirect('subscription')
-
-        if not user.is_verified:
-            if is_ajax:
-                return JsonResponse({"status": "error",
-                                     "message": "Please verify your email before purchasing.",
-                                     "reason": "not_verified"}, status=403)
-            messages.error(request, "Please verify your email before purchasing.")
-            return redirect('subscription')
-
-        ip_current_credits = 0
-        if user_id:
-            try:
-                ip_current_credits = get_ac_current_credit(user_id)
-            except Exception as e:
-                logger.error("Error fetching credits: %s", e)
-                ip_current_credits = 0
-        else:
-            ip_current_credits = None
-
-        receipt_id = generate_receipt_id("Asia/Kolkata")
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-
-        data = {
-            "amount": int(float(subs_price) * 100),
-            "currency": "USD",
-            "receipt": receipt_id,
-        }
-
-        try:
-            payment_rz = client.order.create(data=data)
-            payment_rz['display_amount'] = payment_rz['amount'] / 100
-            _remember_legacy_order_owner(payment_rz['id'], user_id)
-        except razorpay.errors.BadRequestError as e:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Invalid request to payment gateway."}, status=400)
-            messages.error(request, "Invalid request to payment gateway.")
-            return redirect('subscription')
-        except razorpay.errors.ServerError as e:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Payment gateway server error."}, status=502)
-            messages.error(request, "Payment gateway server error.")
-            return redirect('subscription')
-        except Exception as e:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Payment could not be initiated. Please try again."}, status=500)
-            messages.error(request, "Payment could not be completed due to technical issues.")
-            return redirect('subscription')
-
+        message = ("Purchasing a plan this way is no longer available. "
+                   "Please use the Subscription page to buy credits.")
+        logger.warning(
+            "Blocked deprecated create_subscription POST (plan=%r, price=%r) from user=%s",
+            request.POST.get('plan'), request.POST.get('price'), get_user_id(request))
         if is_ajax:
-            return JsonResponse({
-                "status":        "ok",
-                "key_id":        settings.RAZORPAY_KEY_ID,
-                "order_id":      payment_rz['id'],
-                "amount":        payment_rz['amount'],
-                "currency":      payment_rz.get('currency', 'INR'),
-                "user_name":     user.user_name,
-                "user_email":    user.user_email,
-                "user_id":       user.id,
-                "credit":        subs_plan,
-                "flow":          "subscription",
-                "billing_cycle": billing_cycle,
-                "contacts":      contacts,
-            })
-
-        return render(request, "i_payment.html", {
-            "key_id":    settings.RAZORPAY_KEY_ID,
-            "user_data": user,
-            "payment":   payment_rz,
-            "credit":    subs_plan,
-            "currency":  'USD',
-            "credits":   ip_current_credits,
-        })
+            return JsonResponse({"status": "error", "message": message}, status=410)
+        messages.error(request, message)
+        return redirect('subscription')
 
     if is_ajax:
         return JsonResponse({"status": "error", "message": "POST required"}, status=405)

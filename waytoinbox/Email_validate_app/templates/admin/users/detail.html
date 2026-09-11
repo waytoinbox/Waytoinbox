@@ -220,6 +220,13 @@
       <i class="fas fa-key"></i> Send Reset Email
     </button>
 
+    <!-- Login as User -->
+    {% if target_user.pk != admin_pk and not target_user.is_admin %}
+    <button class="btn-admin btn-admin-outline" onclick="confirmImpersonate()">
+      <i class="fas fa-user-secret"></i> Login as User
+    </button>
+    {% endif %}
+
     <!-- Soft Delete -->
     {% if target_user.pk != admin_pk %}
     <button class="btn-admin btn-admin-danger" onclick="confirmDelete()">
@@ -439,6 +446,24 @@ function confirmGrantAdmin() {
     },
     isAdmin ? 'Revoke' : 'Grant Admin',
     isAdmin
+  );
+}
+
+function confirmImpersonate() {
+  var email = "{{ target_user.user_email|escapejs }}";
+  Admin.Modal.confirm(
+    'Login as ' + email + '?',
+    'You will use this account exactly as ' + email + ' would, until you click "Exit Impersonation".',
+    function () {
+      WTI.apiFetch('/wti-admin/users/' + uid + '/impersonate/', { method: 'POST' }).then(function (res) {
+        // See templates/admin/users/list.html's impersonate handler --
+        // the redirect is nested at res.data.data.redirect.
+        var redirect = res.ok && res.data && res.data.data && res.data.data.redirect;
+        if (redirect) { window.location.href = redirect; }
+      });
+    },
+    'Login as User',
+    false
   );
 }
 

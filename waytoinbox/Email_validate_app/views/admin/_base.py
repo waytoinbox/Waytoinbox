@@ -18,7 +18,17 @@ logger = logging.getLogger('Email_validate_app.views')
 # ── Permission guard ──────────────────────────────────────────────────────────
 
 def admin_required(view_fn):
-    """Verify session + DB admin status on every request. Sets request._admin_user."""
+    """Verify session + DB admin status on every request. Sets request._admin_user.
+
+    Also marks every admin response no-store: without this, navigating
+    back to a /wti-admin/ page (e.g. the browser Back button) can be
+    served straight from the browser's back/forward cache instead of a
+    fresh request, showing whatever session-dependent state (like the
+    impersonation pill) was true at the time that page was first loaded
+    until the user manually refreshes. no-store makes every admin page
+    ineligible for that cache, so it always re-renders from the current
+    session. See views/admin/impersonation.py.
+    """
     @functools.wraps(view_fn)
     def wrapper(request, *args, **kwargs):
         if not request.session.get('logged_in'):
@@ -33,7 +43,9 @@ def admin_required(view_fn):
         if not user.is_admin or not user.is_active:
             return redirect('home')
         request._admin_user = user
-        return view_fn(request, *args, **kwargs)
+        response = view_fn(request, *args, **kwargs)
+        response['Cache-Control'] = 'no-store'
+        return response
     return wrapper
 
 

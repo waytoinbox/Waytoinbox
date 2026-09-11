@@ -22,6 +22,7 @@ def admin_users(request):
         'page_obj': page_obj,
         'params': params,
         'total': total,
+        'admin_pk': request._admin_user.pk,
     })
 
 

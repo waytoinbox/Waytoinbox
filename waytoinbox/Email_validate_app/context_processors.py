@@ -12,7 +12,7 @@ SERVICE_PATH_PREFIXES = {
     'email_marketing':  ('/Email_Campaigns/',),
     'sales_outreach':   ('/Sales-Outreach/',),
     'reputation':       ('/Reputation_Analysis/', '/reputation/', '/get-reputation-data/'),
-    'header_analysis':  ('/Header_Analysis/', '/dmarc_check/'),
+    'header_analysis':  ('/Header_Analysis/',),
     'ip_blocklist':     ('/Blocklist_Monitor/', '/check_ip_blacklists/', '/get-blocklist-data/',
                           '/blocklist_names/'),
     'domain_blocklist': ('/Domain_Blacklist/', '/check_domain_blocklist/', '/get-domain-blocklist-data/',
@@ -21,10 +21,22 @@ SERVICE_PATH_PREFIXES = {
 # Email Validation's own URLs (urls/email_validation.py) never adopted one
 # shared prefix, so it's matched by exact path instead of startswith().
 EMAIL_VALIDATION_PATHS = {
-    '/services/upload/', '/verify_emails/', '/Analyze/',
+    '/services/', '/services/upload/', '/verify_emails/', '/Analyze/',
     '/services/download_results/', '/services/delete_query/',
     '/services/single_service/', '/services/hide_email_history/',
     '/run_email_validation/',
+}
+
+# Pages that are explicitly free -- views.DMARC_check (views/dmarc.py)
+# never deducts credits, unlike the separate, similarly-named
+# Header_Analysis view it used to share a billing bucket with (a mapping
+# bug: /dmarc_check/ was previously grouped into SERVICE_PATH_PREFIXES'
+# 'header_analysis' entry, which made the topbar show that paid service's
+# real balance on this free page). _current_service() returning None for
+# these paths already hides the paid-balance badge; nav_page_is_free (see
+# nav_credits() below) additionally drives a "Free" chip in its place.
+FREE_TOOL_PATHS = {
+    '/dmarc_check/',
 }
 
 # Same icon each service already uses in the sidebar (i_index.html), for
@@ -111,8 +123,17 @@ def nav_credits(request):
         current_service = _current_service(request.path)
         service_labels = dict(SERVICE_CHOICES)
 
-        is_acting_as    = user.id != true_user.id
-        is_main_account = true_user.parent_account_id is None
+        # Admin impersonation and Main<->Sub Account switching are both
+        # resolved through the same user.id != true_user.id gap, but must
+        # stay mutually exclusive in the UI (impersonation shows the
+        # banner below; Sub Account switching shows the profile-dropdown
+        # "Return to Main Account" item) -- get_active_user() checks
+        # impersonate_as_email first and never falls through to
+        # acting_as_email while it's set, so this session-key check alone
+        # is enough to tell the two apart. See utils.get_active_user.
+        is_impersonating = bool(request.session.get('impersonate_as_email'))
+        is_acting_as      = (not is_impersonating) and user.id != true_user.id
+        is_main_account   = true_user.parent_account_id is None
 
         return {
             'nav_current_service':         current_service,
@@ -120,6 +141,11 @@ def nav_credits(request):
                 services[current_service]['effective'] if current_service else None),
             'nav_current_service_label':   service_labels.get(current_service),
             'nav_current_service_icon':    SERVICE_ICONS.get(current_service),
+            # Drives the topbar's "Free" chip in place of a paid balance
+            # on pages like the DMARC Domain Checker -- only meaningful
+            # when current_service is None (a page can't be both a paid
+            # service and a free tool).
+            'nav_page_is_free':    (not current_service) and request.path in FREE_TOOL_PATHS,
             'nav_trial_active':    trial_active,
             'nav_trial_days_left': max(0, (user.trial_ends_at - now()).days) if trial_active else 0,
             'nav_is_verified':     user.is_verified,
@@ -134,6 +160,7 @@ def nav_credits(request):
             # must show just "Return to Main", never the sibling list.
             'nav_active_email':    user.user_email,
             'nav_is_acting_as':    is_acting_as,
+            'nav_is_impersonating': is_impersonating,
             'nav_is_main_account': is_main_account,
             'nav_sub_accounts': (
                 list(UserTable.objects.filter(parent_account_id=true_user.id).order_by('user_email'))

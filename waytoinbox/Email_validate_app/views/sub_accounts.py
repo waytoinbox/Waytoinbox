@@ -141,6 +141,18 @@ def switch_account(request):
     if not target or target.parent_account_id != true_user.id:
         return JsonResponse({'status': 'error', 'message': 'Account not found.'}, status=404)
 
+    # Same gate login() already applies to any unverified account (views/
+    # auth.py) -- a Sub Account must not be usable until its owner has
+    # confirmed the verification email create_sub_account() sent, so
+    # switching into it is blocked exactly like a direct login attempt
+    # would be.
+    if not target.is_verified:
+        return JsonResponse({
+            'status': 'error',
+            'message': 'This Sub Account has not verified its email yet. '
+                       'Ask them to check their inbox for the verification link.',
+        }, status=403)
+
     request.session['acting_as_email'] = target.user_email
     request.session.cycle_key()
     request.session.modified = True

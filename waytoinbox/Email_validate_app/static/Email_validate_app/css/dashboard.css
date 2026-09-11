@@ -183,6 +183,40 @@ body { background: var(--bg-2); overflow-x: hidden; }
 .topbar-left { display: flex; align-items: center; gap: 16px; }
 .topbar-right { display: flex; align-items: center; gap: 12px; }
 
+/* Admin "Login as User" indicator -- shown in this shared header on
+   every page while impersonating (see context_processors.py::
+   nav_credits, nav_is_impersonating). Solid/opaque by design, not a
+   token-driven tint, so it reads the same regardless of the viewer's
+   light/dark theme -- this is a security-relevant session state, not
+   page content. Mirrors .admin-impersonation-pill (admin.css) so the
+   same indicator looks the same on both sides of the app. */
+.dash-impersonation-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 100px;
+  background: #9A6800;
+  color: #FFF7E6;
+  font-size: 12px; font-weight: 600;
+  white-space: nowrap;
+}
+.dash-impersonation-pill span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dash-impersonation-pill button,
+.dash-impersonation-pill-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 20px;
+  background: rgba(255,255,255,.12);
+  color: #FFF7E6;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.dash-impersonation-pill button:hover,
+.dash-impersonation-pill-link:hover { background: rgba(255,255,255,.24); color: #FFF7E6; }
+
 .credit-badge {
   display: flex; align-items: center; gap: 7px;
   background: var(--teal-lt); border: 1px solid rgba(0,153,204,.2);
@@ -225,6 +259,15 @@ body { background: var(--bg-2); overflow-x: hidden; }
   background: #e6f9f3; border-color: rgba(0,198,162,.25); color: #007A5E;
 }
 [data-theme="dark"] .credit-badge--trial {
+  background: rgba(0,198,162,.15); border-color: rgba(0,198,162,.3); color: #4DE8C4;
+}
+/* Free utility page (e.g. DMARC Domain Checker) — no service credit is
+   ever deducted here, so the topbar shows this instead of a paid
+   service's balance. Same palette as .credit-badge--trial above. */
+.credit-badge--free {
+  background: #e6f9f3; border-color: rgba(0,198,162,.25); color: #007A5E;
+}
+[data-theme="dark"] .credit-badge--free {
   background: rgba(0,198,162,.15); border-color: rgba(0,198,162,.3); color: #4DE8C4;
 }
 
@@ -283,6 +326,8 @@ body.no-sidebar .topbar    { left: 0; }
   .credit-badge { padding: 5px 10px; font-size: 12px; }
   .credit-badge-group { gap: 4px; }
   .credit-badge-group .credit-badge { padding: 4px 8px; font-size: 11px; }
+  .dash-impersonation-pill span { max-width: 110px; }
+  .dash-impersonation-pill-link span { display: none; }
 }
 
 @media (max-width: 480px) {

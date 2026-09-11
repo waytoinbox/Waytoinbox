@@ -136,6 +136,38 @@ class LoginActivity(models.Model):
         ordering = ['-login_at']
 
 
+class ImpersonationLog(models.Model):
+    """Audit trail for admin 'Login as User' impersonation sessions.
+
+    Two-actor (admin + target), start/end shaped -- unlike LoginActivity
+    (single user, login/logout of one's own session), this records the
+    admin who initiated the session and who they impersonated. Created on
+    admin_user_impersonate(), closed on admin_exit_impersonation() or, if
+    the admin logs out entirely instead of exiting cleanly, by the small
+    hook in views/auth.py::logout(). See views/admin/impersonation.py.
+
+    SET_NULL (not LoginActivity's CASCADE) on both FKs -- deleting either
+    account must not erase the audit row, matching AdminActivity's own
+    admin=SET_NULL precedent. target_email is a snapshot so the row still
+    reads sensibly even if the target row is later deleted.
+    """
+    STATUS_CHOICES = [
+        ('active', 'Active'),
+        ('ended',  'Ended'),
+    ]
+    admin        = models.ForeignKey(UserTable, on_delete=models.SET_NULL, null=True, related_name='impersonations_started')
+    target       = models.ForeignKey(UserTable, on_delete=models.SET_NULL, null=True, related_name='impersonations_received')
+    target_email = models.EmailField(max_length=225, blank=True)
+    started_at   = models.DateTimeField(auto_now_add=True)
+    ended_at     = models.DateTimeField(null=True, blank=True)
+    ip_address   = models.GenericIPAddressField(null=True, blank=True)
+    status       = models.CharField(max_length=10, choices=STATUS_CHOICES, default='active')
+
+    class Meta:
+        db_table = 'impersonation_log'
+        ordering = ['-started_at']
+
+
 class UserNotification(models.Model):
     user       = models.ForeignKey(UserTable, on_delete=models.CASCADE, related_name='notifications')
     type       = models.CharField(max_length=50)
@@ -264,6 +296,17 @@ SERVICE_CHOICES = [
 
 SERVICE_KEYS = [key for key, _ in SERVICE_CHOICES]
 
+# Phase 1 (schema preparation) of the expiring-credit-lot design.
+# entitlement_status is added to BlocklistMonitor/DomainBlocklist/
+# Reputation/SOEmailAccount below as schema-only for now -- no view, task
+# or query anywhere reads it yet, and every existing row defaults to
+# 'active', identical to today's real behavior. Nothing is suspended by
+# this change. See ServiceCreditLot/ServiceEntitlement further down.
+ENTITLEMENT_STATUS_CHOICES = [
+    ('active',    'Active'),
+    ('suspended', 'Suspended'),
+]
+
 
 class CreditAuditLog(models.Model):
     CREDIT_TYPES = [
@@ -303,6 +346,18 @@ class CreditAuditLog(models.Model):
     ref_id         = models.CharField(max_length=225, blank=True)
     description    = models.CharField(max_length=500, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
+
+    # ── Phase 1 additions (expiring-credit-lot design) — additive only. ──
+    # Every existing row gets lot=NULL, service='', spend_id='', reverses=
+    # NULL, exactly preserving what it already means today. No code writes
+    # or reads these yet; deduct_service_credits()/refund_service_credits()
+    # are unchanged in this phase.
+    lot        = models.ForeignKey('ServiceCreditLot', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='audit_entries')
+    service    = models.CharField(max_length=20, choices=SERVICE_CHOICES, blank=True, default='')
+    spend_id   = models.CharField(max_length=36, blank=True, default='', db_index=True)
+    reverses   = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                   null=True, blank=True, related_name='reversed_by')
 
     class Meta:
         db_table = 'credit_audit_log'
@@ -422,6 +477,14 @@ class TrialUsageLog(models.Model):
     description    = models.CharField(max_length=500, blank=True)
     created_at     = models.DateTimeField(auto_now_add=True)
 
+    # ── Phase 1 additions (expiring-credit-lot design) — additive only. ──
+    # Mirrors CreditAuditLog's spend_id/reverses above, for a future
+    # source-aware trial refund. No code writes or reads these yet; trial
+    # activation/spend/expiry behavior is unchanged in this phase.
+    spend_id = models.CharField(max_length=36, blank=True, default='')
+    reverses = models.ForeignKey('self', on_delete=models.SET_NULL,
+                                 null=True, blank=True, related_name='reversed_by')
+
     class Meta:
         db_table = 'trial_usage_log'
         indexes = [
@@ -513,9 +576,23 @@ class ServiceOrder(models.Model):
         (STATUS_FAILED,  'Failed'),
     ]
 
+    # Phase 1 addition (expiring-credit-lot design) — additive only. Every
+    # existing row defaults to 'service_credits', which is exactly what it
+    # already is today; 'payg_ev' is reserved for a later phase that moves
+    # EV Pay-As-You-Go onto this same frozen-order mechanism. Order
+    # creation/verification (subscription_order/subscription_verify) are
+    # unchanged in this phase and never read or set this field.
+    FLOW_SERVICE_CREDITS = 'service_credits'
+    FLOW_PAYG_EV         = 'payg_ev'
+    FLOW_CHOICES = [
+        (FLOW_SERVICE_CREDITS, 'Service Credits Checkout'),
+        (FLOW_PAYG_EV,         'Email Validation Pay-As-You-Go'),
+    ]
+
     user     = models.ForeignKey(UserTable, on_delete=models.CASCADE,
                                  related_name='service_orders')
     order_id = models.CharField(max_length=225, unique=True)   # Razorpay order id
+    flow     = models.CharField(max_length=20, choices=FLOW_CHOICES, default=FLOW_SERVICE_CREDITS)
 
     # The quote, frozen. cart_json is {service_key: quantity}; the *_cents
     # fields are integers because money must never round-trip through a float.
@@ -610,8 +687,272 @@ class Payment(models.Model):
 
     def __str__(self):
         return f"Payment {self.payment_id} by {self.payer_name}"
-    
-    
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Expiring Credit Lots & Entitlements — Phase 1 (schema preparation only)
+#
+# Both models below are created empty and stay empty in this phase. No
+# purchase flow (subscription_verify, billing.payment, subscription.
+# subs_payment) writes a ServiceCreditLot row yet, and no add/remove flow
+# (blocklist.py, reputation.py, so_email_accounts.py) writes a
+# ServiceEntitlement row yet. Every existing balance in ServiceCredit and
+# CurrentCredits, and every existing monitor/reputation domain/sender
+# account, is completely untouched by this migration — see each model's
+# docstring for the reasoning.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class ServiceCreditLot(models.Model):
+    """One purchase's worth of expiring credit. Phase 1 only: this table is
+    created here but is NOT written to by any purchase flow yet, and NOT
+    read by any balance/spend function yet. Every existing purchase still
+    grants CurrentCredits/ServiceCredit exactly as it does today; this
+    model starts empty and stays empty until a later phase wires it into
+    subscription_verify()/billing.payment().
+
+    Deliberately separate from ServiceCredit: ServiceCredit.balance is one
+    running total per (user, service) and cannot hold several purchases
+    with independent expiry dates. One purchase = one lot, so two
+    purchases made on different days expire on different days without
+    disturbing each other.
+
+    Invariant: quantity_purchased == quantity_remaining + quantity_used +
+    quantity_expired + quantity_revoked, and all four are non-negative.
+    Declared as CheckConstraints below, but MySQL only enforces CHECK on
+    real MySQL 8.0.16+ (MariaDB enforces it unconditionally, per Django's
+    mysql backend feature flags) — application code must not rely on the
+    database alone to catch a violation; the production MySQL version was
+    not determinable from this repository during Phase 0 inspection.
+    """
+    SOURCE_SERVICE_CHECKOUT = 'service_checkout'
+    SOURCE_PAYG_EV          = 'payg_ev'
+    SOURCE_ADMIN_ADJUSTMENT = 'admin_adjustment'
+    SOURCE_CHOICES = [
+        (SOURCE_SERVICE_CHECKOUT, 'Service Checkout'),
+        (SOURCE_PAYG_EV,          'Email Validation Pay-As-You-Go'),
+        (SOURCE_ADMIN_ADJUSTMENT, 'Admin Adjustment'),
+    ]
+
+    STATUS_ACTIVE  = 'active'
+    STATUS_EXPIRED = 'expired'
+    STATUS_REVOKED = 'revoked'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE,  'Active'),
+        (STATUS_EXPIRED, 'Expired'),
+        (STATUS_REVOKED, 'Revoked'),
+    ]
+
+    user    = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                related_name='credit_lots')
+    service = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+
+    # The purchase this lot came from. RESTRICT (not CASCADE/SET_NULL) — a
+    # receipt or order must never be deletable out from under a lot that
+    # still references it; deleting the USER cascades through `user`
+    # above instead. Both nullable only for a possible future admin grant
+    # with no underlying payment — Phase 1 creates no rows at all, so this
+    # is untested-in-practice until a later phase.
+    payment = models.ForeignKey(Payment, on_delete=models.RESTRICT,
+                                null=True, blank=True, related_name='credit_lots')
+    order   = models.ForeignKey(ServiceOrder, on_delete=models.RESTRICT,
+                                null=True, blank=True, related_name='credit_lots')
+    source  = models.CharField(max_length=20, choices=SOURCE_CHOICES)
+
+    quantity_purchased = models.BigIntegerField(default=0)
+    quantity_remaining = models.BigIntegerField(default=0)
+    quantity_used      = models.BigIntegerField(default=0)
+    quantity_expired   = models.BigIntegerField(default=0)
+    quantity_revoked   = models.BigIntegerField(default=0)
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+
+    # purchased_at is NOT auto_now_add — a future write path must be able
+    # to set this explicitly to the single `paid_at` timestamp captured
+    # once at payment verification, so this and expires_at are always
+    # exactly 30*24h apart with no clock drift between two separate now()
+    # calls. Both required (no default) since Phase 1 never creates a row.
+    purchased_at = models.DateTimeField()
+    expires_at   = models.DateTimeField()
+    expired_at   = models.DateTimeField(null=True, blank=True)
+    revoked_at   = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'service_credit_lots'
+        constraints = [
+            models.UniqueConstraint(fields=['payment', 'service'],
+                                    name='uniq_credit_lot_payment_service'),
+            models.CheckConstraint(condition=models.Q(quantity_purchased__gte=0),
+                                   name='credit_lot_purchased_nonneg'),
+            models.CheckConstraint(condition=models.Q(quantity_remaining__gte=0),
+                                   name='credit_lot_remaining_nonneg'),
+            models.CheckConstraint(condition=models.Q(quantity_used__gte=0),
+                                   name='credit_lot_used_nonneg'),
+            models.CheckConstraint(condition=models.Q(quantity_expired__gte=0),
+                                   name='credit_lot_expired_nonneg'),
+            models.CheckConstraint(condition=models.Q(quantity_revoked__gte=0),
+                                   name='credit_lot_revoked_nonneg'),
+            models.CheckConstraint(
+                condition=models.Q(
+                    quantity_purchased=(
+                        models.F('quantity_remaining')
+                        + models.F('quantity_used')
+                        + models.F('quantity_expired')
+                        + models.F('quantity_revoked')
+                    )
+                ),
+                name='credit_lot_quantity_invariant',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['user', 'service', 'status', 'expires_at'],
+                        name='cl_user_svc_status_exp_idx'),
+            models.Index(fields=['status', 'expires_at'],
+                        name='credit_lot_status_exp_idx'),
+            models.Index(fields=['payment'], name='credit_lot_payment_idx'),
+        ]
+
+    def __str__(self):
+        return (f"{self.user_id} | {self.service} | "
+                f"{self.quantity_remaining}/{self.quantity_purchased} "
+                f"(expires {self.expires_at})")
+
+
+class ServiceEntitlement(models.Model):
+    """One activation period of a monitored item or Sales Outreach sender
+    account. Phase 1 only: this table is created here but is NOT written
+    to and NOT read by any code yet. Every existing monitor, reputation
+    domain and sender account keeps working exactly as it does today —
+    nothing is suspended, nothing is grandfathered-backfilled, and no
+    query anywhere filters on this table or on entitlement_status (see
+    the additive fields on BlocklistMonitor/DomainBlocklist/Reputation/
+    SOEmailAccount above) until a later phase.
+
+    Exactly one of the four target FKs is set per row — enforced by
+    entitlement_exactly_one_target below (subject to the same MySQL
+    CHECK-enforcement caveat as ServiceCreditLot). funding_source='lot'
+    requires `lot` to be set; every other funding source requires it to
+    be NULL — enforced by entitlement_lot_required_iff_funding_lot.
+
+    `active_key` is how "at most one ACTIVE entitlement per item" will be
+    enforced despite MySQL having no partial/conditional unique index
+    (confirmed during Phase 0 inspection — Django's mysql backend sets
+    supports_partial_indexes = False): a future write path holds
+    f'{service}:{target_pk}' in it while status='active' and sets it back
+    to NULL the instant the row ends, so the UniqueConstraint below only
+    ever collides with another row that is ALSO currently active for the
+    same item — MySQL permits any number of NULLs in a unique column.
+    """
+    FUNDING_LOT           = 'lot'
+    FUNDING_TRIAL         = 'trial'
+    FUNDING_WALLET        = 'wallet'
+    FUNDING_LEGACY_POOL   = 'legacy_pool'
+    FUNDING_GRANDFATHERED = 'grandfathered'
+    FUNDING_CHOICES = [
+        (FUNDING_LOT,           'Credit Lot'),
+        (FUNDING_TRIAL,         'Free Trial'),
+        (FUNDING_WALLET,        'Grandfathered Wallet'),
+        (FUNDING_LEGACY_POOL,   'Legacy Credit Pool'),
+        (FUNDING_GRANDFATHERED, 'Grandfathered (pre-rollout)'),
+    ]
+
+    STATUS_ACTIVE = 'active'
+    STATUS_ENDED  = 'ended'
+    STATUS_CHOICES = [
+        (STATUS_ACTIVE, 'Active'),
+        (STATUS_ENDED,  'Ended'),
+    ]
+
+    END_REASON_EXPIRED     = 'expired'
+    END_REASON_TRIAL_ENDED = 'trial_ended'
+    END_REASON_REMOVED     = 'removed'
+    END_REASON_REVOKED     = 'revoked'
+    END_REASON_ADMIN       = 'admin'
+    END_REASON_CHOICES = [
+        (END_REASON_EXPIRED,     'Lot Expired'),
+        (END_REASON_TRIAL_ENDED, 'Trial Ended'),
+        (END_REASON_REMOVED,     'Removed by User'),
+        (END_REASON_REVOKED,     'Payment Revoked/Refunded'),
+        (END_REASON_ADMIN,       'Admin Action'),
+    ]
+
+    user    = models.ForeignKey(UserTable, on_delete=models.CASCADE,
+                                related_name='service_entitlements')
+    service = models.CharField(max_length=20, choices=SERVICE_CHOICES)
+
+    # Exactly one of these four is set — see entitlement_exactly_one_target
+    # below. String references: all four models are defined later in this
+    # file.
+    ip_monitor     = models.ForeignKey('BlocklistMonitor', on_delete=models.CASCADE,
+                                       null=True, blank=True, related_name='entitlements')
+    domain_monitor = models.ForeignKey('DomainBlocklist', on_delete=models.CASCADE,
+                                       null=True, blank=True, related_name='entitlements')
+    reputation     = models.ForeignKey('Reputation', on_delete=models.CASCADE,
+                                       null=True, blank=True, related_name='entitlements')
+    so_account     = models.ForeignKey('SOEmailAccount', on_delete=models.CASCADE,
+                                       null=True, blank=True, related_name='entitlements')
+
+    funding_source = models.CharField(max_length=20, choices=FUNDING_CHOICES)
+    # RESTRICT, not CASCADE/SET_NULL — a lot must never be deletable out
+    # from under an entitlement it still funds. Required only when
+    # funding_source='lot'; see entitlement_lot_required_iff_funding_lot.
+    lot = models.ForeignKey(ServiceCreditLot, on_delete=models.RESTRICT,
+                            null=True, blank=True, related_name='entitlements')
+
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_ACTIVE)
+
+    activated_at = models.DateTimeField()
+    expires_at   = models.DateTimeField(null=True, blank=True)   # NULL = permanent
+    ended_at     = models.DateTimeField(null=True, blank=True)
+    end_reason   = models.CharField(max_length=15, choices=END_REASON_CHOICES, blank=True)
+
+    # Groups the CreditAuditLog/TrialUsageLog rows that paid for this
+    # activation. Not a FK — one spend_id can group several ledger rows
+    # (one per funding source touched), not one row.
+    spend_id = models.CharField(max_length=36, blank=True, default='')
+
+    # Holds f'{service}:{target_pk}' while status='active', NULL once
+    # ended — see the class docstring.
+    active_key = models.CharField(max_length=64, null=True, blank=True, unique=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'service_entitlements'
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    models.Q(ip_monitor__isnull=False, domain_monitor__isnull=True,
+                             reputation__isnull=True, so_account__isnull=True)
+                    | models.Q(ip_monitor__isnull=True, domain_monitor__isnull=False,
+                              reputation__isnull=True, so_account__isnull=True)
+                    | models.Q(ip_monitor__isnull=True, domain_monitor__isnull=True,
+                              reputation__isnull=False, so_account__isnull=True)
+                    | models.Q(ip_monitor__isnull=True, domain_monitor__isnull=True,
+                              reputation__isnull=True, so_account__isnull=False)
+                ),
+                name='entitlement_exactly_one_target',
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(funding_source='lot') & models.Q(lot__isnull=False))
+                    | (~models.Q(funding_source='lot') & models.Q(lot__isnull=True))
+                ),
+                name='entitlement_lot_required_iff_funding_lot',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['lot', 'status'], name='entitlement_lot_status_idx'),
+            models.Index(fields=['user', 'service', 'status'], name='ent_user_svc_status_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.user_id} | {self.service} | {self.status} ({self.funding_source})"
+
+
 # New Model for EmailValidate Table
     
 class EmailValidate(models.Model):
@@ -646,6 +987,11 @@ class BlocklistMonitor(models.Model):
     last_monitor_date = models.DateTimeField(null=True, blank=True)
     listed_count = models.CharField(max_length=225, null=True, blank=True)  # Allow null values
     is_hidden = models.BooleanField(default=False)
+    # Phase 1 addition (expiring-credit-lot design) — schema-only for now.
+    # Every existing row defaults to 'active', identical to today's real
+    # behavior. No query/task reads this field yet — scheduler_job() still
+    # scans exactly as it does today.
+    entitlement_status = models.CharField(max_length=10, choices=ENTITLEMENT_STATUS_CHOICES, default='active')
 
     class Meta:
         db_table = 'blocklist_monitor'
@@ -771,6 +1117,11 @@ class DomainBlocklist(models.Model):
     last_monitor_date = models.DateTimeField(null=True, blank=True)
     listed_count = models.CharField(max_length=225, null=True, blank=True)  # Allow null values
     is_hidden = models.BooleanField(default=False)
+    # Phase 1 addition (expiring-credit-lot design) — schema-only for now.
+    # Every existing row defaults to 'active', identical to today's real
+    # behavior. No query/task reads this field yet — my_second_job() still
+    # scans exactly as it does today.
+    entitlement_status = models.CharField(max_length=10, choices=ENTITLEMENT_STATUS_CHOICES, default='active')
 
     class Meta:
         db_table = 'domain_blocklist'
@@ -953,6 +1304,11 @@ class Reputation(models.Model):
     is_hidden = models.BooleanField(default=False)
     deleted_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    # Phase 1 addition (expiring-credit-lot design) — schema-only for now.
+    # Every existing row defaults to 'active', identical to today's real
+    # behavior. No query/task reads this field yet — update_all_reputations()
+    # still refreshes exactly as it does today.
+    entitlement_status = models.CharField(max_length=10, choices=ENTITLEMENT_STATUS_CHOICES, default='active')
 
     class Meta:
         db_table = "reputation"
@@ -1528,6 +1884,12 @@ class SOEmailAccount(models.Model):
     created_at   = models.DateTimeField(auto_now_add=True)
     updated_at   = models.DateTimeField(auto_now=True)
     deleted_at   = models.DateTimeField(null=True, blank=True)
+    # Phase 1 addition (expiring-credit-lot design) — schema-only for now.
+    # Every existing row defaults to 'active', identical to today's real
+    # behavior. No query/task reads this field yet — is_sending_eligible(),
+    # campaign dispatch, warmup and inbox sync are all unchanged in this
+    # phase.
+    entitlement_status = models.CharField(max_length=10, choices=ENTITLEMENT_STATUS_CHOICES, default='active')
 
     class Meta:
         db_table = 'so_email_accounts'

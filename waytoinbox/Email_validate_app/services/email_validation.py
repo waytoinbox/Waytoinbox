@@ -39,10 +39,15 @@ def core_validate_email(user_id, email, deduct_credits=False):
     which meant a user with a zero balance was validated for free every time.
     Now an insufficient balance returns {'need_credits': True} and no
     validation is performed at all. One email costs exactly one credit.
+
+    Phase 3: the refund on failure now passes the debit's own spend_id
+    through, so a lot-funded validation refunds to that same lot rather
+    than the permanent wallet — see credit_manager.refund_service_credits.
     """
+    spend_id = None
     if deduct_credits:
         try:
-            deduct_service_credits(
+            spend_id = deduct_service_credits(
                 user_id, 'email_validation', 1,
                 ref_type='validation', ref_id=email,
                 description='Single email validation')
@@ -89,7 +94,8 @@ def core_validate_email(user_id, email, deduct_credits=False):
                 refund_service_credits(
                     user_id, 'email_validation', 1,
                     ref_type='validation', ref_id=email,
-                    description='Refund: single email validation failed')
+                    description='Refund: single email validation failed',
+                    spend_id=spend_id)
             except Exception:
                 logger.exception(
                     "Could not refund the validation credit for user %s (%s) "

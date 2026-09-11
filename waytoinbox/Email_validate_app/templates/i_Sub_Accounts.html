@@ -80,7 +80,11 @@
             <span class="local-dt" data-utc="{{ sub.created_date|date:'c' }}" data-format="date">{{ sub.created_date|date:"M j, Y" }}</span>
           </td>
           <td>
-            <button class="btn btn-outline btn-sm sa-open-btn" type="button" data-email="{{ sub.user_email }}">Open</button>
+            {% if sub.is_verified %}
+              <button class="btn btn-outline btn-sm sa-open-btn" type="button" data-email="{{ sub.user_email }}">Open</button>
+            {% else %}
+              <button class="btn btn-outline btn-sm" type="button" disabled title="This Sub Account must verify its email before it can be opened.">Pending verification</button>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}

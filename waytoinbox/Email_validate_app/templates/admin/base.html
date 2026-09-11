@@ -178,6 +178,21 @@
       </div>
 
       <div class="admin-topbar-right">
+        {% if nav_is_impersonating %}
+        <!-- Reminder that an impersonation session is still open even
+             though this admin navigated back to /wti-admin/ without
+             exiting it first -- see Email_validate_app/utils.py::
+             get_active_user and views/admin/impersonation.py. -->
+        <div class="admin-impersonation-pill" title="Impersonating {{ nav_active_email }}">
+          <i class="fas fa-user-secret"></i>
+          <span>Impersonating: {{ nav_active_email }}</span>
+          <a href="{% url 'dashboard' %}" class="admin-impersonation-pill-link">
+            <i class="fas fa-arrow-right"></i> Go to Dashboard
+          </a>
+          <button type="button" id="adminExitImpersonationBtn">Exit</button>
+        </div>
+        {% endif %}
+
         <!-- Theme toggle -->
         <button class="admin-theme-btn" id="adminThemeBtn" title="Toggle theme">
           <i class="fas fa-moon" id="adminThemeIcon"></i>
@@ -265,6 +280,17 @@
   if (email) {
     document.getElementById('adminUserEmail').textContent = email.split('@')[0];
     document.getElementById('adminAvatarInitial').textContent = email[0].toUpperCase();
+  }
+
+  // ── Exit a still-open impersonation from within /wti-admin/ ─────
+  var exitImpBtn = document.getElementById('adminExitImpersonationBtn');
+  if (exitImpBtn) {
+    exitImpBtn.addEventListener('click', function () {
+      exitImpBtn.disabled = true;
+      WTI.apiFetch('{% url "admin_exit_impersonation" %}', { method: 'POST' }).then(function (res) {
+        if (res.ok) { window.location.reload(); } else { exitImpBtn.disabled = false; }
+      });
+    });
   }
 })();
 </script>

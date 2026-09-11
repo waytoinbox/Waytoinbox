@@ -138,19 +138,26 @@
   text-align: left; font-family: monospace; font-size: 13px; color: var(--ink); font-weight: 600;
   max-width: 200px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.socd-ev-th-journey { min-width: 280px; text-align: center; padding-left: 14px; padding-right: 14px; }
+.socd-ev-th-journey { min-width: 310px; text-align: center; padding-left: 14px; padding-right: 14px; }
 .socd-ev-td-journey { padding: 12px 14px; text-align: center; }
 .socd-ev-th-last, .socd-ev-td-last { white-space: nowrap; text-align: center; }
 
-/* ── JOURNEY TRACK LEGEND + TRACK (8 stages — SO adds Replied over EM's 7) */
-.socd-ev-legend { display: grid; grid-template-columns: repeat(8, 1fr); }
+/* ── JOURNEY TRACK LEGEND + TRACK (9 stages — SO adds Replied + Soft
+   Bounce over EM's 7). Legend header count and track node count MUST
+   stay equal, both here and in i_SO_Campaign_Detail.html's markup --
+   grid-template-columns is a fixed column count, so any mismatch (e.g.
+   adding a new .socd-ev-node without a matching legend <span>) makes
+   the extra node wrap to a new implicit row instead of lining up under
+   its header, which is exactly the alignment bug a mismatch here caused
+   previously. */
+.socd-ev-legend { display: grid; grid-template-columns: repeat(9, 1fr); }
 .socd-ev-legend span {
   text-align: center; font-size: 9.5px; font-weight: 600;
   color: var(--ink-3); white-space: nowrap; cursor: default;
   overflow: hidden; text-overflow: ellipsis;
 }
 .socd-ev-track {
-  position: relative; display: grid; grid-template-columns: repeat(8, 1fr);
+  position: relative; display: grid; grid-template-columns: repeat(9, 1fr);
   align-items: center; width: 100%; padding: 6px 0;
 }
 .socd-ev-rail {

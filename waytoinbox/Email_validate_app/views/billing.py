@@ -5,6 +5,7 @@ from django.urls import reverse
 from django.conf import settings
 from django.core.cache import cache
 from django.views.decorators.http import require_POST
+from django.db import transaction, IntegrityError
 from django.db.models import Sum, Max
 from django.utils import timezone
 from datetime import datetime, timedelta
@@ -25,7 +26,7 @@ from xhtml2pdf import pisa
 from django.template.loader import render_to_string
 
 from Email_validate_app.models import (
-    UserTable, ListFiles, SubsPayment, Payment,
+    UserTable, ListFiles, SubsPayment, Payment, ServiceOrder, ServiceCreditLot,
     CurrentCredits, TotalCredits, UsedCredits, AllEmails,
 )
 from Email_validate_app.utils import get_user_id
@@ -34,6 +35,94 @@ from Email_validate_app.services.mailer import send_payment_success_email
 logger = logging.getLogger(__name__)
 
 _WIN_TABLE_RE = re.compile(r'^WIN_\d+_\d{4}_\d{2}_\d{2}$')
+
+# ── Phase 2 (PAYG purchase hardening) ───────────────────────────────────────
+# Legacy Email Validation Pay-As-You-Go purchase quantity/amount is now
+# frozen server-side into a ServiceOrder row (flow='payg_ev') at order
+# creation, exactly mirroring the pattern views/credits.py already uses for
+# the new service-credit checkout. Verification (payment(), below) reads
+# quantity/amount back from THIS row -- never from POST -- so a browser
+# posting a different `credits`/`price`/`amount` can no longer change what
+# gets granted. The grant destination is UNCHANGED: still legacy
+# CurrentCredits.vc via insert_vc_credits(); routing PAYG through
+# ServiceCreditLot is a later phase's work, not this one's.
+
+# $1.00, matching order_payment's existing minimum -- unchanged from today.
+MIN_PAYG_ORDER_CENTS = 100
+
+
+class PaygOrderError(Exception):
+    """Raised by _create_payg_ev_order() with an already user-facing
+    message -- callers relay str(e) exactly the way they already relay
+    individual Razorpay error messages today."""
+
+
+def _create_payg_ev_order(user_id, quantity, discount_percentage=0, timezone_str='Asia/Kolkata'):
+    """Server-authoritative EV PAYG order creation, shared by
+    order_payment(), download_results() and verify_emails()'s need-credits
+    branch.
+
+    `quantity` is the caller's already-validated positive int credit count.
+    Price comes from calculate_price() (the existing, real EV pricing
+    function) -- never from the browser. `discount_percentage` lets
+    order_payment() keep applying its existing legacy-plan discount; the
+    other two callers pass 0 (their existing, unchanged behavior).
+
+    Returns (razorpay_order_dict, service_order). Raises PaygOrderError
+    with a ready-to-display message on any validation/gateway failure --
+    nothing is created in that case.
+    """
+    quantity = int(quantity)
+    if quantity <= 0:
+        raise PaygOrderError("Credit quantity must be positive.")
+
+    ok, result = calculate_price(quantity)
+    if not ok:
+        raise PaygOrderError(str(result))
+    base_price, _rate = result
+
+    discounted_price = (
+        round(base_price - (base_price * discount_percentage / 100), 2)
+        if discount_percentage else base_price
+    )
+    subtotal_cents = int(round(base_price * 100))
+    amount_cents   = int(round(discounted_price * 100))
+
+    if amount_cents < MIN_PAYG_ORDER_CENTS:
+        raise PaygOrderError(f"Order amount must be at least ${MIN_PAYG_ORDER_CENTS / 100:,.2f}.")
+
+    receipt_id = generate_receipt_id(timezone_str)
+    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+    try:
+        rz_order = client.order.create(data={
+            "amount":   amount_cents,
+            # Always USD -- the "usd-inr" form field is a hidden, hardcoded
+            # "USD" input in both templates today, never a real selector,
+            # so there is nothing legitimate to read from POST here.
+            "currency": "USD",
+            "receipt":  receipt_id,
+        })
+    except BadRequestError as e:
+        logger.error("Razorpay bad request error (PAYG EV): %s", e)
+        raise PaygOrderError("Invalid request to payment gateway.") from e
+    except ServerError as e:
+        logger.error("Razorpay server error (PAYG EV): %s", e)
+        raise PaygOrderError("Payment gateway server error.") from e
+    except razorpay_errors.RazorpayError as e:
+        logger.error("Razorpay error (PAYG EV): %s", e)
+        raise PaygOrderError("Payment could not be initiated. Please try again.") from e
+
+    service_order = ServiceOrder.objects.create(
+        user_id=user_id,
+        order_id=rz_order['id'],
+        flow=ServiceOrder.FLOW_PAYG_EV,
+        cart_json={'email_validation': quantity},
+        subtotal_cents=subtotal_cents,
+        discount_cents=max(0, subtotal_cents - amount_cents),
+        amount_cents=amount_cents,
+        currency='USD',
+    )
+    return rz_order, service_order
 
 
 def _drop_win_table(table_name: str) -> None:
@@ -53,10 +142,13 @@ def _drop_win_table(table_name: str) -> None:
 # deduct_vc/ac/cc_credits. Commit 11 then deleted
 # update_or_insert_current_credit and insert_ip_credits outright, having
 # confirmed zero references repo-wide; the deduct_* trio is kept.
+# Phase 2 (PAYG purchase hardening) removed insert_credits: payment()'s only
+# caller now calls insert_vc_credits() directly so it can pass ref_id=order_id
+# (insert_credits's thin ref_type='payg' wrapper never took a ref_id at all).
 from Email_validate_app.services.credit_manager import (
     generate_receipt_id,
     get_current_credit, get_ac_current_credit,
-    insert_credits, insert_vc_credits,
+    insert_vc_credits,
     insert_ac_credits, insert_cc_credits,
     calculate_price, manage_credits,
 )
@@ -73,6 +165,15 @@ from Email_validate_app.services.credit_manager import (
 # existing "only real completed payments" semantics. TTL is generous (1
 # hour) so a normal, slow checkout never gets rejected; a peek (not pop) so
 # a legitimate double-click/retry by the same account still finds it.
+#
+# Phase 2 (PAYG purchase hardening): order_payment()/download_results()/
+# verify_emails() now record ownership via ServiceOrder.user instead (a
+# permanent DB row, not a 1-hour cache entry), so _remember_legacy_order_owner
+# below has no remaining caller. Kept, not deleted, alongside its still-used
+# read counterpart (_get_legacy_order_owner, still read by subs_payment())
+# and create_subscription() (Phase 2 blocked its order creation -- see that
+# view's docstring). Both belong to the SubsPayment plan-purchase flow's
+# existing deprecation posture: fail closed, don't delete.
 _LEGACY_ORDER_OWNER_TTL = 3600
 
 
@@ -191,41 +292,39 @@ def order_payment(request):
         return redirect('pricing')
 
     try:
-        # Input validation
+        # SEC-03 (Phase 2): `credits` is still read from POST here -- the
+        # user's REQUESTED quantity -- but it is now only an input to
+        # server-side pricing/validation (_create_payg_ev_order), never a
+        # value that is itself trusted for the final grant. `price`,
+        # `pricePerEmail` and the hidden `usd-inr` field are no longer read
+        # at all: the server computes price via calculate_price() and
+        # always charges in USD (see _create_payg_ev_order).
         credits = request.POST.get("plan")
-        price_ = request.POST.get("price")
-        price_per_email = request.POST.get("pricePerEmail")
-        currency = request.POST.get("usd-inr")
         timezone_str = request.GET.get('timezone', 'Asia/Kolkata')
 
-        logger.debug("credits=%s price=%s price_per_email=%s currency=%s", credits, price_, price_per_email, currency)
+        logger.debug("credits requested=%s", credits)
 
         user_id = get_user_id(request)
         current_credits = get_current_credit(user_id)
 
-        if not credits or not price_:
+        if not credits:
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Credits and price must be provided."}, status=400)
-            messages.warning(request, "Credits and price must be provided.")
+                return JsonResponse({"status": "error", "message": "Credits must be provided."}, status=400)
+            messages.warning(request, "Credits must be provided.")
             return redirect('subscription')
 
         try:
             credits = int(credits)
-            price_ = float(price_)
         except ValueError:
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Invalid input for credits or price."}, status=400)
-            messages.error(request, "Invalid input for credits or price.")
+                return JsonResponse({"status": "error", "message": "Invalid input for credits."}, status=400)
+            messages.error(request, "Invalid input for credits.")
             return redirect('subscription')
 
-        # Minimum order check: $1.00, full stop. No separate credit-count
-        # floor -- at the current per-email rates a fixed credit count no
-        # longer maps to a fixed dollar amount, so the dollar minimum is the
-        # only one that still means anything.
-        if price_ < 1.0:
+        if credits <= 0:
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Order amount must be at least $1.00."}, status=400)
-            messages.error(request, "Order amount must be at least $1.00.")
+                return JsonResponse({"status": "error", "message": "Credits must be a positive number."}, status=400)
+            messages.error(request, "Credits must be a positive number.")
             return redirect('subscription')
 
         user_data = fetch_user_data(user_id)
@@ -257,7 +356,8 @@ def order_payment(request):
 
         logger.debug("Subscription plan for user %s: %s", user_id, subs_plan)
 
-        # Apply discount by plan
+        # Apply discount by plan -- unchanged business logic, still entirely
+        # server-derived (subs_plan comes from the DB, never from POST).
         discount_percentage = 0
         if subs_plan:
             plan = subs_plan.strip().lower()
@@ -268,65 +368,47 @@ def order_payment(request):
             elif plan == "advanced":
                 discount_percentage = 8
 
-        discounted_price = round(price_ - (price_ * discount_percentage / 100), 2)
-        logger.debug("Price=%s discount=%s%% final=%s", price_, discount_percentage, discounted_price)
-
-        # Razorpay payment integration
-        receipt_id = generate_receipt_id(timezone_str)
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-
-        data = {
-            "amount": int(discounted_price * 100),  # in paise
-            "currency": currency,
-            "receipt": receipt_id,
-        }
-
         try:
-            payment = client.order.create(data=data)
-            payment['display_amount'] = payment['amount'] / 100
-            _remember_legacy_order_owner(payment['id'], user_id)
-        except BadRequestError as e:
-            logger.error("Razorpay bad request error: %s", e)
+            rz_order, service_order = _create_payg_ev_order(
+                user_id, credits, discount_percentage=discount_percentage,
+                timezone_str=timezone_str,
+            )
+        except PaygOrderError as e:
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Invalid request to payment gateway."}, status=400)
-            messages.error(request, "Invalid request to payment gateway.")
+                return JsonResponse({"status": "error", "message": str(e)}, status=400)
+            messages.error(request, str(e))
             return redirect('subscription')
-        except ServerError as e:
-            logger.error("Razorpay server error: %s", e)
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Payment gateway server error."}, status=502)
-            messages.error(request, "Payment gateway server error.")
-            return redirect('subscription')
-        except razorpay_errors.RazorpayError as e:
-            logger.error("Razorpay error: %s", e)
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Payment could not be initiated. Please try again."}, status=500)
-            messages.error(request, "Payment could not be completed due to technical issues.")
-            return redirect('subscription')
+
+        rz_order['display_amount'] = rz_order['amount'] / 100
+        discounted_price = service_order.amount_cents / 100
+        # Cosmetic per-email rate for receipt/UI display only -- server-
+        # derived from the same frozen amount, never used in any grant or
+        # charge calculation.
+        plan_display = f"{discounted_price / credits:.6f}" if credits else "0"
 
         if is_ajax:
             return JsonResponse({
                 "status":              "ok",
                 "key_id":              settings.RAZORPAY_KEY_ID,
-                "order_id":            payment['id'],
-                "amount":              payment['amount'],
-                "currency":            payment.get('currency', currency),
+                "order_id":            rz_order['id'],
+                "amount":              rz_order['amount'],
+                "currency":            rz_order.get('currency', 'USD'),
                 "user_name":           user_data.user_name,
                 "user_email":          user_data.user_email,
                 "user_id":             user_data.id,
                 "credit":              credits,
-                "plan":                price_per_email,
+                "plan":                plan_display,
                 "discount_percentage": discount_percentage,
                 "flow":                "payg",
             })
 
         return render(request, "i_payment_2.html", {
             "credits":             current_credits,
-            "payment":             payment,
+            "payment":             rz_order,
             "user_data":           user_data,
             "credit":              credits,
-            "currency":            currency,
-            "plan":                price_per_email,
+            "currency":            "USD",
+            "plan":                plan_display,
             "discount_percentage": discount_percentage,
             "discounted_price":    discounted_price,
             "current_credits":     current_credits,
@@ -342,107 +424,169 @@ def order_payment(request):
 
 
 def payment(request):
+    """Verify a legacy EV PAYG payment and grant exactly the quantity
+    frozen server-side at order creation.
+
+    SEC-03 (Phase 2): `credits`, `amount`, `currency` and `plan` are no
+    longer read from POST at all -- they are read back from the
+    ServiceOrder(flow='payg_ev') row that _create_payg_ev_order() created
+    before Razorpay Checkout ever opened. A browser posting a different
+    credits/amount/currency/plan cannot change what gets granted, because
+    those values are never consulted here. Only order_id/payment_id/
+    razorpay_signature/description/user_name are still taken from the
+    request -- description and user_name are stored verbatim only as
+    display-only receipt fields, never used in any grant/charge decision.
+    """
     is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
-    if request.method == 'POST':
-        # SEC-01: always resolve user from session — never trust client-supplied user_id
-        user_id = get_user_id(request)
-        if not user_id:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": "Not authenticated."}, status=401)
-            messages.error(request, "Not authenticated.")
-            return redirect('login')
+    if request.method != 'POST':
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": "POST required"}, status=405)
+        return redirect('pricing')
 
-        payment_id         = request.POST.get('payment_id')
-        order_id           = request.POST.get('order_id')
-        razorpay_signature = request.POST.get('razorpay_signature', '')
-        credits            = request.POST.get('credits')
-        currency           = request.POST.get('currency')
-        plans_val          = request.POST.get('plan')
-        description        = request.POST.get('description')
-        payer_name         = request.POST.get('user_name')
+    # SEC-01: always resolve user from session — never trust client-supplied user_id
+    user_id = get_user_id(request)
+    if not user_id:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": "Not authenticated."}, status=401)
+        messages.error(request, "Not authenticated.")
+        return redirect('login')
 
-        # SEC-XX: the account active now must be the same one that created
-        # this order -- switching Main/Sub Account context between order
-        # creation and verification must never move a payment to a
-        # different account than the one that started it. order_payment()/
-        # download_results() record the creator in cache; a miss (expired,
-        # or no matching entry) is treated as unverifiable and rejected
-        # rather than trusting whichever account happens to be active now.
-        order_owner_id = _get_legacy_order_owner(order_id)
-        if order_owner_id != user_id:
-            logger.warning(
-                "Payment order/account mismatch: order=%s created_by=%s current_active=%s",
-                order_id, order_owner_id, user_id)
+    payment_id         = request.POST.get('payment_id')
+    order_id           = request.POST.get('order_id')
+    razorpay_signature = request.POST.get('razorpay_signature', '')
+    description        = request.POST.get('description')
+    payer_name         = request.POST.get('user_name')
+
+    if not order_id:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": "Invalid payment data."}, status=400)
+        messages.error(request, "Invalid payment data.")
+        return redirect('pricing')
+
+    # SEC-03 (Phase 2): the ServiceOrder this order_id belongs to is the
+    # sole source of truth for quantity/amount/currency, and its `user` FK
+    # is the sole source of truth for ownership -- replacing the old
+    # cache-based _get_legacy_order_owner() lookup, which order_payment()/
+    # download_results()/verify_emails() no longer write to. Scoping the
+    # lookup to user_id means a different account's order_id simply
+    # doesn't exist from this user's point of view -- same rejection
+    # message as before, now backed by a permanent DB row instead of a
+    # 1-hour cache entry (this also fixes a pre-existing bug: verify_emails
+    # never called _remember_legacy_order_owner, so its own top-up flow
+    # always failed this check).
+    try:
+        service_order = ServiceOrder.objects.get(
+            order_id=order_id, user_id=user_id, flow=ServiceOrder.FLOW_PAYG_EV,
+        )
+    except ServiceOrder.DoesNotExist:
+        logger.warning(
+            "PAYG verify for unknown/foreign order: order=%s user=%s", order_id, user_id)
+        if is_ajax:
+            return JsonResponse({"status": "error",
+                                 "message": "This order was started under a different account. Please start a new purchase."},
+                                status=403)
+        messages.error(request, "This order was started under a different account. Please start a new purchase.")
+        return redirect('pricing')
+
+    # SEC-02: verify Razorpay payment signature before crediting (unchanged)
+    if payment_id and order_id and razorpay_signature:
+        try:
+            client_verify = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            client_verify.utility.verify_payment_signature({
+                'razorpay_order_id':   order_id,
+                'razorpay_payment_id': payment_id,
+                'razorpay_signature':  razorpay_signature,
+            })
+        except SignatureVerificationError:
+            logger.warning("Payment signature verification failed: order=%s payment=%s user=%s", order_id, payment_id, user_id)
             if is_ajax:
-                return JsonResponse({"status": "error",
-                                     "message": "This order was started under a different account. Please start a new purchase."},
-                                    status=403)
-            messages.error(request, "This order was started under a different account. Please start a new purchase.")
+                return JsonResponse({"status": "error", "message": "Payment verification failed."}, status=400)
+            messages.error(request, "Payment verification failed.")
             return redirect('pricing')
+    else:
+        logger.warning("Missing payment signature: order=%s payment=%s user=%s", order_id, payment_id, user_id)
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": "Invalid payment data."}, status=400)
+        messages.error(request, "Invalid payment data.")
+        return redirect('pricing')
 
-        # SEC-02: verify Razorpay payment signature before crediting
-        if payment_id and order_id and razorpay_signature:
-            try:
-                client_verify = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-                client_verify.utility.verify_payment_signature({
-                    'razorpay_order_id':   order_id,
-                    'razorpay_payment_id': payment_id,
-                    'razorpay_signature':  razorpay_signature,
-                })
-            except SignatureVerificationError:
-                logger.warning("Payment signature verification failed: order=%s payment=%s user=%s", order_id, payment_id, user_id)
-                if is_ajax:
-                    return JsonResponse({"status": "error", "message": "Payment verification failed."}, status=400)
-                messages.error(request, "Payment verification failed.")
-                return redirect('pricing')
+    try:
+        user = UserTable.objects.get(id=user_id)
+    except UserTable.DoesNotExist:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": "User not found."}, status=404)
+        messages.error(request, "User not found.")
+        return redirect('pricing')
+
+    client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+
+    try:
+        payment_details = client.payment.fetch(payment_id)
+
+        if payment_details:
+            payer_email = payment_details.get("email")
+            customer_contact = payment_details.get("contact")
+            paid_amount_cents = int(payment_details.get('amount', 0))
         else:
-            logger.warning("Missing payment signature: order=%s payment=%s user=%s", order_id, payment_id, user_id)
+            payer_email = request.POST.get('user_email')
+            customer_contact = request.POST.get('user_contact')
+            paid_amount_cents = None
+
+        # SEC-03 (Phase 2/Step 7): the amount actually charged by Razorpay
+        # must equal what this order was created for -- belt-and-suspenders
+        # on top of the signature check above, which already cryptographically
+        # ties payment_id to order_id. Nothing is granted if they disagree.
+        if paid_amount_cents is not None and paid_amount_cents != service_order.amount_cents:
+            logger.error(
+                "PAYG amount mismatch: order=%s expected=%s paid=%s user=%s",
+                order_id, service_order.amount_cents, paid_amount_cents, user_id)
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "Invalid payment data."}, status=400)
-            messages.error(request, "Invalid payment data.")
+                return JsonResponse({"status": "error", "message": "Payment amount mismatch. Please contact support."}, status=400)
+            messages.error(request, "Payment amount mismatch. Please contact support.")
             return redirect('pricing')
 
-        try:
-            user = UserTable.objects.get(id=user_id)
-        except UserTable.DoesNotExist:
+        # Authoritative quantity/amount/currency -- from the frozen order,
+        # never from POST.
+        quantity   = int((service_order.cart_json or {}).get('email_validation', 0))
+        amount     = f"{service_order.amount_cents / 100:.2f}"
+        currency   = service_order.currency
+        unit_price = f"{(service_order.amount_cents / 100 / quantity):.6f}" if quantity else "0"
+
+        if quantity <= 0:
+            logger.error("PAYG order %s has no email_validation quantity; refusing to grant", order_id)
             if is_ajax:
-                return JsonResponse({"status": "error", "message": "User not found."}, status=404)
-            messages.error(request, "User not found.")
+                return JsonResponse({"status": "error", "message": "Invalid order. Please contact support."}, status=400)
+            messages.error(request, "Invalid order. Please contact support.")
             return redirect('pricing')
 
-        # DB-08: idempotency guard — prevent double-crediting on retry or double-click
-        from Email_validate_app.models import Payment as _Payment
-        if _Payment.objects.filter(order_id=order_id).exists():
-            logger.warning("Duplicate payment attempt blocked: order=%s user=%s", order_id, user_id)
-            if is_ajax:
-                return JsonResponse({"status": "ok", "message": "Payment already processed."})
-            messages.info(request, "This payment was already processed.")
-            return redirect('pricing')
+        current_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC)
+        payment_time = current_datetime
 
-        # Initialize Razorpay client
-        client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+        # SEC-03 (Phase 2/Step 6): lock the frozen order BEFORE deciding
+        # whether it has already been finalized -- mirrors views/credits.py::
+        # subscription_verify()'s ServiceOrder->Payment lock order exactly,
+        # so a replayed/concurrent verification of the SAME order_id can
+        # never grant twice. The pre-existing Payment.order_id unique
+        # constraint + IntegrityError catch below is kept as a second,
+        # independent safeguard -- not a replacement for this lock.
+        with transaction.atomic():
+            locked_order = ServiceOrder.objects.select_for_update().get(pk=service_order.pk)
 
-        try:
-            # Fetch payment details from Razorpay
-            payment_details = client.payment.fetch(payment_id)
+            if locked_order.status == ServiceOrder.STATUS_PAID:
+                logger.info("PAYG order %s already fulfilled; ignoring replay", order_id)
+                if is_ajax:
+                    return JsonResponse({"status": "ok", "message": "Payment already processed."})
+                messages.info(request, "This payment was already processed.")
+                return redirect('pricing')
 
-            if payment_details:
-                payer_email = payment_details.get("email")
-                customer_contact = payment_details.get("contact")
-                amount = f"{int(payment_details.get('amount', 0)) / 100:.2f}"
-            else:
-                payer_email = request.POST.get('user_email')
-                customer_contact = request.POST.get('user_contact')
-                amount = request.POST.get('amount')
-                if amount and amount.isdigit() and int(amount) > 1000:
-                    amount = f"{int(amount) / 100:.2f}"
+            # DB-08: idempotency guard — prevent double-crediting on retry or double-click (kept, unchanged)
+            if Payment.objects.filter(order_id=order_id).exists():
+                logger.warning("Duplicate payment attempt blocked: order=%s user=%s", order_id, user_id)
+                if is_ajax:
+                    return JsonResponse({"status": "ok", "message": "Payment already processed."})
+                messages.info(request, "This payment was already processed.")
+                return redirect('pricing')
 
-            # Calculate current time for payment
-            current_datetime = datetime.utcnow().replace(tzinfo=pytz.UTC)
-            payment_time = current_datetime
-
-            # Create Payment record in the database
-            from django.db import IntegrityError as _IntegrityError
             try:
                 payment_obj = Payment(
                     user=user,
@@ -453,15 +597,15 @@ def payment(request):
                     payer_email=payer_email,
                     payer_address=customer_contact,
                     payer_method=_razorpay_payer_method(payment_details) if payment_details else "Razorpay",
-                    unit_price=plans_val,
+                    unit_price=unit_price,
                     amount=amount,
                     currency=currency,
-                    credits=credits,
+                    credits=str(quantity),
                     payment_time=payment_time,
                     description=description,
                 )
                 payment_obj.save()
-            except _IntegrityError:
+            except IntegrityError:
                 # DB-08b: concurrent retry raced past the exists() check; the
                 # unique constraint on order_id caught it — treat as already-processed.
                 logger.warning("Concurrent payment race caught by unique constraint: order=%s", order_id)
@@ -470,42 +614,43 @@ def payment(request):
                 messages.info(request, "This payment was already processed.")
                 return redirect('pricing')
 
-            # Insert credits via custom function (if necessary)
-            insert_credits(request, user_id, credits)
+            # Grant destination is UNCHANGED — still legacy CurrentCredits.vc.
+            # Routing PAYG through ServiceCreditLot is a later phase's work.
+            insert_vc_credits(request, user_id, quantity, ref_type='payg', ref_id=order_id)
 
-            if getattr(user, 'notify_payment', True):
-                send_payment_success_email(
-                    user_name=payer_name,
-                    user_email=user.user_email,
-                    amount=amount,
-                    currency=currency,
-                    order_id=order_id,
-                    payment_time=payment_time,
-                    extra={'type': 'payg', 'credits': int(credits)},
-                )
-            from Email_validate_app.utils import create_notification
-            create_notification(user_id, 'payment',
-                f"Payment of {currency} {amount} received — {int(credits)} email credits added",
-                url='/Receipt/')
+            locked_order.status  = ServiceOrder.STATUS_PAID
+            locked_order.paid_at = payment_time
+            locked_order.save(update_fields=['status', 'paid_at'])
 
-            if is_ajax:
-                return JsonResponse({"status": "ok"})
-            messages.success(request, f"Payment of {amount} {currency} executed successfully for order {order_id}.")
-            return redirect('pricing')
-        except razorpay.errors.RazorpayError as e:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": f"Payment error: {str(e)}"}, status=400)
-            messages.error(request, f"Payment error: {str(e)}")
-            return redirect('pricing')
-        except Exception as e:
-            if is_ajax:
-                return JsonResponse({"status": "error", "message": f"An unexpected error occurred: {str(e)}"}, status=500)
-            messages.error(request, f"An unexpected error occurred: {str(e)}")
-            return redirect('pricing')
+        if getattr(user, 'notify_payment', True):
+            send_payment_success_email(
+                user_name=payer_name,
+                user_email=user.user_email,
+                amount=amount,
+                currency=currency,
+                order_id=order_id,
+                payment_time=payment_time,
+                extra={'type': 'payg', 'credits': quantity},
+            )
+        from Email_validate_app.utils import create_notification
+        create_notification(user_id, 'payment',
+            f"Payment of {currency} {amount} received — {quantity} email credits added",
+            url='/Receipt/')
 
-    if is_ajax:
-        return JsonResponse({"status": "error", "message": "POST required"}, status=405)
-    return redirect('pricing')
+        if is_ajax:
+            return JsonResponse({"status": "ok"})
+        messages.success(request, f"Payment of {amount} {currency} executed successfully for order {order_id}.")
+        return redirect('pricing')
+    except razorpay.errors.RazorpayError as e:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": f"Payment error: {str(e)}"}, status=400)
+        messages.error(request, f"Payment error: {str(e)}")
+        return redirect('pricing')
+    except Exception as e:
+        if is_ajax:
+            return JsonResponse({"status": "error", "message": f"An unexpected error occurred: {str(e)}"}, status=500)
+        messages.error(request, f"An unexpected error occurred: {str(e)}")
+        return redirect('pricing')
 
 
 def download_results(request):
@@ -530,11 +675,6 @@ def download_results(request):
                 if need_c < minimum_credits:
                     need_c += 150
 
-            result = calculate_price(need_c)
-            if not result[0]:
-                return JsonResponse({"status": "error", "message": str(result[1])}, status=400)
-
-            price, plan_value = result[1]
             try:
                 user_data = UserTable.objects.get(id=user_id)
             except UserTable.DoesNotExist:
@@ -545,35 +685,30 @@ def download_results(request):
                     {"status": "error", "message": "Please verify your email before purchasing.",
                      "reason": "not_verified"}, status=403)
 
-            receipt_id = generate_receipt_id("Asia/Kolkata")
-            client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
+            # SEC-03 (Phase 2): need_c is already fully server-derived above
+            # (manage_credits()'s shortfall + the existing +150 top-up rule);
+            # _create_payg_ev_order() now freezes that exact quantity and its
+            # price into a ServiceOrder row instead of a bare Razorpay order
+            # + 1-hour cache entry, so payment()'s verification reads the
+            # quantity back from there rather than trusting a repeated POST.
             try:
-                payment_rz = client.order.create(data={
-                    "amount": int(price * 100),
-                    "currency": "USD",
-                    "receipt": receipt_id,
-                })
-                # This order is completed via the same payment() verify view
-                # as order_payment()'s -- must be recorded here too, or a
-                # perfectly normal (non-switched) download-triggered
-                # purchase would start failing once payment() requires this.
-                _remember_legacy_order_owner(payment_rz['id'], user_id)
-            except razorpay.errors.BadRequestError as e:
-                return JsonResponse({"status": "error", "message": "Invalid request to payment gateway."}, status=400)
-            except razorpay.errors.RazorpayError as e:
-                return JsonResponse({"status": "error", "message": "Payment gateway error."}, status=502)
+                rz_order, service_order = _create_payg_ev_order(user_id, need_c)
+            except PaygOrderError as e:
+                return JsonResponse({"status": "error", "message": str(e)}, status=400)
+
+            plan_display = f"{(service_order.amount_cents / 100) / need_c:.6f}" if need_c else "0"
 
             return JsonResponse({
                 "status":    "need_credits",
                 "key_id":    settings.RAZORPAY_KEY_ID,
-                "order_id":  payment_rz['id'],
-                "amount":    payment_rz['amount'],
-                "currency":  payment_rz.get('currency', 'USD'),
+                "order_id":  rz_order['id'],
+                "amount":    rz_order['amount'],
+                "currency":  rz_order.get('currency', 'USD'),
                 "user_name": user_data.user_name,
                 "user_email": user_data.user_email,
                 "user_id":   user_data.id,
                 "credit":    need_c,
-                "plan":      f"{plan_value:.4f}",
+                "plan":      plan_display,
                 "flow":      "payg",
                 "need":      need_c,
                 "current":   current_credits,

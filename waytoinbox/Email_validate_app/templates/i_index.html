@@ -271,6 +271,30 @@
         <span class="topbar-page-title" id="pageTitle">Dashboard</span>
       </div>
       <div class="topbar-right">
+        {% if nav_is_impersonating %}
+        <!-- Admin "Login as User" indicator -- appears in this shared
+             header on every page while impersonating (see
+             context_processors.py::nav_credits and utils.py::
+             get_active_user). Mirrors the equivalent pill shown on the
+             admin side (templates/admin/base.html) so the state is
+             visible and exitable from wherever the admin currently is. -->
+        <div class="dash-impersonation-pill" title="Impersonating {{ nav_active_email }}">
+          <i class="fas fa-user-secret"></i>
+          <span>Impersonating: {{ nav_active_email }}</span>
+          <!-- Unlike the admin-side pill (templates/admin/base.html,
+               which links here to the impersonated user's dashboard),
+               this link goes to the Admin Dashboard -- it lets the admin
+               jump back to /wti-admin/ WITHOUT ending the impersonation
+               session (admin_required keeps working there regardless,
+               since logged_in/is_admin are never touched -- see
+               utils.py::get_active_user). "Exit" below is the one that
+               actually ends impersonation. -->
+          <a href="{% url 'admin_dashboard' %}" class="dash-impersonation-pill-link">
+            <i class="fas fa-arrow-right"></i> <span>Go to Dashboard</span>
+          </a>
+          <button type="button" id="exitImpersonationBtn">Exit</button>
+        </div>
+        {% endif %}
         {% if 'logged_in' in request.session %}
           {% block topbar_credit %}
           <!-- Replaces the old fixed VC/AC/CC badges (each service has its
@@ -290,6 +314,11 @@
             <div class="credit-badge" title="{{ nav_current_service_label }} credits">
               <i class="fas {{ nav_current_service_icon }}"></i>
               <span>{{ nav_current_service_balance }}</span>
+            </div>
+            {% elif nav_page_is_free %}
+            <div class="credit-badge credit-badge--free" title="This tool is free to use — no credits are ever deducted here.">
+              <i class="fas fa-gift"></i>
+              <span>Free</span>
             </div>
             {% endif %}
             {% if nav_trial_active %}
@@ -710,6 +739,32 @@ document.addEventListener('DOMContentLoaded', () => {
 })();
 </script>
 {% endif %}
+
+<script>
+// ── Exit Impersonation (admin "Login as User") ───────────────────────
+(function() {
+  var exitBtn = document.getElementById('exitImpersonationBtn');
+  if (!exitBtn) return;
+
+  exitBtn.addEventListener('click', function() {
+    exitBtn.disabled = true;
+    WTI.apiFetch('{% url "admin_exit_impersonation" %}', { method: 'POST' }).then(function(res) {
+      // WTI.apiFetch wraps the response as {ok, data, error} where `data`
+      // is the raw server JSON body -- json_ok() nests the payload under
+      // its own `data` key (admin_exit_impersonation() returns
+      // json_ok(data={'redirect': ...})), so the redirect lives at
+      // res.data.data.redirect, not res.data.redirect.
+      var redirect = res.ok && res.data && res.data.data && res.data.data.redirect;
+      if (redirect) {
+        window.location.href = redirect;
+      } else {
+        exitBtn.disabled = false;
+        if (window.WTI && WTI.toast) WTI.toast('Could not exit impersonation.', 'error');
+      }
+    });
+  });
+})();
+</script>
 
 <script>
 // ── Theme toggle (all dashboard pages) ───────────────

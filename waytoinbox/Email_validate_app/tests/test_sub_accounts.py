@@ -293,6 +293,18 @@ class SwitchAccountTests(TestCase):
         r = self._switch(c, 'nobody@companya.com')
         self.assertNotEqual(r.json().get('status'), 'ok')
 
+    def test_main_cannot_switch_to_unverified_sub(self):
+        """A Sub Account must not be usable until its owner has confirmed
+        the verification email create_sub_account() sent -- mirrors
+        login()'s own is_verified gate for a direct login attempt."""
+        unverified_sub = make_user('unverified@companya.com', verified=False, parent=self.main_a)
+        c = _client_for(self.main_a.user_email)
+        r = self._switch(c, unverified_sub.user_email)
+        self.assertEqual(r.status_code, 403)
+        self.assertNotEqual(r.json().get('status'), 'ok')
+        self.assertNotIn('acting_as_email', c.session)
+        self.assertEqual(_resolve_id(c), self.main_a.id)
+
 
 @override_settings(**_BASE_SETTINGS)
 class ReturnToMainTests(TestCase):

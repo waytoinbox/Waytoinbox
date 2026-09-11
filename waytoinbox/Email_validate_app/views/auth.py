@@ -149,6 +149,31 @@ def logout(request):
                 last.save(update_fields=['logout_at'])
     except Exception:
         pass
+    try:
+        # If an admin logs out entirely instead of clicking "Exit
+        # Impersonation", the ImpersonationLog row would otherwise be left
+        # stuck at status='active' forever -- close it out here, same
+        # shape/guard as the LoginActivity handling just above. Only fires
+        # when an impersonation is actually live; a normal logout never
+        # touches this. See views/admin/impersonation.py.
+        if request.session.get('impersonate_as_email'):
+            from Email_validate_app.models import ImpersonationLog
+            from django.utils.timezone import now as tz_now
+            # logged_in is always the true admin's email during impersonation
+            # (never overwritten -- see utils.get_active_user), so this scopes
+            # the row to the actual admin who started it, not just any open
+            # session pointed at the same target.
+            open_log = ImpersonationLog.objects.filter(
+                status='active', ended_at__isnull=True,
+                target_email=request.session['impersonate_as_email'],
+                admin__user_email=request.session.get('logged_in'),
+            ).order_by('-started_at').first()
+            if open_log:
+                open_log.status = 'ended'
+                open_log.ended_at = tz_now()
+                open_log.save(update_fields=['status', 'ended_at'])
+    except Exception:
+        pass
     request.session.flush()
     messages.info(request, "You have been logged out.")
     return redirect('login')

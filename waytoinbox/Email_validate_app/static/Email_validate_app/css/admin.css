@@ -202,6 +202,34 @@
 }
 .admin-theme-btn:hover { background: var(--bg-3); color: var(--ink); }
 
+/* Reminder pill: an impersonation session is still open even though the
+   admin navigated back to /wti-admin/ without exiting it first. */
+.admin-impersonation-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 6px 5px 12px;
+  border-radius: 40px;
+  background: #9A6800;
+  color: #FFF7E6;
+  font-size: 12px; font-weight: 600;
+}
+.admin-impersonation-pill span { max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-impersonation-pill button,
+.admin-impersonation-pill-link {
+  display: inline-flex; align-items: center; gap: 5px;
+  border: 1px solid rgba(255,255,255,.55);
+  border-radius: 20px;
+  background: rgba(255,255,255,.12);
+  color: #FFF7E6;
+  font-size: 11px; font-weight: 700;
+  padding: 4px 10px;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background .15s;
+}
+.admin-impersonation-pill button:hover,
+.admin-impersonation-pill-link:hover { background: rgba(255,255,255,.24); color: #FFF7E6; }
+
 /* Content */
 .admin-content {
   flex: 1;
@@ -361,6 +389,11 @@
   background: #fef2f2;
   color: #ef4444;
   border-color: #fecaca;
+}
+.admin-table .td-actions .admin-impersonate-btn:hover {
+  background: #f3f0ff;
+  color: #7c3aed;
+  border-color: #ddd6fe;
 }
 
 /* ── Badges ─────────────────────────────────────────────────────────────────── */
