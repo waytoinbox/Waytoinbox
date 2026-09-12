@@ -283,6 +283,13 @@ def send_reply(conversation, body_html, attachments=None, to_email=None, forward
     account = conversation.account
     if not account or account.deleted_at:
         raise ValueError('This conversation has no valid sender account.')
+    # Phase 4: manual reply/compose must stop when the account's funding
+    # entitlement has expired/ended — every other send path already gates on
+    # this via SOEmailAccount.is_sending_eligible(), but this one has no
+    # eligibility check of its own to inherit it through.
+    if account.entitlement_status != 'active':
+        raise ValueError('This sender account is suspended and must be '
+                          'reactivated before sending.')
 
     to_email = (to_email or '').strip() or conversation.email
     cc_email = ', '.join(_split_addresses(cc_email))

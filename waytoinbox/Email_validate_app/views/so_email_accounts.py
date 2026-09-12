@@ -1,4 +1,5 @@
 import json
+import logging
 import smtplib
 import ssl
 
@@ -13,6 +14,8 @@ from django.utils.timezone import now
 
 from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.email_domain_policy import is_free_email_domain
+
+logger = logging.getLogger(__name__)
 
 
 def _auth(request):
@@ -199,6 +202,9 @@ def so_email_account_action(request):
         from Email_validate_app.services.credit_manager import (
             deduct_service_credits, InsufficientCredits,
         )
+        from Email_validate_app.services.entitlement_manager import (
+            resolve_funding, create_entitlement,
+        )
 
         try:
             with transaction.atomic():
@@ -272,12 +278,21 @@ def so_email_account_action(request):
 
                 # Charged last so ref_id can be the real account id. If this
                 # raises, the account created above goes with it.
-                deduct_service_credits(
+                spend_id = deduct_service_credits(
                     user_id, 'sales_outreach', 1,
                     ref_type='sales_outreach_account',
                     ref_id=str(acc.id),
                     description='Sales Outreach email account',
                 )
+
+                # Phase 4: fund a new entitlement for this account from
+                # whatever source actually paid for it. If this raises (bad
+                # funding resolution) the account creation and the credit
+                # deduction above go with it — same all-or-nothing guarantee
+                # the comment above already promises.
+                funding_source, lot = resolve_funding(user_id, 'sales_outreach', spend_id)
+                create_entitlement(user_id, 'sales_outreach', acc, funding_source,
+                                   lot=lot, spend_id=spend_id)
         except InsufficientCredits:
             return JsonResponse({
                 'status': 'error',
@@ -310,6 +325,87 @@ def so_email_account_action(request):
             'status': 'ok', 'id': acc.id, 'result': new_status, 'error_msg': error_msg,
             'active': acc.is_connected(), 'sending_eligible': acc.is_sending_eligible(),
         })
+
+    # ── Reactivate ───────────────────────────────────────────────────────────
+    # Phase 4: the explicit, user-initiated action that un-suspends an
+    # account whose funding entitlement expired or whose trial ended.
+    # Never happens automatically — nothing else in this codebase ever sets
+    # entitlement_status back to 'active'. Reuses the exact same
+    # ServiceCredit-first lock idiom the 'add' action above uses, and the
+    # existing, unmodified deduct_service_credits() priority order (trial ->
+    # lot -> wallet -> legacy) — an unused trial Sales Outreach credit is
+    # explicitly allowed to fund this, exactly as it's allowed to fund a
+    # brand-new account add.
+    if action == 'reactivate':
+        from django.db import transaction
+        from Email_validate_app.models import ServiceCredit
+        from Email_validate_app.services.credit_manager import (
+            deduct_service_credits, InsufficientCredits,
+        )
+        from Email_validate_app.services.entitlement_manager import (
+            resolve_funding, create_entitlement, FundingResolutionError,
+        )
+
+        acc_id = data.get('id')
+
+        try:
+            with transaction.atomic():
+                # ServiceCredit locked FIRST — identical idiom to the 'add'
+                # action above, which is the real, confirmed Phase 3
+                # convention: ServiceCredit is always the first lock taken
+                # in any transaction that will call deduct_service_credits().
+                ServiceCredit.objects.select_for_update().filter(
+                    user_id=user_id, service='sales_outreach',
+                ).first()
+
+                # The target account, locked second. A second, concurrent
+                # reactivate request for this SAME account serialises here
+                # and then sees entitlement_status already 'active' below —
+                # it never reaches deduct_service_credits a second time.
+                try:
+                    acc = SOEmailAccount.objects.select_for_update().get(
+                        id=acc_id, user_id=user_id, deleted_at__isnull=True)
+                except SOEmailAccount.DoesNotExist:
+                    return JsonResponse({'status': 'error', 'message': 'Account not found.'})
+
+                if acc.entitlement_status == 'active':
+                    return JsonResponse({
+                        'status': 'ok', 'message': 'Account is already active.',
+                    })
+
+                spend_id = deduct_service_credits(
+                    user_id, 'sales_outreach', 1,
+                    ref_type='so_reactivation', ref_id=str(acc.id),
+                    description=f'Reactivated Sales Outreach account #{acc.id}',
+                )
+
+                funding_source, lot = resolve_funding(user_id, 'sales_outreach', spend_id)
+                # A brand-new entitlement — the previous one (already
+                # status='ended') is left untouched as history, never revived.
+                create_entitlement(user_id, 'sales_outreach', acc, funding_source,
+                                   lot=lot, spend_id=spend_id)
+
+                # Only flip the account active LAST, after both the
+                # deduction and the entitlement creation above succeeded.
+                acc.entitlement_status = 'active'
+                acc.save(update_fields=['entitlement_status', 'updated_at'])
+        except InsufficientCredits:
+            return JsonResponse({
+                'status': 'error',
+                'message': 'You have no Sales Outreach credits left. '
+                           'Please buy credits to reactivate this account.',
+            })
+        except FundingResolutionError:
+            logger.exception(
+                'so_email_account_action(reactivate): could not resolve funding '
+                'for account %s', acc_id)
+            return JsonResponse({
+                'status': 'error',
+                'message': 'Reactivation could not be completed. Please try again '
+                           'or contact support.',
+            })
+
+        return JsonResponse({'status': 'ok', 'message': 'Account reactivated.'})
 
     # ── Test (SMTP) ───────────────────────────────────────────────────────────
     if action == 'test':

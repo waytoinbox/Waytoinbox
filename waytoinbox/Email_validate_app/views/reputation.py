@@ -19,6 +19,9 @@ from Email_validate_app.services.credit_manager import (
     get_ac_current_credit, get_effective_balance, deduct_service_credits,
     InsufficientCredits,
 )
+from Email_validate_app.services.entitlement_manager import (
+    resolve_funding, create_entitlement,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,11 +170,18 @@ def Reputation_Analysis(request):
                 status=rep_status,
             )
 
-            deduct_service_credits(
+            spend_id = deduct_service_credits(
                 user_id, 'reputation', 1,
                 ref_type='reputation', ref_id=domain,
                 description='Reputation Analysis',
             )
+
+            # Phase 4: fund a new entitlement for this domain from whatever
+            # source actually paid for it — never touches Phase 3's
+            # deduction itself, only reads the audit rows it just wrote.
+            funding_source, lot = resolve_funding(user_id, 'reputation', spend_id)
+            create_entitlement(user_id, 'reputation', rep, funding_source, lot=lot,
+                               spend_id=spend_id)
     except InsufficientCredits:
         return JsonResponse({
             'status': 'error',

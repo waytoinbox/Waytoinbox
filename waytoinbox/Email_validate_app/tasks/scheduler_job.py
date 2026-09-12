@@ -20,7 +20,9 @@ logger = logging.getLogger(__name__)
 def scheduler_job():
     logger.info("Scheduler job1 triggered")
     try:
-        data = list(BlocklistMonitor.objects.all())  # Force evaluation
+        # Phase 4: a suspended monitor (its funding entitlement expired/
+        # trial ended) stops being scanned here.
+        data = list(BlocklistMonitor.objects.filter(entitlement_status='active'))  # Force evaluation
 
         for entry in data:
             ip = entry.ips
@@ -59,8 +61,12 @@ def scheduler_job():
                     logger.error(f"Unexpected error while inserting status for IP {ip}: {e}")
 
                 try:
-                    data1 = list(BlocklistMonitor.objects.all()) 
-                    
+                    # Phase 4: same filter as the outer scan above — a
+                    # suspended monitor's last_monitor_date/listed_count must
+                    # stay frozen (never overwritten with "checked today,
+                    # nothing found") since it was never actually re-checked.
+                    data1 = list(BlocklistMonitor.objects.filter(entitlement_status='active'))
+
                     # Define today's start and end as timezone-aware datetimes
                     today = now().date()
                     today_start = make_aware(datetime.combine(today, datetime.min.time()))
@@ -115,7 +121,9 @@ def scheduler_job():
 def my_second_job():
     logger.info("Scheduler job2 triggered")
     try:
-        data = list(DomainBlocklist.objects.all())  # Force evaluation
+        # Phase 4: a suspended monitor (its funding entitlement expired/
+        # trial ended) stops being scanned here.
+        data = list(DomainBlocklist.objects.filter(entitlement_status='active'))  # Force evaluation
         # print(f"Domain blacklist data: {data}")
 
         for entry in data:
@@ -155,8 +163,12 @@ def my_second_job():
                     logger.error(f"Unexpected error while inserting status for domain {domain}: {e}")
 
                 try:
-                    data1 = list(DomainBlocklist.objects.all()) 
-                    
+                    # Phase 4: same filter as the outer scan above — a
+                    # suspended monitor's last_monitor_date/listed_count must
+                    # stay frozen (never overwritten with "checked today,
+                    # nothing found") since it was never actually re-checked.
+                    data1 = list(DomainBlocklist.objects.filter(entitlement_status='active'))
+
                     # Define today's start and end as timezone-aware datetimes
                     today = now().date()
                     today_start = make_aware(datetime.combine(today, datetime.min.time()))

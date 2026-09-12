@@ -1922,8 +1922,15 @@ class SOEmailAccount(models.Model):
         checked, stored, and shown on the Email Accounts page, but
         deliberately do NOT factor in here — see is_authenticated() for
         the separate "all three passed" concept, which this intentionally
-        does not use."""
-        return self.is_connected() and self.spf_status == 'pass'
+        does not use.
+
+        Phase 4: also requires entitlement_status == 'active'. This one
+        change is what stops campaign/scheduled/sequence sending, new
+        contact enrolment, and sender rotation for a suspended account —
+        all three already filter/re-check through this method, so none of
+        them needed a separate entitlement check of their own."""
+        return (self.is_connected() and self.spf_status == 'pass'
+                and self.entitlement_status == 'active')
 
 
 class SOEmailAccountWarmup(models.Model):

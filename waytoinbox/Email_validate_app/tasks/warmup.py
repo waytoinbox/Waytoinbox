@@ -37,6 +37,7 @@ def warmup_dispatch_sends(self):
 
     active_warmups = SOEmailAccountWarmup.objects.filter(
         status='active', account__status='connected', account__deleted_at__isnull=True,
+        account__entitlement_status='active',   # Phase 4
     ).select_related('account')
 
     created_total = 0
@@ -94,6 +95,14 @@ def warmup_send_one(self, message_id):
         # Paused/stopped since this message was queued — revert without sending.
         WarmupMessage.objects.filter(id=message_id, status='sending').update(status='pending')
         return {'status': 'skipped_not_active'}
+
+    # Phase 4: re-check entitlement status too — the dispatch-time filter in
+    # warmup_dispatch_sends() already excludes a suspended account, this is
+    # the same defense-in-depth re-check pattern send_next_step() already
+    # uses for is_sending_eligible().
+    if message.sender_account.entitlement_status != 'active':
+        WarmupMessage.objects.filter(id=message_id, status='sending').update(status='pending')
+        return {'status': 'skipped_suspended'}
 
     if not warmup_service.reserve_quota_slot(message.sender_account, warmup):
         WarmupMessage.objects.filter(id=message_id, status='sending').update(status='pending')

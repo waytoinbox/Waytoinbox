@@ -43,9 +43,15 @@ _WIN_TABLE_RE = re.compile(r'^WIN_\d+_\d{4}_\d{2}_\d{2}$')
 # the new service-credit checkout. Verification (payment(), below) reads
 # quantity/amount back from THIS row -- never from POST -- so a browser
 # posting a different `credits`/`price`/`amount` can no longer change what
-# gets granted. The grant destination is UNCHANGED: still legacy
-# CurrentCredits.vc via insert_vc_credits(); routing PAYG through
-# ServiceCreditLot is a later phase's work, not this one's.
+# gets granted.
+#
+# ── Phase 3 (expiring-credit-lot spending) ──────────────────────────────────
+# The grant destination changed: payment() now calls grant_credit_lot()
+# instead of insert_vc_credits(), so every EV PAYG purchase becomes an
+# expiring ServiceCreditLot (720h from this payment's timestamp) instead of
+# permanent legacy CurrentCredits.vc. insert_vc_credits() itself is
+# untouched and still used by views/subscription.py's own, unrelated legacy
+# plan grant.
 
 # $1.00, matching order_payment's existing minimum -- unchanged from today.
 MIN_PAYG_ORDER_CENTS = 100
@@ -145,12 +151,18 @@ def _drop_win_table(table_name: str) -> None:
 # Phase 2 (PAYG purchase hardening) removed insert_credits: payment()'s only
 # caller now calls insert_vc_credits() directly so it can pass ref_id=order_id
 # (insert_credits's thin ref_type='payg' wrapper never took a ref_id at all).
+# Phase 3: payment() itself now grants via grant_credit_lot() instead (see
+# below) — insert_vc_credits stays imported here only because
+# views/subscription.py re-imports it FROM this module for its own,
+# unrelated legacy-plan grant (subs_payment(), intentionally still
+# non-expiring — see that view).
 from Email_validate_app.services.credit_manager import (
     generate_receipt_id,
     get_current_credit, get_ac_current_credit,
     insert_vc_credits,
     insert_ac_credits, insert_cc_credits,
     calculate_price, manage_credits,
+    grant_credit_lot,
 )
 
 
@@ -614,9 +626,16 @@ def payment(request):
                 messages.info(request, "This payment was already processed.")
                 return redirect('pricing')
 
-            # Grant destination is UNCHANGED — still legacy CurrentCredits.vc.
-            # Routing PAYG through ServiceCreditLot is a later phase's work.
-            insert_vc_credits(request, user_id, quantity, ref_type='payg', ref_id=order_id)
+            # Phase 3: grants an expiring ServiceCreditLot instead of legacy
+            # CurrentCredits.vc — every EV PAYG purchase from here on expires
+            # exactly 720h (30*24h) after this payment_time, same as service
+            # checkout. Existing CurrentCredits.vc balances are never touched
+            # by a new purchase again.
+            grant_credit_lot(
+                user_id, 'email_validation', quantity,
+                source=ServiceCreditLot.SOURCE_PAYG_EV,
+                purchased_at=payment_time, payment=payment_obj, order=locked_order,
+                ref_type='payg', ref_id=order_id)
 
             locked_order.status  = ServiceOrder.STATUS_PAID
             locked_order.paid_at = payment_time

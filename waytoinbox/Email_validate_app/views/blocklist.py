@@ -25,6 +25,9 @@ from Email_validate_app.services.monitor import (
 from Email_validate_app.services.credit_manager import (
     get_effective_balance, deduct_service_credits, InsufficientCredits,
 )
+from Email_validate_app.services.entitlement_manager import (
+    resolve_funding, create_entitlement,
+)
 
 from .billing import get_current_credit
 
@@ -180,11 +183,17 @@ def check_ip_blacklists(request):
                         ips=ip_s,
                         created_date=current_datetime
                     )
-                    deduct_service_credits(
+                    spend_id = deduct_service_credits(
                         user_id, 'ip_blocklist', 1,
                         ref_type='ip_check', ref_id=ip_s,
                         description='IP Blocklist Check',
                     )
+
+                    # Phase 4: fund a new entitlement for this monitor from
+                    # whatever source actually paid for it.
+                    funding_source, lot = resolve_funding(user_id, 'ip_blocklist', spend_id)
+                    create_entitlement(user_id, 'ip_blocklist', new_entry, funding_source,
+                                       lot=lot, spend_id=spend_id)
             except InsufficientCredits:
                 # Lost a race against another add since the gate above.
                 messages.warning(
@@ -452,11 +461,17 @@ def check_domain_blocklist(request):
                 last_monitor_date=current_datetime,
                 listed_count=0
             )
-            deduct_service_credits(
+            spend_id = deduct_service_credits(
                 user_id, 'domain_blocklist', 1,
                 ref_type='ip_check', ref_id=domain_s,
                 description='Domain Blocklist Check',
             )
+
+            # Phase 4: fund a new entitlement for this monitor from whatever
+            # source actually paid for it.
+            funding_source, lot = resolve_funding(user_id, 'domain_blocklist', spend_id)
+            create_entitlement(user_id, 'domain_blocklist', new_entry, funding_source,
+                               lot=lot, spend_id=spend_id)
     except AlreadyMonitored:
         # A concurrent request created it first — same result the pre-check
         # above produces.
@@ -571,11 +586,17 @@ def add_to_monitors(request):
                         last_monitor_date=current_datetime,
                         listed_count=0
                     )
-                    deduct_service_credits(
+                    spend_id = deduct_service_credits(
                         user_id, 'domain_blocklist', 1,
                         ref_type='ip_check', ref_id=domain_s,
                         description='Domain Monitor Add',
                     )
+
+                    # Phase 4: fund a new entitlement for this monitor from
+                    # whatever source actually paid for it.
+                    funding_source, lot = resolve_funding(user_id, 'domain_blocklist', spend_id)
+                    create_entitlement(user_id, 'domain_blocklist', entry, funding_source,
+                                       lot=lot, spend_id=spend_id)
                 try:
                     bl_status = domain_blacklists(domain_s)
                 except Exception:
@@ -630,11 +651,17 @@ def add_to_monitors(request):
                             user=user, ips=ip_s,
                             created_date=current_datetime
                         )
-                        deduct_service_credits(
+                        spend_id = deduct_service_credits(
                             user_id, 'ip_blocklist', 1,
                             ref_type='ip_check', ref_id=ip_s,
                             description='IP Monitor Add',
                         )
+
+                        # Phase 4: fund a new entitlement for this monitor
+                        # from whatever source actually paid for it.
+                        funding_source, lot = resolve_funding(user_id, 'ip_blocklist', spend_id)
+                        create_entitlement(user_id, 'ip_blocklist', entry, funding_source,
+                                           lot=lot, spend_id=spend_id)
                     try:
                         bl_status = ip_blacklists(ip_s)
                     except Exception:

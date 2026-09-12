@@ -900,12 +900,22 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
     exactly as before Phase 3. Trial's own refund semantics are
     deliberately NOT redesigned here (out of this phase's scope): a
     trial-funded spend, like a legacy-funded one, still refunds to the
-    wallet, unchanged.
+    wallet, unchanged, and the two are not distinguished from each other
+    within that fallback.
 
     Idempotent per debit row: each lot debit's refundable capacity is
     capped at `abs(debit.amount) - Sum(refunds that reverse it)`, so calling
-    this twice for the same spend_id can never refund more than was
-    actually taken, and can never inflate the wallet from a lot twice.
+    this twice for the same spend_id can never refund the same lot amount
+    twice, and can never inflate the wallet from a lot. The wallet/legacy/
+    trial fallback below is capped the same way when `spend_id` is given:
+    at `Sum(non-lot debits for spend_id) - Sum(prior non-lot refunds for
+    spend_id)`, correlated by spend_id rather than by a single `reverses`
+    FK (one fallback refund can restore several original debit rows —
+    trial, wallet, legacy — at once, so no single row can hold the
+    reverse-link). Calling this twice for the same spend_id therefore
+    cannot credit the wallet twice for that portion either. Callers that
+    omit `spend_id` keep the pre-Phase-3 behavior exactly: `count` is
+    trusted as given, with no capacity check.
 
     Never grows the legacy pool — unchanged from before Phase 3.
     """
@@ -921,6 +931,10 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
         # lot-restored still takes this lock, so a concurrent deduct (which
         # always locks ServiceCredit before any lot) can never form a cycle
         # against a concurrent refund locking a lot before ServiceCredit.
+        # This same anchor lock is also what makes the plain (unlocked)
+        # aggregate reads below safe: a second concurrent refund for the
+        # same (user, service) cannot even reach them until this one has
+        # committed or rolled back, so it always sees this call's writes.
         ServiceCredit.objects.get_or_create(user_id=user_id, service=service)
         wallet_row = ServiceCredit.objects.select_for_update().get(
             user_id=user_id, service=service)
@@ -947,9 +961,11 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
                 lot = ServiceCreditLot.objects.select_for_update().get(pk=debit_row.lot_id)
                 if lot.status != ServiceCreditLot.STATUS_ACTIVE:
                     # Expired/revoked since the spend — that credit is gone;
-                    # do not resurrect it. Left un-refunded here, it falls
-                    # through to the wallet fallback below so the caller
-                    # still gets the full `count` back.
+                    # do not resurrect it, and do not let it spill into the
+                    # wallet fallback below either (that fallback is capped
+                    # to the ORIGINAL non-lot debit total, so a skipped
+                    # lot's amount is simply forfeited here, matching "do
+                    # not resurrect" for the wallet side too).
                     continue
 
                 before = lot.quantity_remaining
@@ -967,14 +983,41 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
                 remaining -= n
 
         if remaining > 0:
-            before = wallet_row.balance
-            wallet_row.balance     = before + remaining
-            wallet_row.total_used  = max(0, (wallet_row.total_used or 0) - remaining)
-            wallet_row.save(update_fields=['balance', 'total_used', 'updated_at'])
-            CreditAuditLog.objects.create(
-                user_id=user_id, credit_type=service, entry_type='refund',
-                amount=remaining, balance_before=before, balance_after=wallet_row.balance,
-                ref_type=ref_type, ref_id=str(ref_id), service=service,
-                spend_id=spend_id or '',
-                description=description or f"Refunded {remaining} {SERVICE_LABELS[service]} credits",
-            )
+            fallback_amount = remaining
+            if spend_id:
+                # Idempotency for the wallet/legacy/trial fallback: cap at
+                # what this spend_id actually debited from non-lot sources,
+                # minus whatever has already been refunded against it.
+                # Correlated by spend_id (not `reverses`, which is a
+                # one-to-one link and can't represent "restores parts of
+                # several original rows at once").
+                non_lot_debited = abs(
+                    CreditAuditLog.objects.filter(
+                        user_id=user_id, spend_id=spend_id, entry_type='debit',
+                        lot__isnull=True,
+                    ).aggregate(total=Sum('amount'))['total'] or 0
+                ) + abs(
+                    TrialUsageLog.objects.filter(
+                        user_id=user_id, spend_id=spend_id, entry_type='debit',
+                    ).aggregate(total=Sum('amount'))['total'] or 0
+                )
+                already_refunded_non_lot = CreditAuditLog.objects.filter(
+                    user_id=user_id, spend_id=spend_id, entry_type='refund',
+                    lot__isnull=True,
+                ).aggregate(total=Sum('amount'))['total'] or 0
+                non_lot_capacity = non_lot_debited - already_refunded_non_lot
+                fallback_amount = min(fallback_amount, max(0, non_lot_capacity))
+
+            if fallback_amount > 0:
+                before = wallet_row.balance
+                wallet_row.balance     = before + fallback_amount
+                wallet_row.total_used  = max(0, (wallet_row.total_used or 0) - fallback_amount)
+                wallet_row.save(update_fields=['balance', 'total_used', 'updated_at'])
+                CreditAuditLog.objects.create(
+                    user_id=user_id, credit_type=service, entry_type='refund',
+                    amount=fallback_amount, balance_before=before, balance_after=wallet_row.balance,
+                    ref_type=ref_type, ref_id=str(ref_id), service=service,
+                    spend_id=spend_id or '',
+                    description=description or
+                        f"Refunded {fallback_amount} {SERVICE_LABELS[service]} credits",
+                )

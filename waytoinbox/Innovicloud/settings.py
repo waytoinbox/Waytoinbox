@@ -338,6 +338,16 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute="*/15"),
     },
 
+    # ── Credit / entitlement expiry (Phase 4) ───────────────────────────────
+    "expire_credit_lots_every_15m": {
+        "task": "Email_validate_app.tasks.credit_expiry.expire_credit_lots",
+        "schedule": crontab(minute="*/15"),
+    },
+    "expire_trial_entitlements_every_15m": {
+        "task": "Email_validate_app.tasks.credit_expiry.expire_trial_entitlements",
+        "schedule": crontab(minute="*/15"),
+    },
+
     # ── Warmup ───────────────────────────────────────────────────────────────
     "warmup_dispatch_sends_every_5m": {
         "task": "Email_validate_app.tasks.warmup.warmup_dispatch_sends",

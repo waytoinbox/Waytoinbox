@@ -39,7 +39,10 @@ def update_all_reputations(self):
     
     verified_reps = (
         Reputation.objects
-        .filter(status="verified", is_hidden=False)
+        # Phase 4: a suspended domain (its funding entitlement expired/trial
+        # ended) stops being refreshed here — entitlement_status is the only
+        # addition, status/is_hidden semantics are unchanged.
+        .filter(status="verified", is_hidden=False, entitlement_status='active')
         .select_related("user")
     )
 
