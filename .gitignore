@@ -31,3 +31,8 @@ Thumbs.db
 *.swp
 deploy.sh
 venv/
+
+# Production/server-only files
+celery_worker.pid
+setup-repos.sh
+
