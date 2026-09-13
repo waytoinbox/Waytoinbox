@@ -360,7 +360,7 @@ def save_campaign(request):
 
     if status == 'sending':
         from Email_validate_app.models import CampaignEmail
-        from Email_validate_app.services.credit_manager import get_cc_current_credit
+        from Email_validate_app.services.credit_manager import get_effective_balance
         from Email_validate_app.tasks.send_scheduled_campaigns import send_campaign_emails_task
 
         if campaign.campaign_segment_id:
@@ -378,7 +378,14 @@ def save_campaign(request):
                 deleted_at__isnull=True,
                 subscribed='subscribed',
             ).count()
-        cc_available = get_cc_current_credit(user_id)
+        # Old-credit retirement: this preflight must reflect what
+        # deduct_service_credits() can actually spend for the real send
+        # (trial + ServiceCreditLot), not the retired legacy CC pool alone
+        # -- a user funded only by new email_marketing lots must not be
+        # blocked here. The task itself still performs the authoritative
+        # deduct_service_credits() check per email; this is only an early,
+        # user-facing rejection for an obviously-insufficient balance.
+        cc_available = get_effective_balance(user_id, 'email_marketing')
         if cc_available < recipient_count:
             campaign.status = 'draft'
             campaign.save(update_fields=['status'])

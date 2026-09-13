@@ -21,13 +21,14 @@ import re
 from django.test import TestCase, override_settings
 
 from Email_validate_app.models import (
-    UserTable, CurrentCredits, ServiceCredit, CreditAuditLog,
+    UserTable, CurrentCredits, ServiceCredit, ServiceCreditLot, CreditAuditLog,
 )
 from Email_validate_app.services.credit_manager import (
-    add_service_credits, get_service_balance, get_effective_balance,
+    get_effective_balance,
     deduct_service_credits, InsufficientCredits,
     insert_vc_credits, insert_ac_credits, insert_cc_credits,
 )
+from Email_validate_app.tests.credit_test_helpers import make_lot
 
 ANALYSIS_SERVICES = ('reputation', 'header_analysis', 'ip_blocklist',
                      'domain_blocklist')
@@ -55,96 +56,112 @@ def legacy(user_id):
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class SharedAcInvariantTests(TestCase):
+    """Old-credit retirement: the shared legacy AC pool used to fund all four
+    analysis services (reputation, header_analysis, ip_blocklist,
+    domain_blocklist) as one balance. It still exists in the DB for
+    historical rows, but it no longer funds any of the four -- each service
+    now spends only from its own private ServiceCreditLot, and legacy AC is
+    never drawn from, split, or copied into a wallet for any of them.
+    """
 
-    def test_spending_25_on_each_of_four_services_exhausts_one_100_pool(self):
-        """The headline invariant. If AC had been copied into four wallets this
-        would leave 75 in each instead of 0 overall."""
+    def test_legacy_ac_pool_no_longer_funds_any_of_the_four_services(self):
+        """The headline invariant, updated for retirement: a 100-credit
+        legacy AC pool funds nothing at all any more -- every one of the
+        four services fails identically and the pool stays at 100
+        throughout, never partially drained."""
         user = make_user('audit_shared@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
 
-        expected = [75, 50, 25, 0]
-        for service, remaining in zip(ANALYSIS_SERVICES, expected):
-            deduct_service_credits(user.id, service, 25,
-                                   ref_type='ip_check', description=service)
-            self.assertEqual(legacy(user.id)['ac'], remaining,
-                             f"after spending 25 on {service}")
-            # Every other analysis service sees the same reduced pool.
+        for service in ANALYSIS_SERVICES:
+            with self.assertRaises(InsufficientCredits,
+                                   msg=f"{service} must not be fundable by legacy AC"):
+                deduct_service_credits(user.id, service, 25,
+                                       ref_type='ip_check', description=service)
+            self.assertEqual(legacy(user.id)['ac'], 100,
+                             f"legacy AC changed after the refused {service} spend")
             for other in ANALYSIS_SERVICES:
-                self.assertEqual(get_effective_balance(user.id, other), remaining,
-                                 f"{other} disagrees after {service} spent")
+                self.assertEqual(get_effective_balance(user.id, other), 0,
+                                 f"{other} disagrees after {service}'s refused spend")
 
-    def test_a_fifth_analysis_spend_is_refused_once_the_pool_is_empty(self):
+    def test_repeated_analysis_spends_all_fail_since_the_legacy_pool_never_funds_them(self):
         user = make_user('audit_exhausted@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
 
         for service in ANALYSIS_SERVICES:
-            deduct_service_credits(user.id, service, 25,
-                                   ref_type='ip_check', description=service)
+            with self.assertRaises(InsufficientCredits):
+                deduct_service_credits(user.id, service, 25,
+                                       ref_type='ip_check', description=service)
 
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(user.id, 'reputation', 1,
                                    ref_type='ip_check', description='one more')
 
-    def test_a_private_wallet_does_not_inflate_the_other_three(self):
+        self.assertEqual(legacy(user.id)['ac'], 100)
+
+    def test_a_private_lot_does_not_inflate_the_other_three(self):
         user = make_user('audit_no_leak@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=10)
 
         for owner in ANALYSIS_SERVICES:
-            ServiceCredit.objects.filter(user_id=user.id).delete()
-            add_service_credits(user.id, owner, 40,
-                                ref_type='service_purchase', ref_id='t')
+            ServiceCreditLot.objects.filter(user_id=user.id).delete()
+            make_lot(user.id, owner, amount=40)
 
-            self.assertEqual(get_effective_balance(user.id, owner), 50)
+            self.assertEqual(get_effective_balance(user.id, owner), 40)
             for other in ANALYSIS_SERVICES:
                 if other == owner:
                     continue
                 self.assertEqual(
-                    get_effective_balance(user.id, other), 10,
-                    f"{other} can see {owner}'s private wallet")
+                    get_effective_balance(user.id, other), 0,
+                    f"{other} can see {owner}'s private lot or the retired "
+                    f"legacy AC pool")
 
-    def test_the_service_wallet_is_always_consumed_before_legacy_ac(self):
+    def test_the_private_lot_is_always_consumed_and_legacy_ac_is_never_touched(self):
         user = make_user('audit_order@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
         for service in ANALYSIS_SERVICES:
-            add_service_credits(user.id, service, 2,
-                                ref_type='service_purchase', ref_id='t')
+            make_lot(user.id, service, amount=2)
 
         for service in ANALYSIS_SERVICES:
             deduct_service_credits(user.id, service, 2,
                                    ref_type='ip_check', description=service)
-            self.assertEqual(get_service_balance(user.id, service), 0)
+            self.assertEqual(get_effective_balance(user.id, service), 0)
 
-        # All eight credits came out of the private wallets, none out of AC.
+        # All eight credits came out of the private lots, none out of AC.
         self.assertEqual(legacy(user.id)['ac'], 100)
 
-    def test_a_split_spend_takes_the_remainder_from_the_shared_pool(self):
+    def test_a_spend_exceeding_the_lot_is_refused_all_or_nothing_not_split_with_legacy(self):
+        """Old-credit retirement: a deduction that exceeds the lot must be
+        refused all-or-nothing -- it must NOT split by drawing the
+        remainder from the legacy AC pool any more."""
         user = make_user('audit_split@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
-        add_service_credits(user.id, 'ip_blocklist', 30,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(user.id, 'ip_blocklist', amount=30)
 
-        deduct_service_credits(user.id, 'ip_blocklist', 50,
-                               ref_type='ip_check', description='split')
+        with self.assertRaises(InsufficientCredits) as ctx:
+            deduct_service_credits(user.id, 'ip_blocklist', 50,
+                                   ref_type='ip_check', description='split')
 
-        self.assertEqual(get_service_balance(user.id, 'ip_blocklist'), 0)
-        self.assertEqual(legacy(user.id)['ac'], 80)
-        # The other three see the 20 that was taken from the shared pool.
+        self.assertEqual(ctx.exception.available, 30)
+        self.assertEqual(get_effective_balance(user.id, 'ip_blocklist'), 30)
+        self.assertEqual(legacy(user.id)['ac'], 100)
+        # The other three still see nothing -- legacy AC funds none of them.
         for other in ('reputation', 'header_analysis', 'domain_blocklist'):
-            self.assertEqual(get_effective_balance(user.id, other), 80)
+            self.assertEqual(get_effective_balance(user.id, other), 0)
 
     def test_legacy_ac_is_never_copied_into_a_service_wallet(self):
         user = make_user('audit_nocopy@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
 
         for service in ANALYSIS_SERVICES:
-            deduct_service_credits(user.id, service, 1,
-                                   ref_type='ip_check', description=service)
+            with self.assertRaises(InsufficientCredits):
+                deduct_service_credits(user.id, service, 1,
+                                       ref_type='ip_check', description=service)
 
         for row in ServiceCredit.objects.filter(user_id=user.id):
             self.assertEqual(row.balance, 0, f"{row.service} gained a balance")
             self.assertEqual(row.total_purchased, 0,
                              f"{row.service} recorded a purchase it never had")
-        self.assertEqual(legacy(user.id)['ac'], 96)
+        self.assertEqual(legacy(user.id)['ac'], 100)
 
     def test_vc_and_cc_are_untouched_by_analysis_spending(self):
         user = make_user('audit_vc_cc@example.com')
@@ -152,13 +169,14 @@ class SharedAcInvariantTests(TestCase):
                                       ac_current_credits=100, cc_current_credits=250)
 
         for service in ANALYSIS_SERVICES:
-            deduct_service_credits(user.id, service, 10,
-                                   ref_type='ip_check', description=service)
+            with self.assertRaises(InsufficientCredits):
+                deduct_service_credits(user.id, service, 10,
+                                       ref_type='ip_check', description=service)
 
         balances = legacy(user.id)
         self.assertEqual(balances['vc'], 7000)
         self.assertEqual(balances['cc'], 250)
-        self.assertEqual(balances['ac'], 60)
+        self.assertEqual(balances['ac'], 100)
 
 
 # ── Legacy grant path still works ─────────────────────────────────────────────
@@ -179,16 +197,19 @@ class LegacyGrantPathTests(TestCase):
         # And nothing leaked into the new wallets.
         self.assertEqual(ServiceCredit.objects.filter(user_id=user.id).count(), 0)
 
-    def test_a_legacy_grant_is_immediately_spendable_by_the_new_api(self):
-        """The drain-down design: legacy credits granted today are still usable
-        through the service wallets, without any migration."""
+    def test_a_legacy_grant_is_not_spendable_by_the_new_api(self):
+        """Old-credit retirement: legacy credits granted through the old
+        insert_*_credits path are historical only now -- they do not make a
+        service spendable, an attempted deduction fails exactly as if there
+        were no credit at all, and the legacy pool is left untouched."""
         user = make_user('audit_grant_spend@example.com')
         insert_ac_credits(None, user.id, 10, ref_type='subscription', ref_id='o1')
 
-        self.assertEqual(get_effective_balance(user.id, 'reputation'), 10)
-        deduct_service_credits(user.id, 'reputation', 4,
-                               ref_type='ip_check', description='r')
-        self.assertEqual(legacy(user.id)['ac'], 6)
+        self.assertEqual(get_effective_balance(user.id, 'reputation'), 0)
+        with self.assertRaises(InsufficientCredits):
+            deduct_service_credits(user.id, 'reputation', 4,
+                                   ref_type='ip_check', description='r')
+        self.assertEqual(legacy(user.id)['ac'], 10)
 
 
 # ── The guard: no production code may deduct from the legacy pools ────────────

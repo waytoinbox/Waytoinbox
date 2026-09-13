@@ -168,10 +168,13 @@
           {% endfor %}
         </div>
 
-        <!-- ── EXISTING BALANCES ─────────────────────────────── -->
+        <!-- ── EXISTING BALANCES (retired -- historical reference only) ── -->
         {% if legacy_shared.ac or legacy_shared.vc or legacy_shared.cc %}
         <div class="sc-legacy">
-          <p class="sc-legacy-title">Credits from earlier purchases</p>
+          <p class="sc-legacy-title">Retired credits from earlier purchases</p>
+          <p class="sc-legacy-note">
+            These credits are no longer usable and are shown for historical reference only.
+          </p>
           <div class="sc-legacy-chips">
             {% if legacy_shared.vc %}
               <span class="sc-legacy-chip">Email Validation <b>{{ legacy_shared.vc }}</b></span>

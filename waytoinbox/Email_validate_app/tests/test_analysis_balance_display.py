@@ -1,6 +1,6 @@
 """Phase 6, commit 10: what the four analysis surfaces SHOW.
 
-No billing logic changed here. Each surface used to display the raw
+Old-credit retirement update: each surface used to display the raw
 CurrentCredits.ac_current_credits column, which was wrong in two directions:
 
   * a customer whose credits sat entirely in a new per-service wallet was shown
@@ -8,13 +8,16 @@ CurrentCredits.ac_current_credits column, which was wrong in two directions:
   * the IP and Domain blocklist APIs reported get_vc_current_credit() — the
     Email Validation column — which was never an analysis balance at all.
 
-Every surface now shows get_effective_balance(user, <its service>): that
-service's own wallet plus the shared legacy AC pool behind it. Response key
-names and status codes are unchanged.
+Every surface now shows get_effective_balance(user, <its service>). With the
+old credit system retired, that is that service's OWN ServiceCreditLot balance
+only — the legacy AC pool behind it no longer contributes at all, and neither
+does any other service's lot. Response key names and status codes are
+unchanged.
 
-The invariant these tests protect is subtle. The four services share ONE legacy
-AC pool but each has a PRIVATE wallet, so a correct display has to move with
-the shared pool while never revealing another service's private balance.
+The invariant these tests protect is the opposite of what it used to be. The
+four analysis services used to share ONE legacy AC pool; now each is fully
+private, so a correct display must never move because of another service's
+lot or the retired legacy pool.
 """
 from unittest.mock import patch
 
@@ -24,8 +27,9 @@ from Email_validate_app.models import (
     UserTable, CurrentCredits, ServiceCredit, CreditAuditLog,
 )
 from Email_validate_app.services.credit_manager import (
-    add_service_credits, deduct_service_credits,
+    get_effective_balance, deduct_service_credits,
 )
+from Email_validate_app.tests.credit_test_helpers import make_lot
 
 ANALYSIS = ('reputation', 'header_analysis', 'ip_blocklist', 'domain_blocklist')
 
@@ -65,72 +69,79 @@ class PageBalanceTests(_Base):
         self.assertEqual(r.status_code, 200, url)
         return r.context['ac_current_credits'], r.context['credits']
 
-    def test_each_page_shows_its_own_service_wallet(self):
+    def test_each_page_shows_its_own_service_lot(self):
         for service, url in self.PAGES.items():
-            ServiceCredit.objects.filter(user_id=self.user.id).delete()
-            add_service_credits(self.user.id, service, 7,
-                                ref_type='service_purchase', ref_id='t')
+            make_lot(self.user.id, service, amount=7)
 
             shown, credits = self._shown(url)
             self.assertEqual(shown, 7, f'{url} did not show {service}')
             self.assertEqual(credits, 7, f'{url} "credits" disagrees')
 
-    def test_each_page_falls_back_to_the_shared_legacy_ac(self):
+    def test_each_page_no_longer_falls_back_to_the_shared_legacy_ac(self):
+        """Old-credit retirement: legacy AC no longer counts toward the
+        displayed balance -- a page funded only by it shows 0, exactly as if
+        there were no credit at all."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=42)
 
         for url in self.PAGES.values():
             shown, _ = self._shown(url)
-            self.assertEqual(shown, 42, f'{url} did not show the legacy pool')
+            self.assertEqual(shown, 0, f'{url} still shows the retired legacy pool')
 
-    def test_a_page_adds_its_private_wallet_to_the_shared_pool(self):
+    def test_a_pages_balance_is_only_its_own_lot_never_the_legacy_pool(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
-        add_service_credits(self.user.id, 'ip_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
 
-        self.assertEqual(self._shown(self.PAGES['ip_blocklist'])[0], 15)
+        self.assertEqual(self._shown(self.PAGES['ip_blocklist'])[0], 5)
 
-    def test_one_services_private_wallet_is_not_shown_on_another_page(self):
+    def test_one_services_private_lot_is_not_shown_on_another_page(self):
         """The leak this commit had to avoid: reputation buys 40, and the other
-        three pages must still show only the shared 10."""
+        three pages must show 0 -- neither reputation's private lot nor the
+        retired legacy pool."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
-        add_service_credits(self.user.id, 'reputation', 40,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=40)
 
-        self.assertEqual(self._shown(self.PAGES['reputation'])[0], 50)
+        self.assertEqual(self._shown(self.PAGES['reputation'])[0], 40)
         for service in ('header_analysis', 'ip_blocklist', 'domain_blocklist'):
             self.assertEqual(
-                self._shown(self.PAGES[service])[0], 10,
-                f'{service} page leaked reputation\'s private wallet')
+                self._shown(self.PAGES[service])[0], 0,
+                f'{service} page leaked reputation\'s private lot or legacy AC')
 
-    def test_spending_the_shared_pool_moves_every_page(self):
-        CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=100)
+    def test_spending_one_services_lot_moves_only_that_page(self):
+        """Old-credit retirement: there is no shared pool left to move every
+        page at once -- each service's lot is private, so spending one
+        leaves the other three exactly where they were."""
+        for service in ANALYSIS:
+            make_lot(self.user.id, service, amount=25)
 
-        expected = [75, 50, 25, 0]
-        for service, remaining in zip(ANALYSIS, expected):
+        spent = set()
+        for service in ANALYSIS:
             deduct_service_credits(self.user.id, service, 25,
                                    ref_type='ip_check', description=service)
-            for url in self.PAGES.values():
-                self.assertEqual(self._shown(url)[0], remaining,
+            spent.add(service)
+            for other_service, url in self.PAGES.items():
+                shown, _ = self._shown(url)
+                expected = 0 if other_service in spent else 25
+                self.assertEqual(shown, expected,
                                  f'{url} disagrees after {service} spent')
 
     def test_the_legacy_plan_figures_are_left_alone(self):
         """ac_total_credits / ac_used_credits describe the legacy subscription
-        grant, not the new wallet, and were deliberately not changed."""
+        grant, not the new lot, and were deliberately not changed. The legacy
+        ac_current_credits column itself no longer contributes to the
+        displayed balance at all."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10,
                                       ac_total_credits=60, ac_used_credits=50)
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         r = self.client.get(self.PAGES['reputation'])
-        self.assertEqual(r.context['ac_current_credits'], 15)
+        self.assertEqual(r.context['ac_current_credits'], 5)
         self.assertEqual(r.context['ac_total_credits'], 60)
         self.assertEqual(r.context['ac_used_credits'], 50)
 
     def test_rendering_a_page_never_deducts(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=100)
         for service in ANALYSIS:
-            add_service_credits(self.user.id, service, 5,
-                                ref_type='service_purchase', ref_id='t')
+            make_lot(self.user.id, service, amount=5)
         before = self.audit_rows()
 
         for _ in range(3):
@@ -140,8 +151,7 @@ class PageBalanceTests(_Base):
         self.assertEqual(
             CurrentCredits.objects.get(user_id=self.user.id).ac_current_credits, 100)
         for service in ANALYSIS:
-            self.assertEqual(
-                ServiceCredit.objects.get(user_id=self.user.id, service=service).balance, 5)
+            self.assertEqual(get_effective_balance(self.user.id, service), 5)
         self.assertEqual(self.audit_rows(), before)
 
 
@@ -164,8 +174,7 @@ class ApiBalanceTests(_Base):
         # A large VC balance must not show up as an analysis balance.
         CurrentCredits.objects.create(user_id=self.user.id,
                                       vc_current_credits=9999, ac_current_credits=0)
-        add_service_credits(self.user.id, 'ip_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
 
         body = self._add_ip().json()
 
@@ -177,8 +186,7 @@ class ApiBalanceTests(_Base):
     def test_domain_api_no_longer_reports_the_validation_column(self):
         CurrentCredits.objects.create(user_id=self.user.id,
                                       vc_current_credits=9999, ac_current_credits=0)
-        add_service_credits(self.user.id, 'domain_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'domain_blocklist', amount=5)
 
         body = self._add_domain().json()
 
@@ -189,35 +197,41 @@ class ApiBalanceTests(_Base):
         self.assertEqual(body['ip_current_credits'], 4)
         self.assertNotEqual(body['ip_current_credits'], 9999)
 
-    def test_ip_api_reports_the_legacy_pool_when_the_wallet_is_empty(self):
+    def test_ip_api_no_longer_falls_back_to_the_legacy_pool(self):
+        """Old-credit retirement: legacy AC alone can no longer fund the add
+        -- it fails exactly as if there were no credit at all, and the
+        legacy pool is left untouched."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=30)
 
         body = self._add_ip().json()
 
-        self.assertEqual(body['ip_current_credits'], 29)
+        self.assertEqual(body['status'], 'error')
+        self.assertEqual(
+            CurrentCredits.objects.get(user_id=self.user.id).ac_current_credits, 30)
 
-    def test_domain_api_reports_the_legacy_pool_when_the_wallet_is_empty(self):
+    def test_domain_api_no_longer_falls_back_to_the_legacy_pool(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=30)
 
         body = self._add_domain().json()
 
-        self.assertEqual(body['ip_current_credits'], 29)
+        self.assertEqual(body['status'], 'error')
+        self.assertEqual(
+            CurrentCredits.objects.get(user_id=self.user.id).ac_current_credits, 30)
 
-    def test_the_ip_api_does_not_report_another_services_wallet(self):
+    def test_the_ip_api_cannot_spend_another_services_lot_or_the_legacy_pool(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
-        add_service_credits(self.user.id, 'reputation', 40,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=40)
 
         body = self._add_ip().json()
 
-        # 10 shared, minus the 1 just spent. Reputation's 40 is invisible here.
-        self.assertEqual(body['ip_current_credits'], 9)
+        # Neither reputation's private lot nor the legacy pool can fund this.
+        self.assertEqual(body['status'], 'error')
+        self.assertEqual(
+            CurrentCredits.objects.get(user_id=self.user.id).ac_current_credits, 10)
 
     def test_existing_status_codes_and_keys_are_unchanged(self):
-        add_service_credits(self.user.id, 'ip_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
-        add_service_credits(self.user.id, 'domain_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
+        make_lot(self.user.id, 'domain_blocklist', amount=5)
 
         self.assertEqual(self.client.get('/api/blocklist/ip/').status_code, 405)
         self.assertEqual(self.client.post('/api/blocklist/ip/', {'ip': ''}).status_code, 400)
@@ -231,16 +245,13 @@ class ApiBalanceTests(_Base):
                                  'ip_current_credits']))
 
     def test_a_rejected_request_still_charges_nothing(self):
-        add_service_credits(self.user.id, 'ip_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
         before = self.audit_rows()
 
         self.client.post('/api/blocklist/ip/', {'ip': 'not-an-ip'})
 
         self.assertEqual(self.audit_rows(), before)
-        self.assertEqual(
-            ServiceCredit.objects.get(user_id=self.user.id,
-                                      service='ip_blocklist').balance, 5)
+        self.assertEqual(get_effective_balance(self.user.id, 'ip_blocklist'), 5)
 
 
 class AddToMonitorsBalanceTests(_Base):
@@ -256,28 +267,27 @@ class AddToMonitorsBalanceTests(_Base):
                    return_value={'spamhaus': 'Not Listed'}):
             return self.client.post(self.URL, data)
 
-    def test_it_reports_the_same_metric_the_header_page_renders(self):
-        CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=20)
-        add_service_credits(self.user.id, 'header_analysis', 3,
-                            ref_type='service_purchase', ref_id='t')
+    def test_it_reports_the_header_lot_which_the_ip_add_does_not_touch(self):
+        """Old-credit retirement: the two lots are private now, so adding an
+        IP monitor -- which spends from ip_blocklist's own lot -- does not
+        move header_analysis's balance at all; the reported figure stays
+        put rather than dropping by 1."""
+        make_lot(self.user.id, 'header_analysis', amount=3)
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
 
         page = self.client.get('/Header_Analysis/')
         before = page.context['ac_current_credits']
-        self.assertEqual(before, 23)
+        self.assertEqual(before, 3)
 
         body = self._post(ip='203.0.113.90').json()
 
-        # The IP add spent 1 from the shared pool, so the header bar drops by 1
-        # rather than switching to some unrelated number.
-        self.assertEqual(body['ac_current_credits'], 22)
+        self.assertEqual(body['ac_current_credits'], 3)
         self.assertEqual(
-            self.client.get('/Header_Analysis/').context['ac_current_credits'], 22)
+            self.client.get('/Header_Analysis/').context['ac_current_credits'], 3)
 
     def test_the_response_key_is_unchanged(self):
-        add_service_credits(self.user.id, 'header_analysis', 5,
-                            ref_type='service_purchase', ref_id='t')
-        add_service_credits(self.user.id, 'ip_blocklist', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'header_analysis', amount=5)
+        make_lot(self.user.id, 'ip_blocklist', amount=5)
 
         body = self._post(ip='203.0.113.91').json()
 
@@ -291,11 +301,13 @@ class AddToMonitorsBalanceTests(_Base):
 
 class DisplayInvariantTests(_Base):
 
-    def test_display_never_multiplies_the_shared_pool(self):
-        """Summing what the four pages show is NOT the user's total. Each shows
-        the same shared pool plus its own wallet; this asserts the shared half
-        is one balance, not four."""
-        CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=100)
+    def test_display_never_conflates_the_four_services_lots(self):
+        """Old-credit retirement: there is no shared pool left for the four
+        pages to display in common -- each shows only its own private lot,
+        so funding all four identically and then draining just one moves
+        only that page."""
+        for service in ANALYSIS:
+            make_lot(self.user.id, service, amount=100)
 
         pages = {
             'reputation':       '/Reputation_Analysis/',
@@ -307,12 +319,14 @@ class DisplayInvariantTests(_Base):
                  for s, u in pages.items()}
         self.assertEqual(set(shown.values()), {100})
 
-        # Spending 100 through any one of them empties every display.
+        # Draining reputation's own lot leaves the other three untouched.
         deduct_service_credits(self.user.id, 'reputation', 100,
                                ref_type='ip_check', description='drain')
         shown = {s: self.client.get(u).context['ac_current_credits']
                  for s, u in pages.items()}
-        self.assertEqual(set(shown.values()), {0})
+        self.assertEqual(shown['reputation'], 0)
+        for service in ('header_analysis', 'ip_blocklist', 'domain_blocklist'):
+            self.assertEqual(shown[service], 100)
 
     def test_no_service_credit_row_is_created_by_displaying(self):
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=50)

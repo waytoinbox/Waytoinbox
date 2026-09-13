@@ -6,23 +6,33 @@ from django.contrib import messages
 from django.utils import timezone
 
 from Email_validate_app.models import (
-    UserTable, CurrentCredits, EmailValidate, ListFiles,
+    UserTable, EmailValidate, ListFiles,
     BlocklistMonitor, DomainBlocklist, EmailHeader, APIKey,
     SubsPayment, Payment, Reputation, Campaign, DMARCAnalysis,
     SERVICE_KEYS,
 )
 from Email_validate_app.utils import get_user_id
 
-from .billing import get_current_credit, get_ac_current_credit
+from Email_validate_app.services.credit_manager import get_effective_balance
 
 
 def _service_balance_rows(user_id):
     """Read-only per-service balance rows for display: label, effective
-    balance (own wallet + legacy fallback + trial), whether that fallback is
-    the AC pool shared by four services, and any trial allowance still
-    included in that balance. No deduction, no write, no billing rule —
-    this only reads what deduct_service_credits() already exposes for
-    display via get_all_service_balances().
+    balance (trial + usable ServiceCreditLot remaining), whether that
+    service is one of the four that used to share the retired legacy AC
+    pool, and any trial allowance still included in that balance. No
+    deduction, no write, no billing rule — this only reads what
+    deduct_service_credits() already exposes for display via
+    get_all_service_balances().
+
+    Old-credit retirement: the second return value (the profile hero
+    strip's "Analysis Credits" figure) used to be the raw retired legacy AC
+    pool (balances['legacy_shared']['ac']) — presented with no label
+    distinguishing it from the other two, genuinely new-system, hero
+    figures. It is now the sum of the four analysis services' own
+    'effective' balances (trial + lot each), matching how
+    dashboard_service.py::_get_credits() already computes its 'ac' figure,
+    so a retired old balance can never again look like a usable one here.
     """
     from Email_validate_app.services.credit_manager import (
         get_all_service_balances, SERVICE_LEGACY_POOL,
@@ -41,7 +51,11 @@ def _service_balance_rows(user_id):
         }
         for key in SERVICE_KEYS
     ]
-    return (rows, balances['legacy_shared'].get('ac', 0),
+    analysis_balance = sum(
+        services[key]['effective']
+        for key in ('reputation', 'header_analysis', 'ip_blocklist', 'domain_blocklist')
+    )
+    return (rows, analysis_balance,
             balances['trial_active'], balances['trial_ends_at'])
 
 
@@ -68,8 +82,12 @@ def profile(request):
     hero_marketing_credits  = 0
 
     if user_id:
-        current_credits = get_current_credit(user_id)
-        ip_credits      = get_ac_current_credit(user_id)
+        # Old-credit retirement: these two are unused by i_profile.html today
+        # (confirmed dead), but must never again be sourced from the retired
+        # legacy vc/ac CurrentCredits pools -- new-system-aware in case they
+        # are ever wired into the template.
+        current_credits = get_effective_balance(user_id, 'email_validation')
+        ip_credits       = get_effective_balance(user_id, 'ip_blocklist')
 
         # Fetch user — use only() to avoid crashing if new columns not migrated yet
         try:
@@ -111,10 +129,12 @@ def profile(request):
         pi_timezone = getattr(user, 'timezone', None) or ''
         pi_website  = getattr(user, 'website',  None) or ''
 
-        try:
-            credit_row = CurrentCredits.objects.get(user_id=user_id)
-        except CurrentCredits.DoesNotExist:
-            credit_row = None
+        # Old-credit retirement: credit_row previously exposed the raw
+        # legacy CurrentCredits row (confirmed unused by i_profile.html).
+        # Retired rather than replaced -- there is no single new-system
+        # object that plays the same role, and the old row must never be
+        # presented as the user's current usable credit.
+        credit_row = None
 
         # Phase 6 commit 12: read-only, for display. The 7-service credit
         # balances shown on this page and the two hero-strip figures both come

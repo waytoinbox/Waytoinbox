@@ -73,18 +73,30 @@ def _get_user_info(user_id):
 
 
 def _get_credits(user_id):
-    row = CurrentCredits.objects.filter(user_id=user_id).first()
-    if not row:
-        return {k: 0 for k in [
-            'vc_current', 'vc_total', 'ac_current', 'ac_total', 'cc_current', 'cc_total'
-        ]}
+    """Old-credit retirement: sourced from get_all_service_balances()
+    (trial + ServiceCreditLot only, per LEGACY_BALANCES_SPENDABLE) instead
+    of raw CurrentCredits, so the dashboard shows the same usable balance
+    as the top navigation/profile -- never a stale legacy number. The
+    'ac' figure is the sum of the 4 services the old shared AC pool used to
+    cover (reputation/header_analysis/ip_blocklist/domain_blocklist), since
+    each now has its own independent new-system balance rather than one
+    shared pool. 'total' is set equal to 'current' -- there is no
+    new-system equivalent of a single lifetime "total purchased" figure to
+    show a meaningful percentage against, so the existing low-balance
+    percentage bars simply read 100%/healthy rather than showing a
+    misleading ratio against a frozen legacy total. Dict shape kept
+    identical to before so _build_action_items()/_build_summary_cards()
+    need no changes."""
+    from Email_validate_app.services.credit_manager import get_all_service_balances
+    balances = get_all_service_balances(user_id)['services']
+    vc = balances['email_validation']['effective']
+    cc = balances['email_marketing']['effective']
+    ac = sum(balances[s]['effective'] for s in
+             ('reputation', 'header_analysis', 'ip_blocklist', 'domain_blocklist'))
     return {
-        'vc_current': row.vc_current_credits or 0,
-        'vc_total':   row.vc_total_credits   or 0,
-        'ac_current': row.ac_current_credits or 0,
-        'ac_total':   row.ac_total_credits   or 0,
-        'cc_current': row.cc_current_credits or 0,
-        'cc_total':   row.cc_total_credits   or 0,
+        'vc_current': vc, 'vc_total': vc,
+        'ac_current': ac, 'ac_total': ac,
+        'cc_current': cc, 'cc_total': cc,
     }
 
 

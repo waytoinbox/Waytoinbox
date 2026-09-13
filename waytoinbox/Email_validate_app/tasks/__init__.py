@@ -29,3 +29,14 @@ from Email_validate_app.tasks.warmup import (                                   
     warmup_check_one,
     warmup_recover_stuck,
 )
+
+# Credit/entitlement expiry sweeps (Phase 4) and session cleanup — same
+# "must be imported here or autodiscovery never finds it" rule. These are
+# CELERY_BEAT_SCHEDULE entries with no other importer anywhere in the
+# codebase, so without this import beat still dispatches them on schedule
+# but the worker rejects every occurrence as an unregistered task.
+from Email_validate_app.tasks.credit_expiry import (                                   # noqa: F401
+    expire_credit_lots,
+    expire_trial_entitlements,
+)
+from Email_validate_app.tasks.clearsessions import clearsessions_task                  # noqa: F401

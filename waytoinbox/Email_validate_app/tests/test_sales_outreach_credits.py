@@ -20,8 +20,9 @@ from Email_validate_app.models import (
     UserTable, CurrentCredits, ServiceCredit, CreditAuditLog, SOEmailAccount,
 )
 from Email_validate_app.services.credit_manager import (
-    add_service_credits, get_service_balance,
+    add_service_credits, get_service_balance, get_effective_balance,
 )
+from Email_validate_app.tests.credit_test_helpers import make_lot
 
 
 def make_user(email):
@@ -54,14 +55,15 @@ class SalesOutreachAccountCreditTests(TestCase):
     # 1 ---------------------------------------------------------------------
 
     def test_successful_creation_costs_one_credit(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        # Old-credit retirement: funded via the real new-system grant path
+        # (ServiceCreditLot), not the retired wallet.
+        make_lot(self.user.id, 'sales_outreach', amount=1)
 
         body = self._add().json()
 
         self.assertEqual(body['status'], 'ok')
         self.assertEqual(self._live().count(), 1)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 0)
 
     # 2 ---------------------------------------------------------------------
 
@@ -78,31 +80,29 @@ class SalesOutreachAccountCreditTests(TestCase):
     def test_exactly_one_credit_per_account(self):
         """The app caps a user at 2 live accounts, so 3 credits are spent by
         creating, soft-deleting and re-creating."""
-        add_service_credits(self.user.id, 'sales_outreach', 3,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=3)
 
         self.assertEqual(self._add('a@example.com').json()['status'], 'ok')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 2)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 2)
 
         self.assertEqual(self._add('b@example.com').json()['status'], 'ok')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 1)
 
         # Free a slot, then add a third distinct mailbox.
         from django.utils.timezone import now
         self._live().filter(email='a@example.com').update(deleted_at=now())
 
         self.assertEqual(self._add('c@example.com').json()['status'], 'ok')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 0)
         self.assertEqual(self._live().count(), 2)
 
     # 4 ---------------------------------------------------------------------
 
     def test_insufficient_credits_rejects_and_creates_nothing(self):
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
         self._add('a@example.com')
         self._add('b@example.com')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 0)
 
         from django.utils.timezone import now
         self._live().filter(email='a@example.com').update(deleted_at=now())
@@ -110,14 +110,13 @@ class SalesOutreachAccountCreditTests(TestCase):
         body = self._add('c@example.com').json()
 
         self.assertEqual(body['status'], 'error')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 0)
         self.assertFalse(self._live().filter(email='c@example.com').exists())
 
     # 5 ---------------------------------------------------------------------
 
     def test_duplicate_account_is_rejected_and_costs_nothing(self):
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
 
         self.assertEqual(self._add('dup@example.com').json()['status'], 'ok')
         second = self._add('dup@example.com').json()
@@ -125,13 +124,12 @@ class SalesOutreachAccountCreditTests(TestCase):
         self.assertEqual(second['status'], 'error')
         self.assertIn('already connected', second['message'])
         self.assertEqual(self._live().filter(email='dup@example.com').count(), 1)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 1)
 
     # 6 ---------------------------------------------------------------------
 
     def test_duplicate_detection_is_case_insensitive(self):
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
 
         self.assertEqual(self._add('Test@Example.com').json()['status'], 'ok')
         # Stored lower-cased by the view.
@@ -145,13 +143,12 @@ class SalesOutreachAccountCreditTests(TestCase):
         self.assertEqual(third['status'], 'error')
 
         self.assertEqual(self._live().count(), 1)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 1)
 
     def test_a_soft_deleted_mailbox_can_be_re_added(self):
         """The duplicate guard must not permanently block a removed account —
         this is why no UNIQUE (user, email) index was added."""
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
         self._add('again@example.com')
 
         from django.utils.timezone import now
@@ -159,7 +156,7 @@ class SalesOutreachAccountCreditTests(TestCase):
 
         self.assertEqual(self._add('again@example.com').json()['status'], 'ok')
         self.assertEqual(self._live().count(), 1)
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 0)
 
     # 7 ---------------------------------------------------------------------
 
@@ -193,8 +190,7 @@ class SalesOutreachAccountCreditTests(TestCase):
     # 8 ---------------------------------------------------------------------
 
     def test_audit_log_entry(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
         CreditAuditLog.objects.filter(user_id=self.user.id).delete()
 
         acc_id = self._add('audit@example.com').json()['id']
@@ -247,17 +243,16 @@ class SalesOutreachAccountCreditTests(TestCase):
     # preserved behaviour ---------------------------------------------------
 
     def test_two_account_limit_still_applies_and_costs_nothing(self):
-        add_service_credits(self.user.id, 'sales_outreach', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=5)
         self._add('a@example.com')
         self._add('b@example.com')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 3)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 3)
 
         body = self._add('c@example.com').json()
 
         self.assertEqual(body['status'], 'error')
         self.assertIn('up to 2', body['message'])
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 3)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), 3)
         self.assertEqual(self._live().count(), 2)
 
     def test_validation_errors_cost_nothing(self):
@@ -276,8 +271,7 @@ class SalesOutreachAccountCreditTests(TestCase):
         self.assertEqual(self._live().count(), 0)
 
     def test_provider_and_credentials_handling_unchanged(self):
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
 
         self._add('ms@example.com', provider='microsoft')
         acc = self._live().get(email='ms@example.com')
@@ -292,8 +286,7 @@ class SalesOutreachAccountCreditTests(TestCase):
         self.assertEqual(signing.loads(acc.password, salt='so-ea-pwd'), 'apppassword')
 
     def test_spaces_are_still_stripped_from_the_app_password(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
         self._add('sp@example.com', password='abcd efgh ijkl mnop')
 
         from django.core import signing

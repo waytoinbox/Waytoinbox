@@ -33,7 +33,7 @@ from Email_validate_app.models import (
     Reputation, BlocklistMonitor, DomainBlocklist,
 )
 from Email_validate_app.services.credit_manager import (
-    add_service_credits, get_service_balance, grant_credit_lot,
+    add_service_credits, get_service_balance, get_effective_balance, grant_credit_lot,
     deduct_service_credits, InsufficientCredits,
 )
 from Email_validate_app.services.entitlement_manager import (
@@ -62,17 +62,7 @@ def login_client(user):
     return client
 
 
-def make_lot(user_id, service, amount=1, hours_ago_purchased=0):
-    """A ServiceCreditLot purchased `hours_ago_purchased` hours ago -- 0 for
-    a fresh, active lot; > 720 for one that's already past its 30*24h
-    expiry (still status='active' until a sweep processes it, exactly like
-    a real unfinalized lot)."""
-    purchased_at = now() - timedelta(hours=hours_ago_purchased)
-    return grant_credit_lot(
-        user_id, service, amount,
-        source=ServiceCreditLot.SOURCE_SERVICE_CHECKOUT, purchased_at=purchased_at,
-        ref_type='service_purchase', ref_id='t',
-    )
+from Email_validate_app.tests.credit_test_helpers import make_lot
 
 
 SO_URL = '/Sales-Outreach/so-accounts/action/'
@@ -105,24 +95,22 @@ class SOAccountEntitlementCreationTests(TestCase):
     def _entitlement_for(self, acc_id):
         return ServiceEntitlement.objects.get(so_account_id=acc_id)
 
-    def test_wallet_funded_add_creates_exactly_one_entitlement(self):
+    def test_wallet_only_balance_cannot_fund_a_new_account(self):
+        """Old-credit retirement: ServiceCredit.balance is no longer
+        spendable, so a wallet-only balance must not be able to fund a new
+        SO account (or its entitlement) at all -- it must fail exactly
+        like having no credit, and the old balance itself must be left
+        untouched (never spent, since nothing was actually spent)."""
         add_service_credits(self.user.id, 'sales_outreach', 1,
                             ref_type='service_purchase', ref_id='t')
 
         body = so_add(self.client).json()
-        self.assertEqual(body['status'], 'ok')
-        acc_id = body['id']
 
-        ents = ServiceEntitlement.objects.filter(so_account_id=acc_id)
-        self.assertEqual(ents.count(), 1)
-        ent = ents.first()
-        self.assertEqual(ent.service, 'sales_outreach')
-        self.assertEqual(ent.user_id, self.user.id)
-        self.assertEqual(ent.status, ServiceEntitlement.STATUS_ACTIVE)
-        self.assertEqual(ent.funding_source, ServiceEntitlement.FUNDING_WALLET)
-        self.assertIsNone(ent.lot_id)
-        self.assertTrue(ent.spend_id)
-        self.assertEqual(ent.active_key, f'sales_outreach:so_account:{acc_id}')
+        self.assertEqual(body['status'], 'error')
+        self.assertNotIn('id', body)
+        self.assertEqual(SOEmailAccount.objects.count(), 0)
+        self.assertEqual(ServiceEntitlement.objects.count(), 0)
+        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
 
     def test_lot_funded_add_creates_entitlement_linked_to_lot(self):
         lot = make_lot(self.user.id, 'sales_outreach', amount=1)
@@ -154,8 +142,7 @@ class SOAccountEntitlementCreationTests(TestCase):
         self.assertEqual(ent.expires_at, self.user.trial_ends_at)
 
     def test_no_duplicate_entitlement_on_single_add(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
         body = so_add(self.client).json()
         acc_id = body['id']
 
@@ -163,8 +150,7 @@ class SOAccountEntitlementCreationTests(TestCase):
             ServiceEntitlement.objects.filter(so_account_id=acc_id).count(), 1)
 
     def test_new_account_entitlement_status_defaults_active(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
         acc_id = so_add(self.client).json()['id']
         acc = SOEmailAccount.objects.get(id=acc_id)
         self.assertEqual(acc.entitlement_status, 'active')
@@ -186,19 +172,22 @@ class FundingResolutionTests(TestCase):
         self.user = make_user('funding_res@example.com')
         self.client = login_client(self.user)
 
-    def test_legacy_pool_funded_reputation_creates_entitlement(self):
-        """sales_outreach has no legacy pool, so the legacy-pool funding
-        source is proven via Reputation (backed by the shared 'ac' pool)."""
+    def test_legacy_pool_alone_cannot_fund_a_new_reputation_entry(self):
+        """Old-credit retirement: the legacy CurrentCredits AC pool is no
+        longer spendable, so it must not be able to fund a new Reputation
+        entry (or entitlement) at all -- FUNDING_LEGACY_POOL can no longer
+        be produced by a live create. The legacy balance itself must be
+        left untouched."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=5)
 
         with mock_postmaster([]):
             body = self.client.post('/Reputation_Analysis/', {'domain_input': 'legacy-fund.com'}).json()
-        self.assertEqual(body['status'], 'ok')
 
-        ent = ServiceEntitlement.objects.get(reputation_id=body['rep_id'])
-        self.assertEqual(ent.funding_source, ServiceEntitlement.FUNDING_LEGACY_POOL)
-        self.assertIsNone(ent.lot_id)
-        self.assertIsNone(ent.expires_at)
+        self.assertEqual(body['status'], 'error')
+        self.assertEqual(Reputation.objects.count(), 0)
+        self.assertEqual(ServiceEntitlement.objects.count(), 0)
+        self.assertEqual(
+            CurrentCredits.objects.get(user_id=self.user.id).ac_current_credits, 5)
 
     def test_resolve_funding_raises_when_no_debit_rows(self):
         with self.assertRaises(FundingResolutionError):
@@ -221,8 +210,7 @@ class FundingResolutionTests(TestCase):
             resolve_funding(self.user.id, 'sales_outreach', spend_id)
 
     def test_ambiguous_funding_rolls_back_so_account_creation(self):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        lot = make_lot(self.user.id, 'sales_outreach', amount=1)
 
         with patch('Email_validate_app.services.entitlement_manager.resolve_funding',
                    side_effect=FundingResolutionError('ambiguous')):
@@ -230,7 +218,8 @@ class FundingResolutionTests(TestCase):
                 so_add(self.client, email='rollback@example.com')
 
         # Everything the transaction touched must be rolled back together.
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 1)
         self.assertEqual(
             SOEmailAccount.objects.filter(email='rollback@example.com').count(), 0)
         self.assertEqual(ServiceEntitlement.objects.count(), 0)
@@ -241,12 +230,16 @@ class FundingResolutionTests(TestCase):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class LotExpiryTests(TestCase):
+    """Generic lot-expiry mechanics -- deliberately exercised against
+    email_marketing (a normal, still-expiring service), NOT email_validation,
+    which is the one service exempted from expiry (see EVNonExpiringLotTests
+    below)."""
 
     def setUp(self):
         self.user = make_user('lot_expiry@example.com')
 
     def test_expired_lot_is_finalized_and_audited(self):
-        lot = make_lot(self.user.id, 'email_validation', amount=10, hours_ago_purchased=800)
+        lot = make_lot(self.user.id, 'email_marketing', amount=10, hours_ago_purchased=800)
 
         expire_credit_lots()
 
@@ -268,8 +261,8 @@ class LotExpiryTests(TestCase):
         # Spend it in full WHILE still active, then advance it into expiry --
         # an already-expired lot can never fund a deduction in the first
         # place (proven separately by test_expired_lot_cannot_fund_new_deduction).
-        lot = make_lot(self.user.id, 'email_validation', amount=5, hours_ago_purchased=0)
-        deduct_service_credits(self.user.id, 'email_validation', 5, ref_type='validation')
+        lot = make_lot(self.user.id, 'email_marketing', amount=5, hours_ago_purchased=0)
+        deduct_service_credits(self.user.id, 'email_marketing', 5, ref_type='validation')
         lot.refresh_from_db()
         self.assertEqual(lot.quantity_remaining, 0)
 
@@ -282,7 +275,7 @@ class LotExpiryTests(TestCase):
         self.assertFalse(CreditAuditLog.objects.filter(lot=lot, entry_type='expired').exists())
 
     def test_future_lot_is_not_expired(self):
-        lot = make_lot(self.user.id, 'email_validation', amount=10, hours_ago_purchased=0)
+        lot = make_lot(self.user.id, 'email_marketing', amount=10, hours_ago_purchased=0)
 
         expire_credit_lots()
 
@@ -291,7 +284,7 @@ class LotExpiryTests(TestCase):
         self.assertEqual(lot.quantity_remaining, 10)
 
     def test_repeated_expiry_is_idempotent(self):
-        lot = make_lot(self.user.id, 'email_validation', amount=10, hours_ago_purchased=800)
+        lot = make_lot(self.user.id, 'email_marketing', amount=10, hours_ago_purchased=800)
 
         expire_credit_lots()
         expire_credit_lots()
@@ -324,14 +317,148 @@ class LotExpiryTests(TestCase):
         self.assertIsNone(acc.deleted_at)   # suspension must never soft-delete
 
     def test_expired_lot_cannot_fund_new_deduction(self):
-        lot = make_lot(self.user.id, 'email_validation', amount=5, hours_ago_purchased=800)
+        lot = make_lot(self.user.id, 'email_marketing', amount=5, hours_ago_purchased=800)
         expire_credit_lots()
 
         with self.assertRaises(InsufficientCredits):
-            deduct_service_credits(self.user.id, 'email_validation', 1, ref_type='validation')
+            deduct_service_credits(self.user.id, 'email_marketing', 1, ref_type='validation')
 
         lot.refresh_from_db()
         self.assertEqual(lot.quantity_remaining, 0)   # untouched by the failed deduction
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 3b. Email Validation lots — exempt from expiry (business rule change)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class EVNonExpiringLotTests(TestCase):
+    """Email Validation is the one service whose lots keep their
+    purchased_at/expires_at metadata but are never actually finalized/expired
+    -- remaining EV credit must stay spendable indefinitely past the nominal
+    30*24h date. Every other service's expiry (LotExpiryTests above) is
+    unchanged."""
+
+    def setUp(self):
+        self.user = make_user('ev_no_expiry@example.com')
+
+    def test_expired_ev_lot_is_not_finalized_by_the_sweep(self):
+        lot = make_lot(self.user.id, 'email_validation', amount=10000, hours_ago_purchased=800)
+
+        expire_credit_lots()
+
+        lot.refresh_from_db()
+        self.assertEqual(lot.status, ServiceCreditLot.STATUS_ACTIVE)   # never flips to expired
+        self.assertEqual(lot.quantity_remaining, 10000)
+        self.assertEqual(lot.quantity_expired, 0)
+        self.assertIsNone(lot.expired_at)
+        self.assertFalse(CreditAuditLog.objects.filter(lot=lot, entry_type='expired').exists())
+
+    def test_remaining_ev_credit_still_spendable_past_nominal_expiry(self):
+        """The exact worked example: 10,000 purchased, 2,000 + 3,000 used
+        before nominal expiry, 5,000 remaining -- still usable afterward."""
+        lot = make_lot(self.user.id, 'email_validation', amount=10000, hours_ago_purchased=0)
+        deduct_service_credits(self.user.id, 'email_validation', 2000, ref_type='validation')
+        deduct_service_credits(self.user.id, 'email_validation', 3000, ref_type='validation')
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 5000)
+
+        # Advance past the nominal 30*24h expiry and run the sweep, exactly
+        # as would happen in production every 15 minutes.
+        ServiceCreditLot.objects.filter(pk=lot.pk).update(
+            expires_at=now() - timedelta(hours=1))
+        expire_credit_lots()
+
+        # Still spendable, and the sweep did not touch it.
+        deduct_service_credits(self.user.id, 'email_validation', 1000, ref_type='validation')
+        lot.refresh_from_db()
+        self.assertEqual(lot.status, ServiceCreditLot.STATUS_ACTIVE)
+        self.assertEqual(lot.quantity_remaining, 4000)
+        self.assertEqual(lot.quantity_used, 6000)
+        self.assertEqual(lot.quantity_expired, 0)
+
+    def test_fefo_prefers_earlier_expiring_ev_lot_even_though_neither_expires(self):
+        """Two EV lots, one already past its nominal expiry -- FEFO must
+        still drain the earlier one first; its passed expires_at must not
+        make it unusable or skip it in the ordering."""
+        old_lot = make_lot(self.user.id, 'email_validation', amount=5000, hours_ago_purchased=800)
+        new_lot = make_lot(self.user.id, 'email_validation', amount=20000, hours_ago_purchased=0)
+
+        deduct_service_credits(self.user.id, 'email_validation', 3000, ref_type='validation')
+
+        old_lot.refresh_from_db()
+        new_lot.refresh_from_db()
+        self.assertEqual(old_lot.quantity_remaining, 2000)   # drained first
+        self.assertEqual(new_lot.quantity_remaining, 20000)  # untouched
+
+    def test_new_ev_purchase_after_older_lot_expiry_still_uses_older_remaining_first(self):
+        """A user purchasing a NEW EV lot after an OLDER one's nominal expiry
+        has passed must still be able to spend the older lot's leftover
+        credit -- it is not orphaned by the new purchase."""
+        old_lot = make_lot(self.user.id, 'email_validation', amount=1000, hours_ago_purchased=800)
+
+        # New purchase made well after the old lot's nominal expiry.
+        new_lot = make_lot(self.user.id, 'email_validation', amount=5000, hours_ago_purchased=0)
+
+        deduct_service_credits(self.user.id, 'email_validation', 500, ref_type='validation')
+
+        old_lot.refresh_from_db()
+        new_lot.refresh_from_db()
+        self.assertEqual(old_lot.quantity_remaining, 500)    # FEFO drains the older lot first
+        self.assertEqual(new_lot.quantity_remaining, 5000)
+
+    def test_fully_consumed_ev_lot_still_expires_normally(self):
+        """A fully-spent EV lot (quantity_remaining=0) behaves like any other
+        fully-spent lot -- the sweep finalizes its bookkeeping (status,
+        expired_at) since there is nothing left to protect, it just never
+        writes a forfeiture audit row (nothing was forfeited)."""
+        lot = make_lot(self.user.id, 'email_validation', amount=5, hours_ago_purchased=0)
+        deduct_service_credits(self.user.id, 'email_validation', 5, ref_type='validation')
+        ServiceCreditLot.objects.filter(pk=lot.pk).update(expires_at=now() - timedelta(hours=1))
+
+        expire_credit_lots()
+
+        lot.refresh_from_db()
+        # Excluded from the sweep entirely (NON_EXPIRING_LOT_SERVICES), so it
+        # simply stays 'active' with nothing left to spend -- not finalized,
+        # not marked expired, matching "a fully consumed EV lot should
+        # behave normally" (normally here means: never expired, per the
+        # business rule; there is nothing left to protect either way).
+        self.assertEqual(lot.status, ServiceCreditLot.STATUS_ACTIVE)
+        self.assertEqual(lot.quantity_remaining, 0)
+        self.assertEqual(lot.quantity_expired, 0)
+
+    def test_ev_lot_refund_still_works_after_nominal_expiry(self):
+        """refund_service_credits()'s lot branch only checks lot.status ==
+        ACTIVE, never expires_at -- since an EV lot's status never becomes
+        EXPIRED, a refund against it must still succeed after the nominal
+        expiry date."""
+        from Email_validate_app.services.credit_manager import refund_service_credits
+
+        lot = make_lot(self.user.id, 'email_validation', amount=100, hours_ago_purchased=0)
+        spend_id = deduct_service_credits(self.user.id, 'email_validation', 10, ref_type='validation')
+        ServiceCreditLot.objects.filter(pk=lot.pk).update(expires_at=now() - timedelta(hours=1))
+        expire_credit_lots()   # nominal expiry passes, sweep runs, EV lot untouched
+
+        refund_service_credits(self.user.id, 'email_validation', 10, ref_type='validation',
+                               spend_id=spend_id)
+
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 100)   # fully restored to the SAME lot
+        self.assertEqual(lot.status, ServiceCreditLot.STATUS_ACTIVE)
+
+    def test_other_services_unaffected_by_ev_exemption(self):
+        """Sanity: granting/expiring an EV lot must not change how a
+        DIFFERENT service's lot for the same user behaves."""
+        ev_lot = make_lot(self.user.id, 'email_validation', amount=10, hours_ago_purchased=800)
+        em_lot = make_lot(self.user.id, 'email_marketing', amount=10, hours_ago_purchased=800)
+
+        expire_credit_lots()
+
+        ev_lot.refresh_from_db()
+        em_lot.refresh_from_db()
+        self.assertEqual(ev_lot.status, ServiceCreditLot.STATUS_ACTIVE)
+        self.assertEqual(em_lot.status, ServiceCreditLot.STATUS_EXPIRED)
+        self.assertEqual(em_lot.quantity_expired, 10)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -613,27 +740,43 @@ class SOReactivateTests(TestCase):
         self.client = login_client(self.user)
 
     def _make_suspended_account(self, email='suspended@example.com'):
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
         acc_id = so_add(self.client, email=email).json()['id']
         old_ent = ServiceEntitlement.objects.get(so_account_id=acc_id)
         end_entitlement(old_ent.id, reason=ServiceEntitlement.END_REASON_EXPIRED)
         return SOEmailAccount.objects.get(id=acc_id), old_ent
 
-    def test_successful_reactivate_from_wallet(self):
+    def test_successful_reactivate_from_lot(self):
         acc, old_ent = self._make_suspended_account()
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t2')
+        lot = make_lot(self.user.id, 'sales_outreach', amount=1)
 
         body = so_reactivate(self.client, acc.id).json()
 
         self.assertEqual(body['status'], 'ok')
         acc.refresh_from_db()
         self.assertEqual(acc.entitlement_status, 'active')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 0)
         new_ent = ServiceEntitlement.objects.get(so_account_id=acc.id, status='active')
-        self.assertEqual(new_ent.funding_source, ServiceEntitlement.FUNDING_WALLET)
+        self.assertEqual(new_ent.funding_source, ServiceEntitlement.FUNDING_LOT)
+        self.assertEqual(new_ent.lot_id, lot.id)
         self.assertNotEqual(new_ent.id, old_ent.id)
+
+    def test_reactivate_wallet_only_balance_is_insufficient(self):
+        """Old-credit retirement: a wallet-only balance must not be able to
+        fund a Reactivate either -- it must fail exactly as if there were
+        no credit at all, and the account must stay suspended."""
+        acc, old_ent = self._make_suspended_account(email='reactivate-wallet-only@example.com')
+        add_service_credits(self.user.id, 'sales_outreach', 1,
+                            ref_type='service_purchase', ref_id='t2')
+
+        body = so_reactivate(self.client, acc.id).json()
+
+        self.assertEqual(body['status'], 'error')
+        acc.refresh_from_db()
+        self.assertEqual(acc.entitlement_status, 'suspended')
+        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        self.assertEqual(ServiceEntitlement.objects.filter(so_account_id=acc.id).count(), 1)
 
     def test_successful_reactivate_from_trial(self):
         acc, old_ent = self._make_suspended_account(email='reactivate-trial@example.com')
@@ -658,22 +801,20 @@ class SOReactivateTests(TestCase):
         self.assertEqual(ServiceEntitlement.objects.filter(so_account_id=acc.id).count(), 1)
 
     def test_already_active_account_reactivate_is_noop(self):
-        add_service_credits(self.user.id, 'sales_outreach', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'sales_outreach', amount=2)
         acc_id = so_add(self.client, email='already-active@example.com').json()['id']
-        balance_before = get_service_balance(self.user.id, 'sales_outreach')
+        balance_before = get_effective_balance(self.user.id, 'sales_outreach')
 
         body = so_reactivate(self.client, acc_id).json()
 
         self.assertEqual(body['status'], 'ok')
         self.assertIn('already active', body['message'].lower())
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), balance_before)
+        self.assertEqual(get_effective_balance(self.user.id, 'sales_outreach'), balance_before)
         self.assertEqual(ServiceEntitlement.objects.filter(so_account_id=acc_id).count(), 1)
 
     def test_old_entitlement_remains_ended_after_reactivate(self):
         acc, old_ent = self._make_suspended_account(email='old-ended@example.com')
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t2')
+        make_lot(self.user.id, 'sales_outreach', amount=1)
 
         so_reactivate(self.client, acc.id)
 
@@ -685,8 +826,7 @@ class SOReactivateTests(TestCase):
 
     def test_reactivate_failure_rolls_back_everything(self):
         acc, old_ent = self._make_suspended_account(email='reactivate-fail@example.com')
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t2')
+        lot = make_lot(self.user.id, 'sales_outreach', amount=1)
 
         with patch('Email_validate_app.services.entitlement_manager.create_entitlement',
                    side_effect=RuntimeError('boom')):
@@ -695,7 +835,8 @@ class SOReactivateTests(TestCase):
 
         acc.refresh_from_db()
         self.assertEqual(acc.entitlement_status, 'suspended')
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 1)
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 1)
         self.assertEqual(ServiceEntitlement.objects.filter(so_account_id=acc.id).count(), 1)
 
     def test_double_reactivate_does_not_double_charge(self):
@@ -707,8 +848,7 @@ class SOReactivateTests(TestCase):
         this codebase's existing convention of keeping thread-based
         concurrency tests in their own dedicated files."""
         acc, old_ent = self._make_suspended_account(email='double-reactivate@example.com')
-        add_service_credits(self.user.id, 'sales_outreach', 1,
-                            ref_type='service_purchase', ref_id='t2')
+        lot = make_lot(self.user.id, 'sales_outreach', amount=1)
 
         first = so_reactivate(self.client, acc.id).json()
         second = so_reactivate(self.client, acc.id).json()
@@ -716,7 +856,8 @@ class SOReactivateTests(TestCase):
         self.assertEqual(first['status'], 'ok')
         self.assertEqual(second['status'], 'ok')
         self.assertIn('already active', second['message'].lower())
-        self.assertEqual(get_service_balance(self.user.id, 'sales_outreach'), 0)
+        lot.refresh_from_db()
+        self.assertEqual(lot.quantity_remaining, 0)   # spent exactly once
         self.assertEqual(
             ServiceEntitlement.objects.filter(so_account_id=acc.id, status='active').count(), 1)
 
@@ -790,8 +931,7 @@ class ReputationIpDomainLifecycleTests(TestCase):
         self.assertNotIn('suspended-dom.com', checked_domains)
 
     def test_reputation_remove_readd_creates_fresh_entitlement_and_charges(self):
-        add_service_credits(self.user.id, 'reputation', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=2)
         with mock_postmaster([]):
             first = self.client.post('/Reputation_Analysis/',
                                      {'domain_input': 'readd.com'}).json()
@@ -801,7 +941,7 @@ class ReputationIpDomainLifecycleTests(TestCase):
         # Remove (soft-delete), exactly like the existing "hide" action does.
         Reputation.objects.filter(id=old_rep_id).update(
             is_hidden=True, deleted_at=now())
-        balance_before_readd = get_service_balance(self.user.id, 'reputation')
+        balance_before_readd = get_effective_balance(self.user.id, 'reputation')
 
         with mock_postmaster([]):
             second = self.client.post('/Reputation_Analysis/',
@@ -812,28 +952,28 @@ class ReputationIpDomainLifecycleTests(TestCase):
         self.assertNotEqual(new_rep_id, old_rep_id)
         new_ent = ServiceEntitlement.objects.get(reputation_id=new_rep_id)
         self.assertEqual(new_ent.status, ServiceEntitlement.STATUS_ACTIVE)
+        self.assertEqual(new_ent.funding_source, ServiceEntitlement.FUNDING_LOT)
         self.assertNotEqual(new_ent.id, old_ent.id)
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), balance_before_readd - 1)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), balance_before_readd - 1)
 
     def test_suspended_visible_resource_blocks_readd_without_charging(self):
         """A suspended-but-not-removed resource still trips the existing
         duplicate guard -- no credit is spent trying to 're-add' it, and no
         second entitlement is created."""
-        add_service_credits(self.user.id, 'reputation', 2,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=2)
         with mock_postmaster([]):
             first = self.client.post('/Reputation_Analysis/',
                                      {'domain_input': 'stuck.com'}).json()
         rep_id = first['rep_id']
         Reputation.objects.filter(id=rep_id).update(entitlement_status='suspended')
-        balance_before = get_service_balance(self.user.id, 'reputation')
+        balance_before = get_effective_balance(self.user.id, 'reputation')
 
         with mock_postmaster([]):
             second = self.client.post('/Reputation_Analysis/',
                                       {'domain_input': 'stuck.com'}).json()
 
         self.assertEqual(second['status'], 'warning')
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), balance_before)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), balance_before)
         self.assertEqual(ServiceEntitlement.objects.filter(reputation_id=rep_id).count(), 1)
 
 

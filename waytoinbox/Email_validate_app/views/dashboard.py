@@ -12,6 +12,7 @@ from Email_validate_app.utils import get_user_id
 from Email_validate_app.services.dashboard_service import (
     get_dashboard_context, get_chart_data,
 )
+from Email_validate_app.services.credit_manager import get_effective_balance
 
 from .billing import get_current_credit
 
@@ -70,7 +71,10 @@ def get_data(request):
 
         if user_id:
             try:
-                current_credits = get_current_credit(user_id)
+                # Old-credit retirement: the bulk-verify history table's
+                # credit count must reflect the new system (trial + lot),
+                # not the retired legacy VC balance.
+                current_credits = get_effective_balance(user_id, 'email_validation')
             except Exception as e:
                 logger.error("Error fetching credits: %s", e)
                 messages.error(request, "An error occurred while fetching your credits. Please try again later.")

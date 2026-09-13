@@ -5,7 +5,9 @@ Two independent jobs:
 
   expire_credit_lots()        -- finalizes ServiceCreditLot rows past
                                   expires_at, cascading to end any active
-                                  lot-funded entitlement.
+                                  lot-funded entitlement. Skips
+                                  NON_EXPIRING_LOT_SERVICES (email_validation)
+                                  entirely -- see credit_manager.py.
   expire_trial_entitlements() -- ends trial-funded entitlements once
                                   UserTable.trial_ends_at has passed.
                                   Deliberately independent of
@@ -32,7 +34,7 @@ from django.utils.timezone import now
 from Email_validate_app.models import (
     ServiceCreditLot, ServiceEntitlement, CreditAuditLog, UserTable,
 )
-from Email_validate_app.services.credit_manager import SERVICE_LABELS
+from Email_validate_app.services.credit_manager import SERVICE_LABELS, NON_EXPIRING_LOT_SERVICES
 from Email_validate_app.services.entitlement_manager import (
     end_entitlement, EntitlementIntegrityError,
 )
@@ -73,10 +75,15 @@ def expire_credit_lots():
     lot is a no-op the second time. Only quantity_remaining is ever moved
     into quantity_expired -- quantity_used (already-spent credit) is never
     touched, and ServiceCredit.balance/CurrentCredits are never read or
-    written here at all."""
+    written here at all.
+
+    Excludes NON_EXPIRING_LOT_SERVICES (email_validation) entirely -- those
+    lots keep their purchased_at/expires_at metadata for audit/history, but
+    are never finalized/expired here, so their remaining credit stays
+    spendable indefinitely (see deduct_service_credits())."""
     lot_ids = list(ServiceCreditLot.objects.filter(
         status=ServiceCreditLot.STATUS_ACTIVE, expires_at__lte=now(),
-    ).values_list('id', flat=True)[:BATCH_SIZE])
+    ).exclude(service__in=NON_EXPIRING_LOT_SERVICES).values_list('id', flat=True)[:BATCH_SIZE])
 
     for lot_id in lot_ids:
         _expire_one_lot(lot_id)
@@ -88,6 +95,13 @@ def _expire_one_lot(lot_id):
         lot = ServiceCreditLot.objects.select_for_update().get(pk=lot_id)
         if lot.status != ServiceCreditLot.STATUS_ACTIVE or lot.expires_at > now():
             return  # already processed by an earlier/overlapping run
+        if lot.service in NON_EXPIRING_LOT_SERVICES:
+            # Defense-in-depth: expire_credit_lots()'s own selection query
+            # already excludes these, but a lot ID reaching this function by
+            # any other path (e.g. direct/manual invocation) must never
+            # finalize a service whose remaining credit must stay usable
+            # indefinitely.
+            return
 
         remaining = lot.quantity_remaining
         if remaining > 0:

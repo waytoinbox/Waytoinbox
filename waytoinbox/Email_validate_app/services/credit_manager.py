@@ -22,6 +22,25 @@ logger = logging.getLogger(__name__)
 # exactly 2026-10-11 10:30:00 UTC, independent of timezone or DST.
 LOT_LIFETIME = timedelta(hours=720)
 
+# Product decision: Email Validation lots still carry the same purchased_at/
+# expires_at metadata as every other service (for audit/history), but their
+# remaining credit must never actually expire -- only these services' lots
+# are excluded from the expires_at__gt=now() spend gate below and from
+# tasks/credit_expiry.py's finalization sweep. Every other service's lot
+# expiry behavior is completely unchanged.
+NON_EXPIRING_LOT_SERVICES = {'email_validation'}
+
+# Old-credit retirement (business decision): ServiceCredit.balance (the
+# "wallet") and CurrentCredits (the legacy vc/ac/cc pools) are no longer
+# usable, for spending OR for what's displayed as a usable balance.
+# Existing rows in both are deliberately left untouched -- nothing is
+# migrated, copied, zeroed, or deleted -- they simply stop being counted.
+# The old code paths below are kept structurally intact (not deleted) and
+# gated behind this single flag so the change is reversible and so spend
+# (deduct_service_credits) and display (get_effective_balance/
+# get_all_service_balances) can never drift out of sync with each other.
+LEGACY_BALANCES_SPENDABLE = False
+
 
 def generate_receipt_id(timezone='Asia/Kolkata'):
     random_part = secrets.token_hex(5)[:6]
@@ -447,21 +466,55 @@ def _legacy_balance(user_id, service):
 
 
 def get_service_balance(user_id, service):
-    """Balance in the NEW wallet only (excludes legacy)."""
+    """Balance in the NEW wallet only (excludes legacy).
+
+    Retired as a spendable/effective source (see LEGACY_BALANCES_SPENDABLE)
+    -- kept as-is for whatever still calls it directly (e.g. admin
+    reporting), but get_effective_balance()/get_all_service_balances() no
+    longer add this in while the flag is False."""
     if service not in SERVICE_KEYS:
         raise ValueError(f"Unknown service: {service!r}")
     row = ServiceCredit.objects.filter(user_id=user_id, service=service).first()
     return row.balance if row else 0
 
 
+def get_lot_balance(user_id, service):
+    """Usable remaining credit from ServiceCreditLot ONLY -- the new
+    system's actual spendable-balance source. Mirrors EXACTLY the
+    eligibility rule deduct_service_credits() uses to pick its FEFO
+    candidate lots (status=active, quantity_remaining>0, and expires_at in
+    the future unless `service` is in NON_EXPIRING_LOT_SERVICES), so this
+    can never show a number deduct_service_credits() can't actually honor.
+    Revoked/expired lots (status != active) are excluded by the status
+    filter alone, same as the deduction path."""
+    if service not in SERVICE_KEYS:
+        raise ValueError(f"Unknown service: {service!r}")
+    qs = ServiceCreditLot.objects.filter(
+        user_id=user_id, service=service,
+        status=ServiceCreditLot.STATUS_ACTIVE, quantity_remaining__gt=0,
+    )
+    if service not in NON_EXPIRING_LOT_SERVICES:
+        qs = qs.filter(expires_at__gt=now())
+    return qs.aggregate(total=Sum('quantity_remaining'))['total'] or 0
+
+
 def get_effective_balance(user_id, service):
     """What the user can actually spend right now: trial allowance (if
-    active) + new wallet + legacy pool.
+    active) + usable ServiceCreditLot remaining.
+
+    Old-credit retirement: ServiceCredit.balance and the legacy CurrentCredits
+    pool are NO LONGER counted here while LEGACY_BALANCES_SPENDABLE is False
+    -- a user whose only credit sits in either of those old sources sees
+    (and can spend) exactly 0 until they hold a live trial allowance or make
+    a new purchase. This is deliberately the SAME flag deduct_service_credits()
+    checks, so what's displayed can never promise more than what a spend can
+    actually honor. Existing old balances are never migrated, copied, or
+    modified by this — only what's COUNTED changes.
 
     This is the number to gate actions on and to show next to a service. Note
-    that for the four analysis services the legacy half is SHARED, so summing
-    get_effective_balance() across them double-counts — see
-    get_all_service_balances(), which reports the shared pool separately.
+    that for the four analysis services this used to double-count a SHARED
+    legacy pool if summed across them — see get_all_service_balances(), which
+    still reports that shared pool separately (now uninvolved in 'effective').
 
     Trial is counted first because deduct_service_credits() spends it
     first (it's free and time-boxed) — if this function didn't also count
@@ -469,9 +522,10 @@ def get_effective_balance(user_id, service):
     deduct_service_credits() draw from a different total.
     """
     from Email_validate_app.services.trial_manager import get_trial_remaining
-    return (get_trial_remaining(user_id, service)
-            + get_service_balance(user_id, service)
-            + _legacy_balance(user_id, service))
+    total = get_trial_remaining(user_id, service) + get_lot_balance(user_id, service)
+    if LEGACY_BALANCES_SPENDABLE:
+        total += get_service_balance(user_id, service) + _legacy_balance(user_id, service)
+    return total
 
 
 def get_all_service_balances(user_id):
@@ -500,6 +554,15 @@ def get_all_service_balances(user_id):
     double-counting) and are unaffected by this; context_processors.py and
     views/profile.py read ['effective'] for display and are the two places
     meant to pick up trial figures.
+
+    Old-credit retirement: while LEGACY_BALANCES_SPENDABLE is False, 'new'
+    reports the usable ServiceCreditLot balance (get_lot_balance()) instead
+    of ServiceCredit.balance, and per-service 'legacy' reports 0 instead of
+    the CurrentCredits pool -- so 'effective' (= new + legacy + trial) stays
+    exactly consistent with get_effective_balance() and with what
+    deduct_service_credits() can actually spend. 'legacy_shared' below is
+    unaffected -- it's a separate, clearly-labelled historical figure, never
+    folded into 'new'/'effective'.
     """
     new_balances = dict(
         ServiceCredit.objects.filter(user_id=user_id).values_list('service', 'balance')
@@ -527,10 +590,14 @@ def get_all_service_balances(user_id):
     services = {}
     for service in SERVICE_KEYS:
         pool = SERVICE_LEGACY_POOL.get(service)
-        new = new_balances.get(service, 0)
-        leg = legacy.get(pool, 0) if pool else 0
         trial_row = trial_rows_by_service.get(service)
         trial_rem = max(0, trial_row['limit'] - trial_row['used']) if trial_row else 0
+        if LEGACY_BALANCES_SPENDABLE:
+            new = new_balances.get(service, 0)
+            leg = legacy.get(pool, 0) if pool else 0
+        else:
+            new = get_lot_balance(user_id, service)
+            leg = 0
         services[service] = {
             'new': new, 'legacy': leg, 'trial': trial_rem,
             'effective': trial_rem + new + leg,
@@ -649,9 +716,11 @@ def ensure_service_credits(user_id, service, count):
 def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                            description='', spend_id=None):
     """Spend `count` credits for `service`: trial allowance first (if
-    active), then active unexpired ServiceCreditLot rows (FEFO — earliest
-    expires_at first), then the permanent wallet, then the legacy pool for
-    any remainder.
+    active), then active ServiceCreditLot rows (FEFO — earliest expires_at
+    first), then the permanent wallet, then the legacy pool for any
+    remainder. Lots are also required to be unexpired (expires_at in the
+    future) EXCEPT for NON_EXPIRING_LOT_SERVICES (email_validation), whose
+    remaining lot credit stays spendable past its nominal expires_at.
 
     Worked example from the spec:
         new email_validation = 20, legacy vc = 100, request 50
@@ -736,13 +805,21 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         #    first, purchased_at/id as deterministic tie-breakers. Only
         #    queried when there's still something to cover, so a user with
         #    no purchases since Phase 3 never touches this table at all.
+        #
+        #    Email Validation lots are excluded from the expires_at__gt=now()
+        #    gate (NON_EXPIRING_LOT_SERVICES) -- their remaining credit stays
+        #    spendable past the nominal expiry date; FEFO ordering itself is
+        #    unaffected, still earliest-expires_at-first among whatever
+        #    remains active.
         lots_consumed = []  # [(lot, n), ...]
         if remainder:
             candidate_lots = ServiceCreditLot.objects.select_for_update().filter(
                 user_id=user_id, service=service,
-                status=ServiceCreditLot.STATUS_ACTIVE,
-                expires_at__gt=now(), quantity_remaining__gt=0,
-            ).order_by('expires_at', 'purchased_at', 'id')
+                status=ServiceCreditLot.STATUS_ACTIVE, quantity_remaining__gt=0,
+            )
+            if service not in NON_EXPIRING_LOT_SERVICES:
+                candidate_lots = candidate_lots.filter(expires_at__gt=now())
+            candidate_lots = candidate_lots.order_by('expires_at', 'purchased_at', 'id')
             for lot in candidate_lots:
                 if remainder <= 0:
                     break
@@ -753,13 +830,21 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         from_lots = sum(n for _, n in lots_consumed)
 
         # 4. Wallet (ServiceCredit.balance) — same row already locked in step 1.
-        from_new = min(row.balance, remainder) if remainder else 0
-        remainder -= from_new
+        #    Old-credit retirement: unreachable while LEGACY_BALANCES_SPENDABLE
+        #    is False. The code is kept structurally intact (not deleted) for
+        #    a possible later cleanup phase, but no new deduction can draw
+        #    from this old balance until the flag is flipped back.
+        from_new = 0
+        if LEGACY_BALANCES_SPENDABLE:
+            from_new = min(row.balance, remainder) if remainder else 0
+            remainder -= from_new
 
         # 5. CurrentCredits (legacy) — lock position UNCHANGED, still last.
+        #    Old-credit retirement: same gating as step 4 above — unreachable
+        #    while LEGACY_BALANCES_SPENDABLE is False.
         cc = None
         from_legacy = 0
-        if remainder and pool:
+        if LEGACY_BALANCES_SPENDABLE and remainder and pool:
             cc, _ = CurrentCredits.objects.get_or_create(user_id=user_id)
             cc = CurrentCredits.objects.select_for_update().get(user_id=user_id)
             legacy_avail = getattr(cc, f'{pool}_current_credits', 0) or 0
@@ -899,9 +984,19 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
     trial-funded and legacy-funded amounts — is refunded to the wallet
     exactly as before Phase 3. Trial's own refund semantics are
     deliberately NOT redesigned here (out of this phase's scope): a
-    trial-funded spend, like a legacy-funded one, still refunds to the
-    wallet, unchanged, and the two are not distinguished from each other
-    within that fallback.
+    trial-funded spend still refunds to the wallet, unchanged.
+
+    Old-credit retirement: the wallet/legacy slice of that same fallback is
+    now explicitly capped at 0 while LEGACY_BALANCES_SPENDABLE is False —
+    a debit that (historically, pre-retirement) drew from the wallet or the
+    legacy CurrentCredits pool is no longer restored by this function, since
+    that balance is retired and must not be added to again. This has no
+    effect on lot refunds (untouched, above) or on the trial-funded portion
+    of this same fallback (still restored exactly as before — trial refund
+    behavior is out of scope for this fix and unchanged). In practice, no
+    NEW debit can be wallet/legacy-funded any more at all (deduct_service_
+    credits() no longer draws from either while the flag is False), so this
+    only ever forecloses restoring a PRE-retirement wallet/legacy debit.
 
     Idempotent per debit row: each lot debit's refundable capacity is
     capped at `abs(debit.amount) - Sum(refunds that reverse it)`, so calling
@@ -991,16 +1086,26 @@ def refund_service_credits(user_id, service, count, ref_type='', ref_id='',
                 # Correlated by spend_id (not `reverses`, which is a
                 # one-to-one link and can't represent "restores parts of
                 # several original rows at once").
-                non_lot_debited = abs(
+                #
+                # Old-credit retirement: the wallet/legacy slice is only
+                # counted as restorable while LEGACY_BALANCES_SPENDABLE is
+                # True -- split out separately from the trial slice (which
+                # is unaffected) rather than disabling the whole fallback,
+                # so a trial-funded debit still refunds to the wallet
+                # exactly as before.
+                wallet_legacy_debited = abs(
                     CreditAuditLog.objects.filter(
                         user_id=user_id, spend_id=spend_id, entry_type='debit',
                         lot__isnull=True,
                     ).aggregate(total=Sum('amount'))['total'] or 0
-                ) + abs(
+                )
+                trial_debited = abs(
                     TrialUsageLog.objects.filter(
                         user_id=user_id, spend_id=spend_id, entry_type='debit',
                     ).aggregate(total=Sum('amount'))['total'] or 0
                 )
+                non_lot_debited = trial_debited + (
+                    wallet_legacy_debited if LEGACY_BALANCES_SPENDABLE else 0)
                 already_refunded_non_lot = CreditAuditLog.objects.filter(
                     user_id=user_id, spend_id=spend_id, entry_type='refund',
                     lot__isnull=True,

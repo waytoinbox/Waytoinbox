@@ -19,6 +19,7 @@ from Email_validate_app.services.credit_manager import (
     add_service_credits, get_service_balance, get_effective_balance,
     deduct_service_credits, InsufficientCredits,
 )
+from Email_validate_app.tests.credit_test_helpers import make_lot
 
 
 def make_user(email):
@@ -62,72 +63,80 @@ class ReputationCreditTests(TestCase):
 
     # 1 ---------------------------------------------------------------------
 
-    def test_deducts_from_the_new_service_wallet(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+    def test_deducts_from_a_purchased_lot(self):
+        """Old-credit retirement: funded via the real new-system grant path
+        (ServiceCreditLot), not the retired wallet."""
+        make_lot(self.user.id, 'reputation', amount=5)
 
         body = self._add('example.com').json()
 
         self.assertEqual(body['status'], 'ok')
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 4)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 4)
         self.assertEqual(self._live().count(), 1)
 
     # 2 ---------------------------------------------------------------------
 
-    def test_new_wallet_is_consumed_before_legacy_ac(self):
-        """new reputation = 5, legacy AC = 50 -> reputation 4, AC still 50."""
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+    def test_lot_is_consumed_and_legacy_ac_is_never_touched(self):
+        """lot reputation = 5, legacy AC = 50 -> reputation 4, AC still 50 --
+        legacy is retired and is never drawn from even though it exists and
+        has capacity to spare."""
+        make_lot(self.user.id, 'reputation', amount=5)
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=50)
 
         self._add('example.com')
 
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 4)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 4)
         self.assertEqual(legacy_ac(self.user.id), 50)
 
     # 3 ---------------------------------------------------------------------
 
-    def test_falls_back_to_legacy_ac(self):
-        """new reputation = 0, legacy AC = 50 -> AC 49."""
+    def test_legacy_ac_alone_cannot_fund_a_new_reputation_entry(self):
+        """Old-credit retirement: legacy AC = 50, no lot -> the add must
+        fail exactly as if there were no credit at all, and the legacy
+        pool itself must be left untouched (nothing was spent)."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=50)
 
         body = self._add('example.com').json()
 
-        self.assertEqual(body['status'], 'ok')
-        self.assertEqual(legacy_ac(self.user.id), 49)
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 0)
+        self.assertEqual(body['status'], 'error')
+        self.assertTrue(body['no_credits'])
+        self.assertEqual(legacy_ac(self.user.id), 50)
+        self.assertEqual(self._live().count(), 0)
 
     # 4 ---------------------------------------------------------------------
 
-    def test_new_wallet_drains_then_legacy_ac_takes_over(self):
-        """The flow spends 1 per request, so the split is observed across
-        consecutive requests rather than within one."""
-        add_service_credits(self.user.id, 'reputation', 2,
-                            ref_type='service_purchase', ref_id='t')
+    def test_lot_drains_then_legacy_does_not_take_over(self):
+        """The flow spends 1 per request. Once the 2-credit lot is drained,
+        legacy AC (10, present and untouched) must NOT take over -- the
+        third request must fail exactly like having no credit at all."""
+        make_lot(self.user.id, 'reputation', amount=2)
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
 
         self._add('one.com')
         self._add('two.com')
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 0)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 0)
         self.assertEqual(legacy_ac(self.user.id), 10)
 
-        self._add('three.com')
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 0)
-        self.assertEqual(legacy_ac(self.user.id), 9)
+        third = self._add('three.com').json()
+        self.assertEqual(third['status'], 'error')
+        self.assertEqual(self._live().count(), 2)
+        self.assertEqual(legacy_ac(self.user.id), 10)
 
-    def test_a_single_deduction_can_span_both_pools(self):
-        """deduct_service_credits itself splits when one call needs more than
-        the new wallet holds."""
-        add_service_credits(self.user.id, 'reputation', 3,
-                            ref_type='service_purchase', ref_id='t')
+    def test_a_single_deduction_never_spans_lot_and_legacy(self):
+        """Old-credit retirement: a deduction that exceeds the lot must be
+        refused all-or-nothing -- it must NOT split by drawing the
+        remainder from legacy AC any more."""
+        make_lot(self.user.id, 'reputation', amount=3)
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
 
-        deduct_service_credits(self.user.id, 'reputation', 8,
-                               ref_type='reputation', ref_id='bulk',
-                               description='Reputation Analysis')
+        with self.assertRaises(InsufficientCredits) as ctx:
+            deduct_service_credits(self.user.id, 'reputation', 8,
+                                   ref_type='reputation', ref_id='bulk',
+                                   description='Reputation Analysis')
 
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 0)
-        self.assertEqual(legacy_ac(self.user.id), 5)
+        self.assertEqual(ctx.exception.available, 3)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 3)
+        self.assertEqual(legacy_ac(self.user.id), 10)
 
     # 5 ---------------------------------------------------------------------
 
@@ -149,8 +158,7 @@ class ReputationCreditTests(TestCase):
     # 6 ---------------------------------------------------------------------
 
     def test_audit_entry_shape(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
         CreditAuditLog.objects.filter(user_id=self.user.id).delete()
 
         self._add('audit-domain.com')
@@ -162,31 +170,31 @@ class ReputationCreditTests(TestCase):
         self.assertEqual(entry.ref_id, 'audit-domain.com')
         self.assertEqual(entry.description, 'Reputation Analysis')
 
-    def test_legacy_spend_is_audited_against_the_shared_ac_pool(self):
+    def test_legacy_ac_alone_writes_no_audit_entry_since_nothing_is_spent(self):
+        """Old-credit retirement: legacy AC can no longer fund a spend, so
+        an add attempt funded only by it must write NO debit audit entry
+        at all -- there is nothing to audit because nothing was spent."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=10)
         CreditAuditLog.objects.filter(user_id=self.user.id).delete()
 
         self._add('legacy-audit.com')
 
-        entry = CreditAuditLog.objects.get(user_id=self.user.id)
-        self.assertEqual(entry.credit_type, 'ac')
-        self.assertEqual(entry.amount, -1)
-        self.assertEqual(entry.ref_type, 'reputation')
+        self.assertEqual(
+            CreditAuditLog.objects.filter(user_id=self.user.id, entry_type='debit').count(), 0)
 
     # 7 ---------------------------------------------------------------------
 
     def test_duplicate_domain_is_rejected_and_costs_nothing(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         first = self._add('dup.com').json()
         self.assertEqual(first['status'], 'ok')
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 4)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 4)
 
         second = self._add('dup.com').json()
         self.assertEqual(second['status'], 'warning')
         self.assertIn('already exists', second['message'])
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 4)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 4)
         self.assertEqual(self._live().filter(domain='dup.com').count(), 1)
         self.assertEqual(
             CreditAuditLog.objects.filter(user_id=self.user.id,
@@ -195,15 +203,14 @@ class ReputationCreditTests(TestCase):
     # 8 ---------------------------------------------------------------------
 
     def test_failed_record_creation_does_not_burn_the_credit(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         with patch.object(Reputation.objects, 'create',
                           side_effect=RuntimeError('insert exploded')):
             with self.assertRaises(RuntimeError):
                 self._add('boom.com')
 
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 5)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 5)
         self.assertEqual(self._live().count(), 0)
 
     def test_failed_deduction_rolls_the_record_back(self):
@@ -225,33 +232,35 @@ class ReputationCreditTests(TestCase):
     def test_a_postmaster_failure_costs_nothing(self):
         """The lookup now runs before any charge, so a network failure is free.
         Previously the credit had already been taken."""
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         with patch('Email_validate_app.services.postmaster.fetch_domain_traffic_stats',
                    side_effect=RuntimeError('postmaster down')):
             with self.assertRaises(RuntimeError):
                 self.client.post(self.URL, {'domain_input': 'down.com'})
 
-        self.assertEqual(get_service_balance(self.user.id, 'reputation'), 5)
+        self.assertEqual(get_effective_balance(self.user.id, 'reputation'), 5)
         self.assertEqual(self._live().count(), 0)
 
     # 9 ---------------------------------------------------------------------
 
     def test_legacy_ac_is_never_copied_into_the_service_wallet(self):
+        """Old-credit retirement: legacy AC alone can no longer fund the add
+        (so the pool is left untouched, not decremented), and critically it
+        must never be copied into a ServiceCredit wallet row as a side
+        effect of the attempt."""
         CurrentCredits.objects.create(user_id=self.user.id, ac_current_credits=50)
 
         self._add('nocopy.com')
 
-        self.assertEqual(legacy_ac(self.user.id), 49)
+        self.assertEqual(legacy_ac(self.user.id), 50)
         row = ServiceCredit.objects.filter(
             user_id=self.user.id, service='reputation').first()
         self.assertTrue(row is None or row.balance == 0)
         self.assertTrue(row is None or row.total_purchased == 0)
 
     def test_vc_and_cc_are_never_touched(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
         CurrentCredits.objects.create(user_id=self.user.id, vc_current_credits=7000,
                                       ac_current_credits=50, cc_current_credits=100)
 
@@ -260,7 +269,7 @@ class ReputationCreditTests(TestCase):
         row = CurrentCredits.objects.get(user_id=self.user.id)
         self.assertEqual(row.vc_current_credits, 7000)
         self.assertEqual(row.cc_current_credits, 100)
-        self.assertEqual(row.ac_current_credits, 50)   # new wallet covered it
+        self.assertEqual(row.ac_current_credits, 50)   # the lot covered it
 
     def test_only_the_reputation_wallet_is_created(self):
         add_service_credits(self.user.id, 'reputation', 5,
@@ -290,8 +299,7 @@ class ReputationCreditTests(TestCase):
         self.assertEqual(get_service_balance(self.user.id, 'reputation'), 5)
 
     def test_protocol_is_still_stripped_from_the_domain(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         body = self._add('https://Stripped.com/some/path?q=1').json()
 
@@ -300,8 +308,7 @@ class ReputationCreditTests(TestCase):
         self.assertTrue(self._live().filter(domain='stripped.com').exists())
 
     def test_verified_status_when_postmaster_returns_stats(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
 
         body = self._add('verified.com', stats=[{
             'date': '20260101', 'spam_rate': 0.01,
@@ -313,8 +320,7 @@ class ReputationCreditTests(TestCase):
         self.assertEqual(body['rep_status'], 'verified')
 
     def test_unverified_status_when_postmaster_returns_nothing(self):
-        add_service_credits(self.user.id, 'reputation', 5,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(self.user.id, 'reputation', amount=5)
         body = self._add('unverified.com').json()
         self.assertEqual(body['rep_status'], 'unverified')
 
@@ -326,62 +332,64 @@ class ReputationCreditTests(TestCase):
 
 @override_settings(ALLOWED_HOSTS=['testserver', 'localhost', '127.0.0.1'])
 class SharedAcPoolTests(TestCase):
-    """The AC pool must remain ONE balance across the four analysis services.
-
-    Reputation is the first of the four to move to its own wallet; the other
-    three still deduct AC directly. Spending across all four must still total
-    the one AC balance, never four copies of it.
+    """Old-credit retirement: the legacy AC pool used to be ONE shared balance
+    across the four analysis services (reputation, header_analysis,
+    ip_blocklist, domain_blocklist). It still exists in the DB for historical
+    rows, but it no longer funds any of the four -- each service now spends
+    only from its own private ServiceCreditLot, and legacy AC is never drawn
+    from or split between them any more.
     """
 
-    def test_ac_remains_one_pool_not_four(self):
+    def test_legacy_shared_ac_pool_no_longer_funds_any_of_the_four_analysis_services(self):
         user = make_user('rep_shared_ac@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=100)
 
-        # Reputation goes through the new API and falls back to AC.
-        deduct_service_credits(user.id, 'reputation', 25,
-                               ref_type='reputation', ref_id='d',
-                               description='Reputation Analysis')
+        # None of the four can spend from legacy AC any more.
+        for service, ref_type, ref_id, description in (
+            ('reputation', 'reputation', 'd', 'Reputation Analysis'),
+            ('header_analysis', 'ip_check', 'h', 'Header'),
+            ('ip_blocklist', 'ip_check', 'i', 'IP'),
+            ('domain_blocklist', 'ip_check', 'd', 'Domain'),
+        ):
+            with self.assertRaises(InsufficientCredits,
+                                   msg=f"{service} must not be fundable by legacy AC"):
+                deduct_service_credits(user.id, service, 25, ref_type=ref_type,
+                                       ref_id=ref_id, description=description)
 
-        # The other three still read the same pool.
-        for service in ('header_analysis', 'ip_blocklist', 'domain_blocklist'):
-            self.assertEqual(get_effective_balance(user.id, service), 75,
-                             f"{service} did not see reputation's spend")
-
-        deduct_service_credits(user.id, 'header_analysis', 25,
-                               ref_type='ip_check', ref_id='h', description='Header')
-        deduct_service_credits(user.id, 'ip_blocklist', 25,
-                               ref_type='ip_check', ref_id='i', description='IP')
-        deduct_service_credits(user.id, 'domain_blocklist', 25,
-                               ref_type='ip_check', ref_id='d', description='Domain')
-
-        self.assertEqual(legacy_ac(user.id), 0,
-                         "spending 25 on each of four services should exhaust "
-                         "one 100-credit pool")
+        # Nothing was spent -- the legacy pool is untouched.
+        self.assertEqual(legacy_ac(user.id), 100)
         for service in ('reputation', 'header_analysis', 'ip_blocklist',
                         'domain_blocklist'):
             self.assertEqual(get_effective_balance(user.id, service), 0)
 
-    def test_a_reputation_wallet_does_not_leak_into_the_other_three(self):
+    def test_a_reputation_lot_does_not_leak_into_the_other_three(self):
         user = make_user('rep_no_leak@example.com')
-        add_service_credits(user.id, 'reputation', 40,
-                            ref_type='service_purchase', ref_id='t')
+        make_lot(user.id, 'reputation', amount=40)
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=10)
 
-        self.assertEqual(get_effective_balance(user.id, 'reputation'), 50)
+        # Reputation's private lot is all it sees -- legacy AC no longer adds in.
+        self.assertEqual(get_effective_balance(user.id, 'reputation'), 40)
         for service in ('header_analysis', 'ip_blocklist', 'domain_blocklist'):
-            self.assertEqual(get_effective_balance(user.id, service), 10,
-                             f"{service} can see reputation's private wallet")
+            self.assertEqual(get_effective_balance(user.id, service), 0,
+                             f"{service} must not see reputation's private lot "
+                             f"or the retired legacy AC pool")
 
     def test_the_fifth_analysis_spend_is_refused_once_ac_is_gone(self):
+        """Old-credit retirement: legacy AC alone (even with capacity to
+        spare) cannot fund any of the four analysis services any more -- the
+        very first spend attempt fails exactly as if there were no credit,
+        and the legacy pool is left untouched throughout."""
         user = make_user('rep_ac_exhausted@example.com')
         CurrentCredits.objects.create(user_id=user.id, ac_current_credits=2)
 
-        deduct_service_credits(user.id, 'reputation', 1, ref_type='reputation',
-                               ref_id='a', description='Reputation Analysis')
-        deduct_service_credits(user.id, 'header_analysis', 1, ref_type='ip_check',
-                               ref_id='b', description='Header')
-
+        with self.assertRaises(InsufficientCredits):
+            deduct_service_credits(user.id, 'reputation', 1, ref_type='reputation',
+                                   ref_id='a', description='Reputation Analysis')
+        with self.assertRaises(InsufficientCredits):
+            deduct_service_credits(user.id, 'header_analysis', 1, ref_type='ip_check',
+                                   ref_id='b', description='Header')
         with self.assertRaises(InsufficientCredits):
             deduct_service_credits(user.id, 'ip_blocklist', 1, ref_type='ip_check',
                                    ref_id='c', description='IP')
-        self.assertEqual(legacy_ac(user.id), 0)
+
+        self.assertEqual(legacy_ac(user.id), 2)

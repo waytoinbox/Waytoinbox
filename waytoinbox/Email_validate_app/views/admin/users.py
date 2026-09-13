@@ -128,24 +128,19 @@ def admin_user_grant_admin(request, uid):
 @handle_admin_errors
 @require_POST
 def admin_user_credits(request, uid):
-    delta = request.POST.get('delta', '').strip()
-    try:
-        credits_obj, old_balance, new_balance = user_service.adjust_credits(uid, delta)
-    except UserTable.DoesNotExist:
-        return json_error('User not found.', status=404)
-    except ValueError as exc:
-        return json_error(str(exc))
-
-    user = credits_obj.user
-    audit(
-        request, action='user.credits', module='users',
-        target_type='user', target_id=uid, target_repr=user.user_email,
-        old_value={'current_credits': old_balance},
-        new_value={'current_credits': new_balance, 'delta': int(delta)},
-    )
-    return json_ok(
-        data={'new_balance': new_balance},
-        message=f'Credits adjusted from {old_balance} → {new_balance}.',
+    """Old-credit retirement: disabled. This action only ever adjusted the
+    legacy CurrentCredits.vc_current_credits pool, which is no longer
+    spendable (see credit_manager.LEGACY_BALANCES_SPENDABLE) -- kept
+    disabled here rather than deleted, so an admin can never be misled
+    into believing they've granted the user usable credit.
+    user_service.adjust_credits() itself is untouched (not called from
+    here anymore) for a possible future cleanup/reuse. A future, separate
+    feature can introduce an admin grant that creates a ServiceCreditLot
+    with proper expiry/audit rules instead."""
+    return json_error(
+        'Adjusting legacy credits is disabled — that balance is no longer '
+        'usable. Use the service credit purchase flow to grant new credits.',
+        status=410,
     )
 
 
