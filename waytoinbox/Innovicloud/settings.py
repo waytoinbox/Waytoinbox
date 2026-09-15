@@ -55,7 +55,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
+    'Email_validate_app.middleware.ConditionalSecurityMiddleware',
     'Email_validate_app.middleware.ContentSecurityPolicyMiddleware',  # INF-01
     'Email_validate_app.middleware.RequestIDMiddleware',
     'Email_validate_app.middleware.RequestLoggingMiddleware',

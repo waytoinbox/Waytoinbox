@@ -6,11 +6,26 @@ import traceback
 
 from django.conf import settings
 from django.http import JsonResponse
+from django.middleware.security import SecurityMiddleware
 from django.shortcuts import render
 
 logger = logging.getLogger('Email_validate_app')
 
 _local = threading.local()
+
+
+class ConditionalSecurityMiddleware(SecurityMiddleware):
+    """SecurityMiddleware, except the raw-IP nginx server block
+    (13.203.91.158) is never redirected to HTTPS -- it has no TLS
+    listener/cert of its own. Every other Host gets today's unmodified
+    SECURE_SSL_REDIRECT/HSTS behavior via super()."""
+
+    HTTP_ONLY_HOSTS = {'13.203.91.158'}
+
+    def process_request(self, request):
+        if request.get_host().split(':')[0] in self.HTTP_ONLY_HOSTS:
+            return None
+        return super().process_request(request)
 
 
 def get_request_id():
