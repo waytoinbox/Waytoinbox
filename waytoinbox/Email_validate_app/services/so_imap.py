@@ -718,6 +718,7 @@ def sync_account_inbox(account):
                 continue
 
             from_hdr    = _decode_header_value(msg.get('From', '')).lower()
+            from_addr   = _extract_email_address(msg.get('From', ''))
             subject_hdr = _decode_header_value(msg.get('Subject', '')).lower()
             in_reply_to = _decode_header_value(msg.get('In-Reply-To', '')).strip()
             references  = _decode_header_value(msg.get('References', '')).strip()
@@ -743,51 +744,69 @@ def sync_account_inbox(account):
                 # threading in the wild), fall back to matching by From-address.
                 elif in_reply_to or references:
                     ref_ids = set(filter(None, [in_reply_to] + references.split()))
-                    # Strong match, tier 1a: cc.message_id is always the MOST
-                    # RECENTLY sent step's Message-ID — the common case, a
-                    # reply to the latest email the prospect received.
-                    # NOT scoped to account_id=account.id at the query level
-                    # anymore — a reply legitimately lands in a DIFFERENT
-                    # mailbox than the one that sent it when that campaign
-                    # has its own Reply-To Address configured (see
-                    # _mailbox_is_valid_for_reply's own docstring for the
-                    # full reasoning and the same-tenant guard).
-                    cc_qs = [
-                        cc for cc in SOCampaignContact.objects.filter(message_id__in=ref_ids)
-                                                              .select_related('prospect', 'campaign')
-                        if _mailbox_is_valid_for_reply(cc.account_id, cc.campaign, account)
-                    ]
-                    if not cc_qs:
-                        # Strong match, tier 1b: cc.message_id was overwritten
-                        # by a LATER step since this thread started — a reply
-                        # to an OLDER step can no longer be found there.
-                        # SOEvent keeps one 'sent' row per step, never
-                        # overwritten, so it can still resolve a reply to any
-                        # prior step, not just the latest. Same relaxed,
-                        # Reply-To-aware scoping as tier 1a above.
-                        sent_events = list(
-                            SOEvent.objects.filter(message_id__in=ref_ids, event_type='sent')
-                            .select_related('campaign')
-                        )
-                        for ev in sent_events:
-                            if not _mailbox_is_valid_for_reply(ev.account_id, ev.campaign, account):
-                                continue
-                            match = SOCampaignContact.objects.filter(
-                                campaign_id=ev.campaign_id, email__iexact=ev.email,
-                            ).select_related('prospect', 'campaign').first()
-                            if match and match not in cc_qs:
-                                cc_qs.append(match)
-                    if not cc_qs:
-                        # Weak fallback: headers present but reference nothing
-                        # findable on either the current or any prior step.
-                        # Deliberately left same-account-only (unchanged) —
-                        # address-only matching is already this system's
-                        # weakest signal; extending it across mailboxes too
-                        # would make a coincidental From-address match enough
-                        # to attribute a reply to the wrong campaign. The
-                        # Reply-To mailbox case is meant to be resolved by
-                        # the strong, Message-ID-backed tiers above.
-                        cc_qs = _weak_reply_fallback(msg, account, own_addresses)
+                    # Self-mail guard: a message FROM this exact account,
+                    # sitting in ITS OWN synced inbox, can never be a genuine
+                    # reply to one of its own campaigns -- it is always that
+                    # account's own outbound copy landing back in itself
+                    # (e.g. the account is also enrolled as a recipient of
+                    # its own multi-step campaign for testing; step 2+
+                    # genuinely threads under step 1's real Message-ID via
+                    # In-Reply-To, so it would otherwise satisfy tier 1a/1b
+                    # below with complete confidence). Scoped to THIS account
+                    # only (not the broader own_addresses set _weak_reply_
+                    # fallback uses) so a genuine reply from a DIFFERENT
+                    # connected account of the same user -- real
+                    # correspondence, intentionally supported for testing
+                    # between one's own accounts -- still matches normally;
+                    # see test_actual_reply_from_a_connected_account_is_still_recorded.
+                    if from_addr and from_addr == account.email.strip().lower():
+                        cc_qs = []
+                    else:
+                        # Strong match, tier 1a: cc.message_id is always the MOST
+                        # RECENTLY sent step's Message-ID — the common case, a
+                        # reply to the latest email the prospect received.
+                        # NOT scoped to account_id=account.id at the query level
+                        # anymore — a reply legitimately lands in a DIFFERENT
+                        # mailbox than the one that sent it when that campaign
+                        # has its own Reply-To Address configured (see
+                        # _mailbox_is_valid_for_reply's own docstring for the
+                        # full reasoning and the same-tenant guard).
+                        cc_qs = [
+                            cc for cc in SOCampaignContact.objects.filter(message_id__in=ref_ids)
+                                                                  .select_related('prospect', 'campaign')
+                            if _mailbox_is_valid_for_reply(cc.account_id, cc.campaign, account)
+                        ]
+                        if not cc_qs:
+                            # Strong match, tier 1b: cc.message_id was overwritten
+                            # by a LATER step since this thread started — a reply
+                            # to an OLDER step can no longer be found there.
+                            # SOEvent keeps one 'sent' row per step, never
+                            # overwritten, so it can still resolve a reply to any
+                            # prior step, not just the latest. Same relaxed,
+                            # Reply-To-aware scoping as tier 1a above.
+                            sent_events = list(
+                                SOEvent.objects.filter(message_id__in=ref_ids, event_type='sent')
+                                .select_related('campaign')
+                            )
+                            for ev in sent_events:
+                                if not _mailbox_is_valid_for_reply(ev.account_id, ev.campaign, account):
+                                    continue
+                                match = SOCampaignContact.objects.filter(
+                                    campaign_id=ev.campaign_id, email__iexact=ev.email,
+                                ).select_related('prospect', 'campaign').first()
+                                if match and match not in cc_qs:
+                                    cc_qs.append(match)
+                        if not cc_qs:
+                            # Weak fallback: headers present but reference nothing
+                            # findable on either the current or any prior step.
+                            # Deliberately left same-account-only (unchanged) —
+                            # address-only matching is already this system's
+                            # weakest signal; extending it across mailboxes too
+                            # would make a coincidental From-address match enough
+                            # to attribute a reply to the wrong campaign. The
+                            # Reply-To mailbox case is meant to be resolved by
+                            # the strong, Message-ID-backed tiers above.
+                            cc_qs = _weak_reply_fallback(msg, account, own_addresses)
                     _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=ref_ids)
 
                 # No threading headers at all, and not bounce-looking — some clients

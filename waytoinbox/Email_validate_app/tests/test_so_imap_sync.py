@@ -547,6 +547,55 @@ class SenderRecipientCollisionTests(TestCase):
         campaign_a.refresh_from_db()
         self.assertEqual(campaign_a.total_replied, 1)
 
+    def test_own_multi_step_sequence_self_delivery_does_not_produce_false_reply(self):
+        """The reported production bug: emailoo1 is BOTH the sending account
+        AND its own campaign's enrolled recipient (a self-test mixed into a
+        real prospect list). Step 2 genuinely threads under step 1's real
+        Message-ID (so_drip.py always does this from step 2 onward), and
+        being self-addressed, its delivery lands straight back in emailoo1's
+        OWN synced inbox -- satisfying the strong, thread-evidence-backed
+        tier 1b with a completely real Message-ID match. Unlike the
+        single-step, headerless collision covered by
+        test_connected_sender_as_recipient_does_not_produce_false_reply
+        (which only exercises _weak_reply_fallback's own_addresses guard),
+        this hits tier 1a/1b directly -- the gap that let the production
+        false-positive through."""
+        campaign = make_campaign(self.user, name='Self-Test Sequence')
+        SOSequenceVariant.objects.create(
+            step=SOSequenceStep.objects.create(campaign=campaign, order=2, wait_days=0, wait_hours=0),
+            label='A', subject='Following up', html_body='<p>bump</p>', weight=100, is_active=True,
+        )
+
+        step1_msg_id = _msgid()
+        step2_msg_id = _msgid()
+        # emailoo1 sends step 1 to ITSELF.
+        cc = make_sent_contact(campaign, self.emailoo1, self.emailoo1.email, step1_msg_id)
+        # Step 2 already sent -- cc.message_id now holds step 2's own id,
+        # exactly as so_drip.py::_record_success would leave it, with the
+        # per-step 'sent' SOEvent history for step 1 still intact.
+        SOCampaignContact.objects.filter(id=cc.id).update(message_id=step2_msg_id, current_step=2)
+        SOEvent.objects.create(
+            campaign=campaign, prospect=cc.prospect, account=self.emailoo1,
+            message_id=step2_msg_id, email=cc.email, event_type='sent',
+            metadata={'step': 2}, step_order=2,
+        )
+
+        # Step 2's own delivered copy, sitting in emailoo1's own INBOX
+        # (From == To == the syncing account's own address), threaded under
+        # step 1's real Message-ID exactly like a genuine sequence send.
+        self_delivered_step2 = _raw_message({
+            'From': self.emailoo1.email, 'To': self.emailoo1.email,
+            'Subject': 'Re: s', 'Message-ID': step2_msg_id,
+            'In-Reply-To': step1_msg_id, 'References': step1_msg_id,
+        }, body='Following up on my last email.')
+        _sync(self.emailoo1, {b'1': self_delivered_step2})
+
+        self.assertEqual(SOEvent.objects.filter(campaign=campaign, event_type='replied').count(), 0)
+        campaign.refresh_from_db()
+        self.assertEqual(campaign.total_replied, 0)
+        cc.refresh_from_db()
+        self.assertNotEqual(cc.status, 'stopped')
+
 
 class OutOfOfficeTests(TestCase):
     """Fix 9 -- an auto-reply must not create a 'replied' event at all

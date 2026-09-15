@@ -28,6 +28,13 @@ logger = logging.getLogger(__name__)
 DEFAULT_DAILY_TARGET = 40
 DEFAULT_RAMP_UP_DAYS = 30
 
+# The very first warmup email of a sender's UTC day gets a short, still-
+# randomized delay instead of the full-day spread below, so a freshly
+# started warmup doesn't sit idle for hours — see
+# create_pending_messages_for_sender().
+INITIAL_SEND_MINUTES     = 5
+INITIAL_SEND_MAX_MINUTES = 15
+
 
 def _next_utc_midnight():
     today_utc = now().date()
@@ -176,7 +183,15 @@ def create_pending_messages_for_sender(warmup) -> int:
     even within a single tick.
 
     scheduled_for is staggered with jitter across the remaining hours of the
-    UTC day, so a whole day's volume is never sent all at once.
+    UTC day, so a whole day's volume is never sent all at once — except the
+    sender's very first message of the UTC day (existing_today == 0 below,
+    checked BEFORE this batch creates anything, so a later dispatcher tick
+    that tops up the same day's quota further never re-triggers this),
+    which instead gets a short INITIAL_SEND_MINUTES-INITIAL_SEND_MAX_MINUTES
+    delay so a freshly started warmup sends soon rather than waiting on the
+    same full-day roll as everything else. Any other messages created in
+    that same first batch still spread across what's left of the day, just
+    anchored after that first message's time instead of after now().
     """
     from Email_validate_app.models import WarmupMessage, WarmupReceiverAccount
 
@@ -215,13 +230,46 @@ def create_pending_messages_for_sender(warmup) -> int:
         )
         return 0
 
+    # One fixed "now" for this whole batch's scheduling math — otherwise the
+    # loop below would measure its random window against a slightly later
+    # now() on every iteration.
+    current_time   = now()
     window_end     = _next_utc_midnight()
-    window_seconds = max(1, int((window_end - now()).total_seconds()))
+    window_seconds = max(1, int((window_end - current_time).total_seconds()))
+
+    # True only when this sender has NO non-cancelled message anywhere yet
+    # today (existing_today computed above, before this batch creates
+    # anything) — NOT "the first message created in this dispatcher tick."
+    # Once any message exists for today, every later top-up this same UTC
+    # day (including a later 5-minute dispatcher run) falls through to the
+    # unchanged full-window spread below.
+    is_first_of_day = existing_today == 0
+    first_scheduled_for = None
 
     created = 0
     for i in range(remaining):
         receiver = receivers[i % len(receivers)]
-        scheduled_for = now() + timedelta(seconds=random.randint(0, window_seconds))
+
+        if is_first_of_day and i == 0:
+            # The day's very first warmup email for this sender — a short,
+            # randomized delay, capped so it can never land past the next
+            # UTC midnight.
+            initial_delay = min(
+                random.randint(INITIAL_SEND_MINUTES * 60, INITIAL_SEND_MAX_MINUTES * 60),
+                window_seconds,
+            )
+            scheduled_for = current_time + timedelta(seconds=initial_delay)
+            first_scheduled_for = scheduled_for
+        elif is_first_of_day:
+            # Rest of the SAME first batch — spread across what's left of
+            # the UTC day starting from the first message's time, never
+            # before it and never past midnight.
+            remaining_seconds = max(1, int((window_end - first_scheduled_for).total_seconds()))
+            scheduled_for = first_scheduled_for + timedelta(seconds=random.randint(0, remaining_seconds))
+        else:
+            # Not the day's first batch — unchanged existing full-window spread.
+            scheduled_for = current_time + timedelta(seconds=random.randint(0, window_seconds))
+
         WarmupMessage.objects.create(
             sender_account=account, sender_email=account.email,
             receiver_account=receiver, receiver_email=receiver.email,

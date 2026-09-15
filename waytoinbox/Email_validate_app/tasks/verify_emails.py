@@ -28,6 +28,15 @@ MAX_RETRIES = 2
 FROM_ADDRESS = "support@waytoinbox.com"
 HELO_DOMAIN = "waytoinbox.com"  # your domain for HELO
 CACHE_EXPIRATION = 3600
+# Hard wall-clock ceiling for one email's whole SMTP check (every MX host,
+# every retry, combined). Some networks silently drop outbound SMTP (port 25)
+# instead of refusing it, so each individual connection attempt below still
+# burns its own full per-attempt `timeout=3` before failing. Without this
+# ceiling, a domain with several MX records (e.g. Gmail's own 5) can push the
+# combined wait past the Gunicorn worker's own request timeout -- which kills
+# the worker outright (an HTTP 500 no exception handler can catch) instead of
+# ever reaching the controlled "Risky" fallback already below.
+SMTP_CHECK_TIME_BUDGET_SECONDS = 8
 # INF-11: keep uploads outside MEDIA_ROOT so nginx never serves them directly
 UPLOAD_FOLDER = str(settings.PRIVATE_UPLOAD_ROOT)
 
@@ -108,8 +117,16 @@ def check_smtp_with_retries_(email: str, mx_servers: List[str], retries: int = M
     last_error = None
     smtp_failed = True
 
+    deadline = time.monotonic() + SMTP_CHECK_TIME_BUDGET_SECONDS
+    time_budget_exceeded = False
+
     for attempt in range(retries):
+        if time_budget_exceeded:
+            break
         for mx in mx_servers:
+            if time.monotonic() >= deadline:
+                time_budget_exceeded = True
+                break
             try:
                 with smtplib.SMTP(mx, timeout=3) as server:
                     server.helo(HELO_DOMAIN)
@@ -153,6 +170,14 @@ def check_smtp_with_retries_(email: str, mx_servers: List[str], retries: int = M
                 return "Invalid", "Rule-based (SMTP failed fallback)"
     except Exception:
         pass
+
+    if time_budget_exceeded:
+        logger.warning(
+            "check_smtp_with_retries_: time budget (%ss) exceeded for %s -- "
+            "SMTP connection unavailable, last error: %s",
+            SMTP_CHECK_TIME_BUDGET_SECONDS, email, last_error,
+        )
+        return "Risky", "SMTP connection unavailable"
 
     return "Risky", "SMTP check failed after retries"
 
