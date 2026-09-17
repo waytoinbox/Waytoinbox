@@ -122,6 +122,31 @@ def pick_sender_account(campaign_id, email, rotations, send_count_enabled):
     return eligible[-1].account
 
 
+def resolve_sender_name(campaign, account):
+    """The From display name for one (campaign, account) send. Shared by the
+    real send path below and views/so_sender.py::so_test_send so a test send
+    previews exactly what a real one would use.
+
+    Fallback order (never skipped, never reordered):
+      SOEmailAccountRotation.sender_name (this campaign's own override for
+      THIS account) -> SOCampaign.from_name (legacy single-field value —
+      kept so a campaign saved before per-account names existed keeps
+      sending under the same name it always has, with zero action required)
+      -> SOEmailAccount.display_name -> account.email.
+
+    Does one small extra lookup (.only('sender_name'), indexed by the
+    existing unique_together=('campaign','account')) rather than requiring
+    the caller to have prefetched account_rotations — same cost profile
+    _reserve_quota_slot already accepts for its own per-send rotation
+    lookup."""
+    from Email_validate_app.models import SOEmailAccountRotation
+
+    rotation = SOEmailAccountRotation.objects.filter(
+        campaign_id=campaign.id, account_id=account.id).only('sender_name').first()
+    rotation_name = rotation.sender_name if rotation else ''
+    return rotation_name or campaign.from_name or account.display_name or account.email
+
+
 def stop(cc, reason):
     """Halt a contact's sequence. Idempotent — a conditional UPDATE, not a
     read-modify-write, so concurrent stop signals (reply + manual cancel, etc.)
@@ -567,7 +592,7 @@ def send_next_step(cc):
             step_order=cc.current_step,
         )
         msg_id  = f'<{uuid.uuid4()}@{account.smtp_host}>'
-        from_nm = campaign.from_name or account.display_name or account.email
+        from_nm = resolve_sender_name(campaign, account)
         # The List-Unsubscribe header is a real link too — same rule as the
         # body: don't emit it pointing somewhere nothing is listening.
         unsub_url = f'{site_url}/so/unsubscribe/{cc.tracking_token}/' if enable_tracking else ''

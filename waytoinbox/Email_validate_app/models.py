@@ -2361,6 +2361,12 @@ class SOEmailAccountRotation(models.Model):
     account  = models.ForeignKey(SOEmailAccount, on_delete=models.CASCADE, related_name='campaign_rotations')
     daily_send_count = models.PositiveIntegerField(default=120)
     order    = models.PositiveIntegerField(default=0)
+    # Campaign-specific override of this account's From display name for
+    # THIS campaign only — blank means "no override", falling through to
+    # SOCampaign.from_name -> SOEmailAccount.display_name -> account.email
+    # (see services/so_drip.py::resolve_sender_name). Never written back to
+    # SOEmailAccount.display_name itself.
+    sender_name = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         db_table        = 'so_email_account_rotations'

@@ -245,7 +245,8 @@
                 {% for acc in email_accounts %}
                 <label class="soc-rd-option" data-type="account" data-id="{{ acc.id }}"
                        data-label="{{ acc.email }}" data-daily-limit="{{ acc.daily_limit }}"
-                       data-display-name="{{ acc.display_name }}" data-count="{{ acc.daily_limit }}">
+                       data-display-name="{{ acc.display_name }}" data-count="{{ acc.daily_limit }}"
+                       data-sender-name="">
                   <input type="checkbox" class="soc-rd-chk" value="account__{{ acc.id }}"/>
                   <span class="soc-rd-name">{{ acc.email }}</span>
                   <span class="soc-rd-meta">{{ acc.daily_limit }}/day</span>
@@ -255,10 +256,13 @@
               </div>
             </div>
           </div>
-          <!-- Campaign Sending Count — replaces the removed Weight/
-               Percentage system. Only shown once an account is checked
-               above; populated/updated by renderSenderCounts() in
-               so_campaign.js. -->
+          <!-- Per-account Sender Name + Campaign Sending Count. Only shown
+               once an account is checked above; populated/updated by
+               renderSenderCounts() in so_campaign.js. Replaces the old
+               single campaign-wide Sender Name input -- each selected
+               account gets its own editable name here, defaulting to that
+               account's own display name (SOEmailAccount.display_name),
+               independent of every other selected account. -->
           <div class="soc-sender-counts" id="socSenderCounts" hidden>
             <label class="soc-sender-count-toggle">
               <input type="checkbox" id="socSendCountToggle"/>
@@ -267,10 +271,6 @@
             <div class="soc-sender-count-rows" id="socSenderCountRows"></div>
           </div>
           <p class="soc-error" id="err-socAccount"></p>
-        </div>
-        <div class="soc-form-group">
-          <label for="socSenderName">Sender Name</label>
-          <input type="text" id="socSenderName" maxlength="255" placeholder="e.g. Alex from Acme" autocomplete="off"/>
         </div>
         <div class="soc-form-group">
           <div class="soc-include-head">

@@ -2,7 +2,7 @@ import datetime
 import logging
 
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.db.models.functions import TruncDate
 from django.db.models.signals import post_save
 from django.utils import timezone
@@ -12,6 +12,7 @@ from Email_validate_app.models import (
     Campaign, SenderDomain, SenderEmailToken,
     ListFiles, BlocklistMonitor, DomainBlocklist, EmailHeader,
     UsedCredits, Payment, Reputation, EmailValidate, DMARCAnalysis,
+    ServiceCreditLot, ServiceCredit, ServiceTrial, CreditAuditLog,
 )
 
 logger = logging.getLogger(__name__)
@@ -28,6 +29,35 @@ QUICK_ACTIONS = [
     {'url': 'Blocklist_Monitor', 'icon': 'fa-server',          'label': 'IP Blocklist',       'desc': 'Check IPs against blocklists'},
     {'url': 'Domain_Blacklist',  'icon': 'fa-globe',           'label': 'Domain Blocklist',   'desc': 'Check domains against blocklists'},
 ]
+
+# Absolute low-credit thresholds per service — the new lot-based system has
+# no "total purchased" figure to compute a current/total percentage against
+# (see _get_credits() below), so credit health is judged against a flat
+# per-service floor instead. No existing per-service minimum-credit constant
+# was found elsewhere in the codebase to reuse.
+SERVICE_LOW_CREDIT_THRESHOLDS = {
+    'email_validation':  100,
+    'email_marketing':   100,
+    'sales_outreach':      1,
+    'reputation':          1,
+    'header_analysis':     1,
+    'ip_blocklist':        1,
+    'domain_blocklist':    1,
+}
+
+# Icon/URL per service, reused as-is from this app's own sidebar nav
+# (templates/i_index.html) and the QUICK_ACTIONS list above, so the new
+# per-service cards/rows look consistent with the rest of the app rather
+# than inventing new iconography.
+SERVICE_DASHBOARD_META = {
+    'email_validation':  {'icon': 'fa-envelope-open-text', 'url': 'single_service'},
+    'email_marketing':   {'icon': 'fa-paper-plane',        'url': 'campaigns'},
+    'sales_outreach':    {'icon': 'fa-bullseye',           'url': 'so_email_accounts'},
+    'reputation':        {'icon': 'fa-award',              'url': 'Reputation_Analysis'},
+    'header_analysis':   {'icon': 'fa-gavel',              'url': 'Header_Analysis'},
+    'ip_blocklist':      {'icon': 'fa-server',             'url': 'Blocklist_Monitor'},
+    'domain_blocklist':  {'icon': 'fa-globe',              'url': 'Domain_Blacklist'},
+}
 
 _STATUS_CHIP = {
     'Processing': 'db-chip--pending',
@@ -73,31 +103,67 @@ def _get_user_info(user_id):
 
 
 def _get_credits(user_id):
-    """Old-credit retirement: sourced from get_all_service_balances()
-    (trial + ServiceCreditLot only, per LEGACY_BALANCES_SPENDABLE) instead
-    of raw CurrentCredits, so the dashboard shows the same usable balance
-    as the top navigation/profile -- never a stale legacy number. The
-    'ac' figure is the sum of the 4 services the old shared AC pool used to
-    cover (reputation/header_analysis/ip_blocklist/domain_blocklist), since
-    each now has its own independent new-system balance rather than one
-    shared pool. 'total' is set equal to 'current' -- there is no
-    new-system equivalent of a single lifetime "total purchased" figure to
-    show a meaningful percentage against, so the existing low-balance
-    percentage bars simply read 100%/healthy rather than showing a
-    misleading ratio against a frozen legacy total. Dict shape kept
-    identical to before so _build_action_items()/_build_summary_cards()
-    need no changes."""
+    """Service-based dashboard migration: sourced from
+    get_all_service_balances() (trial + ServiceCreditLot only, per
+    LEGACY_BALANCES_SPENDABLE) -- the same centralized function
+    views/profile.py::_service_balance_rows() already uses for the Billing
+    tab, so the dashboard can never disagree with it. One row per
+    SERVICE_KEYS entry (all 7 services) -- no aggregated VC/AC/CC buckets.
+
+    'level' is an ABSOLUTE-threshold status (SERVICE_LOW_CREDIT_THRESHOLDS),
+    not a current/total ratio -- the new lot-based system has no "total
+    purchased" figure left to compute a meaningful percentage against (see
+    the now-removed vc_total/ac_total/cc_total, which used to just equal
+    current and made every bar read 100%/healthy regardless of balance).
+    """
+    from Email_validate_app.models import SERVICE_KEYS
     from Email_validate_app.services.credit_manager import get_all_service_balances
-    balances = get_all_service_balances(user_id)['services']
-    vc = balances['email_validation']['effective']
-    cc = balances['email_marketing']['effective']
-    ac = sum(balances[s]['effective'] for s in
-             ('reputation', 'header_analysis', 'ip_blocklist', 'domain_blocklist'))
+    from Email_validate_app.services.pricing import SERVICE_LABELS
+
+    balances = get_all_service_balances(user_id)
+    services = balances['services']
+
+    rows = []
+    for key in SERVICE_KEYS:
+        balance   = services[key]['effective']
+        trial_rem = services[key]['trial']
+        threshold = SERVICE_LOW_CREDIT_THRESHOLDS.get(key, 1)
+        if balance <= 0:
+            level = 'critical'
+        elif balance < threshold:
+            level = 'warn'
+        else:
+            level = 'healthy'
+        meta = SERVICE_DASHBOARD_META.get(key, {})
+        rows.append({
+            'key':             key,
+            'label':           SERVICE_LABELS[key],
+            'icon':            meta.get('icon', 'fa-circle'),
+            'url':             meta.get('url', 'pricing'),
+            'balance':         balance,
+            'trial_remaining': trial_rem,
+            'level':           level,
+        })
+
     return {
-        'vc_current': vc, 'vc_total': vc,
-        'ac_current': ac, 'ac_total': ac,
-        'cc_current': cc, 'cc_total': cc,
+        'service_credits': rows,
+        'trial_active':    balances['trial_active'],
+        'trial_ends_at':   balances['trial_ends_at'],
     }
+
+
+def _get_credits_used(user_id, days=30):
+    """Total credits spent (any service) in the last `days` days --
+    mirrors views/analytics.py's own CreditAuditLog-based "credits used"
+    query (entry_type='debit'), summed across every service rather than
+    scoped to one, for a small whole-account figure. Debit amounts are
+    stored negative (see credit_manager.py's own CreditAuditLog writes), so
+    the total is negated back to a plain positive count for display."""
+    cutoff = timezone.now() - datetime.timedelta(days=days)
+    total = CreditAuditLog.objects.filter(
+        user_id=user_id, entry_type='debit', created_at__gte=cutoff,
+    ).aggregate(total=Sum('amount'))['total'] or 0
+    return abs(total)
 
 
 def _get_subscription(user_id, now):
@@ -255,9 +321,6 @@ def _get_extra_alert_data(user_id):
 
 def _build_action_items(credits, sub, extra):
     items = []
-    vc_pct = (credits["vc_current"] / credits["vc_total"] * 100) if credits.get("vc_total") else None
-    ac_pct = (credits["ac_current"] / credits["ac_total"] * 100) if credits.get("ac_total") else None
-    cc_pct = (credits["cc_current"] / credits["cc_total"] * 100) if credits.get("cc_total") else None
     renewal_days = sub.get("renewal_days")
 
     # Priority 1 - Critical (Red)
@@ -300,25 +363,19 @@ def _build_action_items(credits, sub, extra):
             'msg': 'Expires in ' + str(renewal_days) + (' days' if renewal_days != 1 else ' day'),
             'cta': 'Renew', 'url': 'subscription', 'pk': None,
         })
-    if vc_pct is not None and vc_pct < 10:
+    # Absolute-threshold low-credit alerts (SERVICE_LOW_CREDIT_THRESHOLDS via
+    # _get_credits()'s per-service 'level') -- replaces the old current/total
+    # percentage, which could never fire since total was always forced equal
+    # to current. One alert per service at most, since each service appears
+    # exactly once in credits['service_credits'].
+    for row in credits.get('service_credits', []):
+        if row['level'] == 'healthy':
+            continue
+        reason = 'Out of credits' if row['level'] == 'critical' else 'Low'
         items.append({
-            'priority': 2, 'type': 'warn', 'icon': 'fa-envelope-open-text',
-            'service': 'Validation Credits', 'reason': 'Low',
-            'msg': str(credits['vc_current']) + ' remaining (' + str(round(vc_pct)) + '%)',
-            'cta': 'Buy', 'url': 'pricing', 'pk': None,
-        })
-    if ac_pct is not None and ac_pct < 10:
-        items.append({
-            'priority': 2, 'type': 'warn', 'icon': 'fa-chart-bar',
-            'service': 'Analysis Credits', 'reason': 'Low',
-            'msg': str(credits['ac_current']) + ' remaining (' + str(round(ac_pct)) + '%)',
-            'cta': 'Buy', 'url': 'pricing', 'pk': None,
-        })
-    if cc_pct is not None and cc_pct < 10:
-        items.append({
-            'priority': 2, 'type': 'warn', 'icon': 'fa-paper-plane',
-            'service': 'Contact Credits', 'reason': 'Low',
-            'msg': str(credits['cc_current']) + ' remaining (' + str(round(cc_pct)) + '%)',
+            'priority': 2, 'type': 'warn', 'icon': row['icon'],
+            'service': row['label'], 'reason': reason,
+            'msg': f"{row['balance']} credit{'s' if row['balance'] != 1 else ''} remaining",
             'cta': 'Buy', 'url': 'pricing', 'pk': None,
         })
 
@@ -504,42 +561,47 @@ def _get_onboarding_steps(campaigns, senders, week_stats):
     ]
 
 
-def _build_summary_cards(credits, campaigns):
-    def _pct(cur, tot):
-        return round(cur / tot * 100, 1) if tot else None
+def _build_summary_cards(credits, campaigns, credits_used_30d=0):
+    """3 headline service cards (Email Validation / Email Marketing / Sales
+    Outreach -- the services a user interacts with most directly) plus the
+    existing 4th "status" card slot, now a 'Credits by Service' roll-up
+    covering all 7 services (the 4 analysis services -- Reputation, Header,
+    IP Blocklist, Domain Blocklist -- are rows here rather than separate
+    headline cards, so the grid stays at 4 cards total).
 
-    # Credits Status — 3 bars, each colored by criticality level
-    def _bar_color(pct):
-        if pct is None:   return 'healthy'
-        if pct < 10:      return 'critical'
-        if pct < 30:      return 'warn'
-        return 'healthy'
+    No current/total percentage or progress bar anywhere here: the new
+    lot-based system has no "total purchased" figure to show a meaningful
+    ratio against (see _get_credits()'s absolute-threshold 'level' instead).
+    """
+    service_rows = {row['key']: row for row in credits.get('service_credits', [])}
 
-    credit_bars = [
+    def _headline_card(key):
+        row = service_rows.get(key, {})
+        trial = row.get('trial_remaining') or 0
+        meta = f"Includes {trial} trial credit{'s' if trial != 1 else ''}" if trial else ''
+        badge, badge_type = None, None
+        if row.get('level') == 'critical':
+            badge, badge_type = 'Out', 'danger'
+        elif row.get('level') == 'warn':
+            badge, badge_type = 'Low', 'danger'
+        return {
+            'label': row.get('label', key), 'icon': row.get('icon', 'fa-circle'),
+            'value': row.get('balance', 0), 'total': None, 'pct': None,
+            'url': row.get('url', 'pricing'), 'meta': meta,
+            'badge': badge, 'badge_type': badge_type,
+        }
+
+    service_bars = [
         {
-            'name': 'Validation',
-            'pct':  _pct(credits['vc_current'], credits['vc_total']),
-            'cur':  credits['vc_current'],
-            'tot':  credits['vc_total'],
-        },
-        {
-            'name': 'Analysis',
-            'pct':  _pct(credits['ac_current'], credits['ac_total']),
-            'cur':  credits['ac_current'],
-            'tot':  credits['ac_total'],
-        },
-        {
-            'name': 'Contact',
-            'pct':  _pct(credits['cc_current'], credits['cc_total']),
-            'cur':  credits['cc_current'],
-            'tot':  credits['cc_total'],
-        },
+            'name':    row['label'],
+            'balance': row['balance'],
+            'trial':   row['trial_remaining'],
+            'level':   row['level'],
+        }
+        for row in credits.get('service_credits', [])
     ]
-    for b in credit_bars:
-        b['level'] = _bar_color(b['pct'])
-
-    any_critical = any(b['level'] == 'critical' for b in credit_bars)
-    any_warn     = any(b['level'] == 'warn'     for b in credit_bars)
+    any_critical = any(b['level'] == 'critical' for b in service_bars)
+    any_warn     = any(b['level'] == 'warn'     for b in service_bars)
     if any_critical:
         low_badge, low_badge_type = 'Critical', 'danger'
     elif any_warn:
@@ -547,38 +609,23 @@ def _build_summary_cards(credits, campaigns):
     else:
         low_badge, low_badge_type = None, None
 
-    low_card = {
-        'label': 'Credits Status', 'icon': 'fa-triangle-exclamation',
+    credits_by_service_card = {
+        'label': 'Credits by Service', 'icon': 'fa-layer-group',
         'value': None, 'total': None, 'pct': None,
         'url': 'pricing',
         'meta': None,
         'badge': low_badge, 'badge_type': low_badge_type,
-        'bars': credit_bars,
+        'bars': service_bars,
+        'trial_active':     credits.get('trial_active', False),
+        'trial_ends_at':    credits.get('trial_ends_at'),
+        'credits_used_30d': credits_used_30d,
     }
 
     return [
-        {
-            'label': 'Validation Credits', 'icon': 'fa-envelope-open-text',
-            'value': credits['vc_current'], 'total': credits['vc_total'],
-            'pct': _pct(credits['vc_current'], credits['vc_total']),
-            'url': 'single_service', 'meta': f'{credits["vc_total"]:,} total',
-            'badge': None, 'badge_type': None,
-        },
-        {
-            'label': 'Analysis Credits', 'icon': 'fa-chart-bar',
-            'value': credits['ac_current'], 'total': credits['ac_total'],
-            'pct': _pct(credits['ac_current'], credits['ac_total']),
-            'url': 'Reputation_Analysis', 'meta': f'{credits["ac_total"]:,} total',
-            'badge': None, 'badge_type': None,
-        },
-        {
-            'label': 'Contact Credits', 'icon': 'fa-paper-plane',
-            'value': credits['cc_current'], 'total': credits['cc_total'],
-            'pct': _pct(credits['cc_current'], credits['cc_total']),
-            'url': 'campaigns', 'meta': f'{credits["cc_total"]:,} total',
-            'badge': None, 'badge_type': None,
-        },
-        low_card,
+        _headline_card('email_validation'),
+        _headline_card('email_marketing'),
+        _headline_card('sales_outreach'),
+        credits_by_service_card,
     ]
 
 
@@ -594,6 +641,7 @@ def get_dashboard_context(user_id):
 
     user_info  = _get_user_info(user_id)
     credits    = _get_credits(user_id)
+    credits_used_30d = _get_credits_used(user_id, days=30)
     sub        = _get_subscription(user_id, now)
     last_login = _get_last_login(user_id)
     campaigns  = _get_campaign_summary(user_id)
@@ -611,7 +659,7 @@ def get_dashboard_context(user_id):
     onboarding_steps = _get_onboarding_steps(campaigns, senders, week_stats)
     is_new_user      = not any(s['done'] for s in onboarding_steps)
     account_health   = _get_account_health(alerts)
-    summary_cards    = _build_summary_cards(credits, campaigns)
+    summary_cards    = _build_summary_cards(credits, campaigns, credits_used_30d)
 
     # Next scheduled campaign countdown
     _nc = (Campaign.objects
@@ -724,5 +772,6 @@ for _model in (
     CurrentCredits, UsedCredits, SubsPayment, Payment,
     Campaign, SenderDomain, SenderEmailToken,
     BlocklistMonitor, DomainBlocklist,
+    ServiceCreditLot, ServiceCredit, ServiceTrial, CreditAuditLog,
 ):
     post_save.connect(_bust_cache, sender=_model, weak=False)

@@ -169,7 +169,7 @@ var SOCampaignPage = (function () {
       email_account_ids:     accountIds(),
       email_account_counts:  accountCounts(),
       sender_send_count_enabled: !!($('socSendCountToggle') && $('socSendCountToggle').checked),
-      sender_name: ($('socSenderName') ? $('socSenderName').value.trim() : ''),
+      email_account_sender_names: accountSenderNames(),
       reply_to:    ($('socReplyTo') ? $('socReplyTo').value.trim() : ''),
       reply_to_enabled: !!($('socReplyToToggle') && $('socReplyToToggle').checked),
       schedule_date: $('socScheduleDate') ? $('socScheduleDate').value : '',
@@ -1401,6 +1401,26 @@ var SOCampaignPage = (function () {
     return out;
   }
 
+  /* {account_id: sender_name} for every currently-checked sender account
+     that has a real override — read from each option's data-sender-name
+     attribute (see renderSenderCounts()). An account left at its default
+     (data-sender-name still '') is deliberately omitted entirely, not sent
+     as '' — keeps SOEmailAccountRotation.sender_name genuinely optional
+     server-side and never overwrites the fallback chain with an explicit
+     blank for an account the user never touched. */
+  function accountSenderNames() {
+    var out = {};
+    var list = $('socSenderList');
+    if (!list) return out;
+    list.querySelectorAll('.soc-rd-option[data-type="account"]').forEach(function (o) {
+      var chk = o.querySelector('.soc-rd-chk');
+      if (chk && chk.checked && o.dataset.senderName) {
+        out[o.dataset.id] = o.dataset.senderName;
+      }
+    });
+    return out;
+  }
+
   function makeCombo(ids, placeholder, onChange) {
     var root = $(ids.root), trigger = $(ids.trigger), panel = $(ids.panel),
         tags = $(ids.tags), search = $(ids.search), list = $(ids.list);
@@ -1608,7 +1628,13 @@ var SOCampaignPage = (function () {
       el.innerHTML = '<p class="soc-hint soc-hint-tight-sm">Select a step &amp; variation above to preview it.</p>';
       return;
     }
-    var fromName = ($('socSenderName') && $('socSenderName').value) || '';
+    // Sender Name is now per-account (no single field to read) -- the
+    // preview shows the first checked sender account's own resolved name,
+    // same "one representative name" role the old single field played.
+    var firstAccChk = document.querySelector(
+      '#socSenderList .soc-rd-option[data-type="account"] .soc-rd-chk:checked');
+    var firstAccOpt = firstAccChk && firstAccChk.closest('.soc-rd-option');
+    var fromName = firstAccOpt ? (firstAccOpt.dataset.senderName || firstAccOpt.dataset.displayName || '') : '';
     // Only reflects Reply-To when its toggle is on -- an address sitting
     // in a disabled, unused field must not appear as if it were live.
     var replyToOn = !!($('socReplyToToggle') && $('socReplyToToggle').checked);
@@ -1692,14 +1718,20 @@ var SOCampaignPage = (function () {
       '<p class="soc-launch-message">' + message + '</p>';
   }
 
-  /* ── Campaign Sending Count ──────────────────────────────────────────── */
-  /* Replaces the removed Weight/Percentage system. The count lives directly
-     on each account's .soc-rd-option element as a data-count attribute —
-     same place data-daily-limit already lives — rather than a separate JS
-     state object, so it can't drift out of sync with which accounts are
-     actually checked. Only checked accounts ever get a visible row;
-     unchecking one just hides it (its data-count is preserved on the
-     element in case it's re-checked in the same session).
+  /* ── Per-account Sender Name + Campaign Sending Count ────────────────── */
+  /* Both live directly on each account's .soc-rd-option element as data
+     attributes — data-sender-name alongside the pre-existing data-count,
+     same place data-display-name/data-daily-limit already live — rather
+     than a separate JS state object, so neither can drift out of sync with
+     which accounts are actually checked. Only checked accounts ever get a
+     visible row; unchecking one just hides it (its data-sender-name/
+     data-count are preserved on the element in case it's re-checked in the
+     same session — see the input listener below).
+
+     data-sender-name starts '' (no override) for every account; the row
+     below then pre-fills its input from data-display-name (this account's
+     own SOEmailAccount.display_name) purely for display/editing — that
+     account-level field itself is never read from or written by this UI.
 
      Only #socSenderCountRows is rebuilt here — the Enable/Disable toggle
      itself (#socSendCountToggle) is static markup in the template, read
@@ -1725,8 +1757,12 @@ var SOCampaignPage = (function () {
         ? '<input type="number" class="soc-sender-count-input" style="padding:3px 4px;" min="1" max="' + ceiling +
           '" value="' + c + '"/> / ' + ceiling + ' per day'
         : ceiling + ' per day';
+      var senderName = o.dataset.senderName || o.dataset.displayName || '';
+      var nameHtml = '<input type="text" class="soc-sender-name-input" maxlength="255" ' +
+        'placeholder="Sender Name" value="' + esc(senderName) + '"/>';
       return '<div class="soc-sender-count-row" data-account-id="' + esc(o.dataset.id) + '">' +
         '<span class="soc-sender-count-email">' + esc(o.dataset.label) + '</span>' +
+        '<span class="soc-sender-count-name">' + nameHtml + '</span>' +
         '<span class="soc-sender-count-value">' + valueHtml + '</span>' +
       '</div>';
     }).join('');
@@ -1840,8 +1876,10 @@ var SOCampaignPage = (function () {
       body: JSON.stringify({
         campaign_id: SEQ.campaignId,
         to_emails: emails, subject: v.subject, html_body: v.html,
-        email_account_id: accountIds()[0],
-        sender_name: $('socSenderName') ? $('socSenderName').value.trim() : ''
+        // Sender Name is resolved server-side from this account's own
+        // campaign-specific override (falling back the same way a real
+        // send does) -- no client-supplied name is sent or trusted.
+        email_account_id: accountIds()[0]
       })
     })
       .then(function (r) { return r.json(); })
@@ -2987,7 +3025,6 @@ var SOCampaignPage = (function () {
     var d = JSON.parse(node.textContent);
     SEQ.campaignId = d.id;
     $('socName').value = d.name || '';
-    if ($('socSenderName')) $('socSenderName').value = d.sender_name || '';
     if ($('socReplyTo'))    $('socReplyTo').value    = d.reply_to || '';
     if ($('socReplyToToggle')) {
       $('socReplyToToggle').checked = !!d.reply_to_enabled;
@@ -3018,6 +3055,19 @@ var SOCampaignPage = (function () {
         '#socSenderList .soc-rd-option[data-type="account"][data-id="' + accId + '"]'
       );
       if (opt) opt.dataset.count = String(savedCounts[accId]);
+    });
+    // Per-account Sender Name overrides — same keyed-by-account-id shape
+    // and same "set before wireCombos()'s first render" ordering as
+    // savedCounts just above. An account with no saved override is simply
+    // absent from this object (see accountSenderNames()), so its
+    // data-sender-name stays '' and the row falls back to that account's
+    // own data-display-name, exactly as a freshly-checked account would.
+    var savedSenderNames = d.email_account_sender_names || {};
+    Object.keys(savedSenderNames).forEach(function (accId) {
+      var opt = $('socSenderList') && document.querySelector(
+        '#socSenderList .soc-rd-option[data-type="account"][data-id="' + accId + '"]'
+      );
+      if (opt) opt.dataset.senderName = String(savedSenderNames[accId]);
     });
     if (d.exclude_list_ids.length || d.exclude_segment_ids.length) {
       $('socExclSection').hidden = false;
@@ -3224,17 +3274,28 @@ var SOCampaignPage = (function () {
     }
     if ($('socSenderCountRows')) {
       $('socSenderCountRows').addEventListener('input', function (e) {
-        var input = e.target.closest('.soc-sender-count-input');
-        if (!input) return;
-        var row = input.closest('.soc-sender-count-row');
-        var accId = row && row.dataset.accountId;
+        var row = e.target.closest('.soc-sender-count-row');
+        if (!row) return;
+        var accId = row.dataset.accountId;
         var opt = accId && document.querySelector(
           '#socSenderList .soc-rd-option[data-type="account"][data-id="' + accId + '"]'
         );
-        if (opt) {
-          var ceiling = parseInt(input.max, 10) || 120;
-          var val = Math.max(1, Math.min(ceiling, parseInt(input.value, 10) || 1));
+        if (!opt) return;
+        var countInput = e.target.closest('.soc-sender-count-input');
+        if (countInput) {
+          var ceiling = parseInt(countInput.max, 10) || 120;
+          var val = Math.max(1, Math.min(ceiling, parseInt(countInput.value, 10) || 1));
           opt.dataset.count = String(val);
+          markDirty();
+          return;
+        }
+        // Per-account Sender Name override — written back onto THIS
+        // account's own option element only, same pattern as the count
+        // input just above, so one row's edit can never bleed into
+        // another account's stored value.
+        var nameInput = e.target.closest('.soc-sender-name-input');
+        if (nameInput) {
+          opt.dataset.senderName = nameInput.value.slice(0, 255);
           markDirty();
         }
       });
@@ -3336,20 +3397,18 @@ var SOCampaignPage = (function () {
     /* sender + name */
     $('socName').addEventListener('input', markDirty);
     if ($('socSenderList')) {
-      // Auto-fill Sender Name / Reply-To from the first checked account, same
-      // as the old single-select did — only when those fields are still empty,
-      // so it never clobbers something the user already typed.
+      // Auto-fill Reply-To from the first checked account, same as before —
+      // only when the field is still empty, so it never clobbers something
+      // the user already typed. Sender Name has no equivalent auto-fill
+      // here any more: each account's row already shows/defaults to its
+      // own data-display-name as soon as it's checked (renderSenderCounts()).
       $('socSenderList').addEventListener('change', function (e) {
         if (!e.target.classList.contains('soc-rd-chk') || !e.target.checked) return;
         var o = e.target.closest('.soc-rd-option');
-        if ($('socSenderName') && !$('socSenderName').value) {
-          $('socSenderName').value = o.dataset.displayName || '';
-        }
         if ($('socReplyTo') && !$('socReplyTo').value) {
           $('socReplyTo').value = o.dataset.label || '';
         }
       });
-      if ($('socSenderName')) $('socSenderName').addEventListener('input', markDirty);
       if ($('socReplyTo'))    $('socReplyTo').addEventListener('input', markDirty);
     }
     if ($('socReplyToToggle')) {

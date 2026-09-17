@@ -26,7 +26,7 @@
             Renews <span class="local-dt" data-utc="{{ valid_time|date:'c' }}" data-format="date">{{ valid_time|date:"M j, Y" }}</span>
           </span>
         {% endif %}
-        <a href="{% url 'subscription' %}" class="db-manage-link">Manage Plan →</a>
+        <a href="{% url 'pricing' %}" class="db-manage-link">Manage Plan →</a>
       </div>
       {% if last_login %}
       <div class="db-lastlogin">Last login: <span class="local-dt" data-utc="{{ last_login|date:'c' }}">{{ last_login|date:"M j, Y g:i A" }}</span></div>
@@ -91,31 +91,36 @@
   </div>
 
   <!-- ── 2. SUMMARY CARDS ──────────────────────────────────────────── -->
-  <div class="db-summary-grid">
+  <div class="admin-card">
+    <div class="admin-card-header">
+      <span class="admin-card-title">Credits Overview</span>
+    </div>
+    <div class="db-summary-body">
     {% for card in summary_cards %}
     <a href="{% url card.url %}" class="db-sum-card" aria-label="View {{ card.label }}">
       <div class="db-sum-icon" aria-hidden="true"><i class="fas {{ card.icon }}"></i></div>
       {% if card.badge %}<span class="db-sum-badge db-sum-badge--{{ card.badge_type }}">{{ card.badge }}</span>{% endif %}
       {% if card.bars %}
-        <div class="db-sum-label" style="margin-bottom:10px">{{ card.label }}</div>
+        <div class="db-sum-label" style="margin-bottom:6px">{{ card.label }}</div>
+        {% if card.trial_active %}
+          <div class="credit-badge credit-badge--trial" style="margin-bottom:10px"
+               title="Your 7-day free trial is still active — trial credits are included in the balances below.">
+            <i class="fas fa-hourglass-half"></i><span>Trial active</span>
+          </div>
+        {% endif %}
         <div class="db-sum-bars">
           {% for bar in card.bars %}
           <div class="db-sum-bar-row">
             <span class="db-sum-bar-name">{{ bar.name }}</span>
-            <div class="db-sum-bar-wrap db-sum-bar-wrap--slim"
-                 role="progressbar"
-                 aria-valuenow="{{ bar.pct|default:0|floatformat:0 }}"
-                 aria-valuemin="0" aria-valuemax="100"
-                 aria-label="{{ bar.name }} credits">
-              <div class="db-sum-bar-fill db-sum-bar-fill--{{ bar.level }}"
-                   style="width:{{ bar.pct|default:0|floatformat:0 }}%"></div>
-            </div>
-            <span class="db-sum-bar-pct db-sum-bar-pct--{{ bar.level }}">
-              {% if bar.pct is not None %}{{ bar.pct|floatformat:0 }}%{% else %}—{% endif %}
+            <span class="db-sum-bar-value db-sum-bar-pct--{{ bar.level }}">
+              {{ bar.balance|intcomma }}{% if bar.trial %} <span class="db-sum-bar-trial" title="Includes {{ bar.trial }} trial credit{{ bar.trial|pluralize }}">(+{{ bar.trial }} trial)</span>{% endif %}
             </span>
           </div>
           {% endfor %}
         </div>
+        {% if card.credits_used_30d %}
+          <div class="db-sum-meta" style="margin-top:8px">{{ card.credits_used_30d|intcomma }} credits used (30 days)</div>
+        {% endif %}
       {% else %}
         <div class="db-sum-num">{% if card.value %}{{ card.value|intcomma }}{% else %}<span class="db-sum-zero">—</span>{% endif %}</div>
         <div class="db-sum-label">{{ card.label }}</div>
@@ -135,6 +140,7 @@
       {% endif %}
     </a>
     {% endfor %}
+    </div>
   </div>
 
   <!-- ── 3. QUICK ACTIONS ──────────────────────────────────────────── -->

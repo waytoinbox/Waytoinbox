@@ -211,9 +211,9 @@ def so_email_account_action(request):
                 # Serialise concurrent adds by this user on the very row
                 # deduct_service_credits() will lock a moment later, keeping the
                 # lock order (ServiceCredit first) identical to credit_manager.
-                # Without it both the 2-account limit and the duplicate check
-                # below are read-then-write races: two simultaneous requests
-                # for the same mailbox would both pass and both be charged.
+                # Without it the duplicate check below is a read-then-write
+                # race: two simultaneous requests for the same mailbox would
+                # both pass and both be charged.
                 #
                 # A UNIQUE (user, email) index would be the usual guard, but
                 # accounts are soft-deleted via deleted_at, so it would block
@@ -224,17 +224,11 @@ def so_email_account_action(request):
                     user_id=user_id, service='sales_outreach',
                 ).first()
 
-                existing_count = SOEmailAccount.objects.filter(
-                    user_id=user_id,
-                    deleted_at__isnull=True,
-                ).count()
-
-                if existing_count >= 2:
-                    return JsonResponse({
-                        'status': 'error',
-                        'message': 'You can add up to 2 Sales Outreach email accounts only.'
-                    })
-
+                # No fixed account-count cap here — deduct_service_credits()
+                # below is what actually gates how many accounts a user can
+                # add: 1 account = 1 Sales Outreach credit, so the credit
+                # balance itself is the limit (InsufficientCredits stops the
+                # add, same as any other credit-metered action).
                 if not email or '@' not in email:
                     return JsonResponse({'status': 'error', 'message': 'A valid email address is required.'})
                 if not password:

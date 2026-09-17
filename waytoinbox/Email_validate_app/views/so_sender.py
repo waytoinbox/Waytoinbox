@@ -301,6 +301,14 @@ def _new_campaign_context(request, campaign=None):
                 str(rot.account_id): rot.daily_send_count
                 for rot in campaign.account_rotations.all()
             },
+            # Per-account Sender Name override — blank/absent for an account
+            # means "no override" (see services/so_drip.py::resolve_sender_name);
+            # only accounts with a real override are included, same convention
+            # email_account_counts would use if it ever needed one.
+            'email_account_sender_names': {
+                str(rot.account_id): rot.sender_name
+                for rot in campaign.account_rotations.all() if rot.sender_name
+            },
             'sender_send_count_enabled': campaign.sender_send_count_enabled,
             'sender_name':          campaign.from_name,
             'reply_to':             campaign.reply_to,
@@ -1289,6 +1297,7 @@ def _duplicate_campaign(campaign, user_id):
         SOEmailAccountRotation.objects.create(
             campaign=new_campaign, account=rot.account,
             daily_send_count=rot.daily_send_count, order=rot.order,
+            sender_name=rot.sender_name,
         )
 
     return new_campaign
@@ -1438,6 +1447,19 @@ def _apply_campaign_payload(request, data, strict):
             c = ceiling
         account_counts[acc_id_int] = c
 
+    # Per-account Sender Name override — replaces the old single campaign-
+    # wide Sender Name input. Unlike Campaign Sending Count, there is no
+    # numeric range to validate and no ceiling to fall back to: a missing or
+    # blank value simply means "no override for this account", valid on
+    # every save (draft or strict) — resolution at send time
+    # (services/so_drip.py::resolve_sender_name) already falls through to
+    # campaign.from_name -> account.display_name -> account.email on its own.
+    raw_sender_names = data.get('email_account_sender_names') or {}
+    sender_names = {
+        acc_id_int: (raw_sender_names.get(str(acc_id_int)) or '').strip()[:255]
+        for acc_id_int in account_ids_int
+    }
+
     steps, seq_errors = _validate_sequence(data.get('sequence'), strict)
     errors.update(seq_errors)
     subseqs, subseq_errors = _validate_subsequences(data.get('subsequences'), strict)
@@ -1486,7 +1508,15 @@ def _apply_campaign_payload(request, data, strict):
 
     campaign.name              = name
     campaign.send_mode         = 'sequence'
-    campaign.from_name         = (data.get('sender_name') or '').strip()[:255]
+    # from_name (the old single campaign-wide Sender Name field) is
+    # deliberately never written here any more -- the wizard's standalone
+    # input is gone, replaced by a per-account override on each
+    # SOEmailAccountRotation (see sender_names below). Leaving this field
+    # alone (rather than resetting it to '' because the payload no longer
+    # carries a 'sender_name' key) is what keeps every campaign saved
+    # before this feature shipped sending under exactly the same name it
+    # always has -- see services/so_drip.py::resolve_sender_name's fallback
+    # chain, which still reads campaign.from_name as its second rung.
     campaign.reply_to          = (data.get('reply_to') or '').strip()[:255]
     campaign.reply_to_enabled  = bool(data.get('reply_to_enabled', False))
     # Default True (same as the model field default) when the key is
@@ -1541,7 +1571,11 @@ def _apply_campaign_payload(request, data, strict):
     for idx, acc in enumerate(accounts):
         SOEmailAccountRotation.objects.update_or_create(
             campaign=campaign, account=acc,
-            defaults={'daily_send_count': account_counts.get(acc.id, min(120, acc.daily_limit)), 'order': idx},
+            defaults={
+                'daily_send_count': account_counts.get(acc.id, min(120, acc.daily_limit)),
+                'order': idx,
+                'sender_name': sender_names.get(acc.id, ''),
+            },
         )
 
     return campaign, id_map, {}
@@ -1902,7 +1936,12 @@ def so_test_send(request):
             'message': 'This account is not eligible to send (connection inactive or SPF check failed).',
         })
 
-    from_name = (data.get('sender_name') or '').strip() or account.display_name or account.email
+    # Resolved server-side, same as a real campaign send -- there is no
+    # longer a standalone client-side Sender Name field to trust (or
+    # mistrust); this account's own campaign-specific override (if any) is
+    # exactly what a real send through it would use.
+    from Email_validate_app.services.so_drip import resolve_sender_name
+    from_name = resolve_sender_name(campaign, account)
 
     # Sample data for merge-tag rendering — a test send has no real enrolled
     # prospect to personalize against, so a preview needs to substitute
