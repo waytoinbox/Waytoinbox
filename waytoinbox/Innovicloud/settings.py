@@ -382,9 +382,6 @@ WARMUP_MAX_SEND_ATTEMPTS  = int(os.environ.get('WARMUP_MAX_SEND_ATTEMPTS', 3))
 ENVIRONMENT = os.environ.get("DJANGO_ENV", "local")
 
 if ENVIRONMENT == "production":
-    # Live server (Linux) — gevent works fine
-    CELERY_WORKER_POOL = "gevent"
-
     # INF-02: Require Redis authentication in production
     if not _redis_password and "@" not in REDIS_URL.replace("redis://", "", 1):
         raise RuntimeError(

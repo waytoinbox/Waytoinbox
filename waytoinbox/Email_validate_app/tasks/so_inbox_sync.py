@@ -54,7 +54,15 @@ def so_sync_one_inbox(self, account_id):
         account = SOEmailAccount.objects.filter(id=account_id).first()
         if not account:
             return {'status': 'not_found'}
-        sync_account_inbox(account)
+        sync_result = sync_account_inbox(account)
+        # sync_account_inbox returns True on a real sync; a short failure-
+        # reason string ('password_decrypt_failed' / 'imap_connect_failed')
+        # means the mailbox was never reached at all -- that must be
+        # reported as a failure here, not folded into 'ok' as before.
+        if sync_result is not True:
+            logger.error('so_inbox_sync: account %s (%s) failed to sync — %s',
+                         account_id, account.email, sync_result)
+            return {'status': 'error', 'error': sync_result}
         return {'status': 'ok'}
     except Exception as exc:
         logger.error('so_inbox_sync: error for account %s: %s', account_id, exc)

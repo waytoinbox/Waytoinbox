@@ -578,7 +578,16 @@ def sync_account_inbox(account):
     - OOO       (Auto-Submitted: auto-replied)
     - Complaints (abuse-report headers)
 
-    Updates account.last_imap_sync on success.
+    Updates account.last_imap_sync only once IMAP login has actually
+    succeeded (i.e. execution reaches message processing below).
+
+    Returns True on success. If the mailbox couldn't be reached at all —
+    password decryption or IMAP connect/login failed — returns a short
+    failure-reason string instead ('password_decrypt_failed' /
+    'imap_connect_failed') so the caller (tasks/so_inbox_sync.py::
+    so_sync_one_inbox) can tell a genuine failure apart from a real sync
+    and report it as one, instead of the previous silent `return` that let
+    so_sync_one_inbox report {'status': 'ok'} regardless.
     """
     from Email_validate_app.models import (
         SOCampaignContact, SOProspect, SOEvent, SOCampaign, SOEmailAccount,
@@ -588,8 +597,9 @@ def sync_account_inbox(account):
     try:
         plain_pwd = decrypt_password(account)
     except Exception as exc:
-        logger.error('so_imap: cannot decrypt password for account %s: %s', account.id, exc)
-        return
+        logger.error('so_imap: cannot decrypt password for account %s (%s): %s',
+                     account.id, account.email, exc)
+        return 'password_decrypt_failed'
 
     # Every connected sender account this same user owns — used to keep a
     # message FROM one of them from ever being treated as an external reply
@@ -611,13 +621,14 @@ def sync_account_inbox(account):
 
     try:
         if account.imap_ssl:
-            imap = imaplib.IMAP4_SSL(account.imap_host, account.imap_port)
+            imap = imaplib.IMAP4_SSL(account.imap_host, account.imap_port, timeout=12)
         else:
-            imap = imaplib.IMAP4(account.imap_host, account.imap_port)
+            imap = imaplib.IMAP4(account.imap_host, account.imap_port, timeout=12)
         imap.login(account.username, plain_pwd)
     except Exception as exc:
-        logger.error('so_imap: IMAP connect/login failed for account %s: %s', account.id, exc)
-        return
+        logger.error('so_imap: IMAP connect/login failed for account %s (%s): %s',
+                     account.id, account.email, exc)
+        return 'imap_connect_failed'
 
     def _handle_reply_candidates(msg, num, cc_qs, auto_sub, in_reply_to, ref_ids=None):
         """Shared by the ref-matched path and the no-headers-at-all fallback
@@ -867,6 +878,8 @@ def sync_account_inbox(account):
                 except Exception:
                     logger.exception('so_imap: failed to process Sent message %s for account %s', num, account.id)
                     continue
+
+        return True
 
     finally:
         try:
