@@ -93,7 +93,19 @@ def expire_credit_lots():
 def _expire_one_lot(lot_id):
     with transaction.atomic():
         lot = ServiceCreditLot.objects.select_for_update().get(pk=lot_id)
-        if lot.status != ServiceCreditLot.STATUS_ACTIVE or lot.expires_at > now():
+        if lot.status != ServiceCreditLot.STATUS_ACTIVE:
+            return  # already processed by an earlier/overlapping run
+        if lot.expires_at is None:
+            # Defense-in-depth: a permanent admin-granted lot (expires_at
+            # IS NULL -- see credit_manager.grant_admin_credit_lot) must
+            # never be finalized here. expire_credit_lots()'s own selection
+            # query (expires_at__lte=now()) already excludes NULL rows at
+            # the SQL level, so this only matters for a lot ID reaching
+            # this function by any other path (e.g. direct/manual
+            # invocation) -- same defense-in-depth role the
+            # NON_EXPIRING_LOT_SERVICES check just below already plays.
+            return
+        if lot.expires_at > now():
             return  # already processed by an earlier/overlapping run
         if lot.service in NON_EXPIRING_LOT_SERVICES:
             # Defense-in-depth: expire_credit_lots()'s own selection query

@@ -9,8 +9,19 @@
    that) was pushing it past its own height calc. Unlike tb-fullpage/wtib-fp,
    this page keeps the topbar visible (position: fixed, doesn't push
    document flow) — padding-top must stay at var(--nav-h) to clear it, only
-   the decorative extra padding is zeroed. */
-body.soi-fullpage .main-content { padding: var(--nav-h) 0 0; }
+   the decorative extra padding is zeroed.
+
+   min-height: 100vh is a defensive floor, not decorative sizing: this is
+   the only page whose content is intentionally exactly one viewport tall
+   (.soi-page below), rather than naturally taller and scrollable like
+   every other page. That means it's also the only page that visibly shows
+   a gap if the shared shell (.dash-wrap's own min-height: 100vh, in
+   dashboard.css) ever fails to stretch this column to the full viewport —
+   every other page's own (taller) content hides the same shell height
+   the same way regardless. Setting the floor again here removes that
+   dependency for this page specifically, at no cost when the shell is
+   already correct (the numbers already add up to exactly 100vh). */
+body.soi-fullpage .main-content { padding: var(--nav-h) 0 0; min-height: 100vh; }
 
 .soi-page {
   position: relative;

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 
 import pytz
 from django.db import transaction
-from django.db.models import F, Sum
+from django.db.models import F, Q, Sum
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
@@ -483,10 +483,18 @@ def get_lot_balance(user_id, service):
     system's actual spendable-balance source. Mirrors EXACTLY the
     eligibility rule deduct_service_credits() uses to pick its FEFO
     candidate lots (status=active, quantity_remaining>0, and expires_at in
-    the future unless `service` is in NON_EXPIRING_LOT_SERVICES), so this
-    can never show a number deduct_service_credits() can't actually honor.
-    Revoked/expired lots (status != active) are excluded by the status
-    filter alone, same as the deduction path."""
+    the future OR NULL -- see below -- unless `service` is in
+    NON_EXPIRING_LOT_SERVICES), so this can never show a number
+    deduct_service_credits() can't actually honor. Revoked/expired lots
+    (status != active) are excluded by the status filter alone, same as
+    the deduction path.
+
+    expires_at IS NULL means a permanent admin-granted lot
+    (grant_admin_credit_lot) -- always usable regardless of
+    NON_EXPIRING_LOT_SERVICES, which is a completely separate, service-wide
+    mechanism for email_validation only. A real purchase (grant_credit_lot)
+    never writes NULL here, so this changes nothing for existing/purchased
+    lots."""
     if service not in SERVICE_KEYS:
         raise ValueError(f"Unknown service: {service!r}")
     qs = ServiceCreditLot.objects.filter(
@@ -494,7 +502,7 @@ def get_lot_balance(user_id, service):
         status=ServiceCreditLot.STATUS_ACTIVE, quantity_remaining__gt=0,
     )
     if service not in NON_EXPIRING_LOT_SERVICES:
-        qs = qs.filter(expires_at__gt=now())
+        qs = qs.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
     return qs.aggregate(total=Sum('quantity_remaining'))['total'] or 0
 
 
@@ -697,6 +705,70 @@ def grant_credit_lot(user_id, service, amount, *, source, purchased_at,
     return lot
 
 
+def grant_admin_credit_lot(user_id, service, amount, *, permanent, granted_by=None,
+                           ref_type='admin', ref_id='', description=''):
+    """Admin-only grant path (WTI Admin -> user detail -> Grant Credits).
+    Creates a ServiceCreditLot exactly like a real purchase would, so it is
+    spendable/visible through get_lot_balance()/get_effective_balance()/
+    get_all_service_balances()/deduct_service_credits() with zero changes
+    needed there beyond the NULL-expiry handling those already carry —
+    but fully isolated from grant_credit_lot() itself: no Payment/
+    ServiceOrder involved, this function is never called by either live
+    purchase flow, and expiry is an explicit admin choice per grant rather
+    than the fixed LOT_LIFETIME every real purchase always gets.
+
+    permanent=True stores expires_at=NULL on this ONE lot only. This is
+    lot-level and per-grant: two separate admin grants for the very same
+    service on the very same user (one permanent, one not) are two
+    independent ServiceCreditLot rows and never interact. It never adds
+    `service` to NON_EXPIRING_LOT_SERVICES (that stays a completely
+    separate, service-wide mechanism reserved for email_validation) and
+    never touches any other lot.
+
+    permanent=False expires this lot in exactly LOT_LIFETIME (the same
+    30-day duration real purchases use), computed from `now()` at grant
+    time — not from any caller-supplied timestamp, since there is no
+    payment/order event to anchor it to.
+
+    Never touches ServiceCredit.balance/CurrentCredits (same guarantee
+    grant_credit_lot() makes) and never reads/sets LEGACY_BALANCES_SPENDABLE.
+
+    `granted_by` (optional) is the admin UserTable row performing the
+    grant, folded into the CreditAuditLog description only — "who did the
+    admin action" is otherwise recorded by the caller via the existing
+    AdminActivity audit trail (views/admin/_base.py::audit()), not
+    duplicated as a new field here.
+    """
+    if service not in SERVICE_KEYS:
+        raise ValueError(f"Unknown service: {service!r}")
+    amount = int(amount or 0)
+    if amount <= 0:
+        return None
+
+    granted_at = now()
+    expires_at = None if permanent else granted_at + LOT_LIFETIME
+
+    with transaction.atomic():
+        lot = ServiceCreditLot.objects.create(
+            user_id=user_id, service=service,
+            payment=None, order=None, source=ServiceCreditLot.SOURCE_ADMIN_ADJUSTMENT,
+            quantity_purchased=amount, quantity_remaining=amount,
+            quantity_used=0, quantity_expired=0, quantity_revoked=0,
+            status=ServiceCreditLot.STATUS_ACTIVE,
+            purchased_at=granted_at, expires_at=expires_at,
+        )
+        admin_label  = f" by {granted_by.user_email}" if granted_by else ""
+        expiry_label = "permanent, never expires" if permanent else f"expires {expires_at:%Y-%m-%d %H:%M} UTC"
+        CreditAuditLog.objects.create(
+            user_id=user_id, credit_type=service, entry_type='adjustment',
+            amount=amount, balance_before=0, balance_after=amount,
+            ref_type=ref_type, ref_id=str(ref_id), lot=lot, service=service,
+            description=description or
+                f"Admin-granted {amount} {SERVICE_LABELS[service]} credits{admin_label} ({expiry_label})",
+        )
+    return lot
+
+
 def ensure_service_credits(user_id, service, count):
     """Read-only preflight for bulk work: raise InsufficientCredits if the
     user cannot cover `count` right now.
@@ -811,6 +883,13 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
         #    spendable past the nominal expiry date; FEFO ordering itself is
         #    unaffected, still earliest-expires_at-first among whatever
         #    remains active.
+        #
+        #    expires_at IS NULL = a permanent admin-granted lot
+        #    (grant_admin_credit_lot) -- included as a spend candidate like
+        #    any other active lot, but ordered LAST via nulls_last: an
+        #    expiring lot should always be drawn down before a permanent one
+        #    that has no urgency, and a real purchase never has a NULL
+        #    expires_at, so this changes nothing about existing FEFO order.
         lots_consumed = []  # [(lot, n), ...]
         if remainder:
             candidate_lots = ServiceCreditLot.objects.select_for_update().filter(
@@ -818,8 +897,9 @@ def deduct_service_credits(user_id, service, count, ref_type='', ref_id='',
                 status=ServiceCreditLot.STATUS_ACTIVE, quantity_remaining__gt=0,
             )
             if service not in NON_EXPIRING_LOT_SERVICES:
-                candidate_lots = candidate_lots.filter(expires_at__gt=now())
-            candidate_lots = candidate_lots.order_by('expires_at', 'purchased_at', 'id')
+                candidate_lots = candidate_lots.filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now()))
+            candidate_lots = candidate_lots.order_by(
+                F('expires_at').asc(nulls_last=True), 'purchased_at', 'id')
             for lot in candidate_lots:
                 if remainder <= 0:
                     break

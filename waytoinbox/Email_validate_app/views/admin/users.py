@@ -1,14 +1,17 @@
+import json
 import logging
 
+from django.db import transaction
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 
-from Email_validate_app.models import UserTable
+from Email_validate_app.models import SERVICE_CHOICES, SERVICE_KEYS, UserTable
 from Email_validate_app.views.admin._base import (
     admin_required, audit, handle_admin_errors, json_error, json_ok,
 )
 from Email_validate_app.services.admin import user_service
+from Email_validate_app.services.credit_manager import SERVICE_LABELS, grant_admin_credit_lot
 
 logger = logging.getLogger('Email_validate_app.views')
 
@@ -32,6 +35,7 @@ def admin_user_detail(request, uid):
     ctx = user_service.get_user_detail(uid)
     ctx['page'] = 'users'
     ctx['admin_pk'] = request._admin_user.pk
+    ctx['service_choices'] = SERVICE_CHOICES
     return render(request, 'admin/users/detail.html', ctx)
 
 
@@ -128,20 +132,91 @@ def admin_user_grant_admin(request, uid):
 @handle_admin_errors
 @require_POST
 def admin_user_credits(request, uid):
-    """Old-credit retirement: disabled. This action only ever adjusted the
-    legacy CurrentCredits.vc_current_credits pool, which is no longer
-    spendable (see credit_manager.LEGACY_BALANCES_SPENDABLE) -- kept
-    disabled here rather than deleted, so an admin can never be misled
-    into believing they've granted the user usable credit.
-    user_service.adjust_credits() itself is untouched (not called from
-    here anymore) for a possible future cleanup/reuse. A future, separate
-    feature can introduce an admin grant that creates a ServiceCreditLot
-    with proper expiry/audit rules instead."""
-    return json_error(
-        'Adjusting legacy credits is disabled — that balance is no longer '
-        'usable. Use the service credit purchase flow to grant new credits.',
-        status=410,
+    """Admin "Grant Credits" — creates one ServiceCreditLot per selected
+    service via credit_manager.grant_admin_credit_lot(), the Phase 3 lot
+    architecture live purchases already use. Fully isolated from
+    grant_credit_lot() itself (never called here) and from the legacy
+    CurrentCredits.vc_current_credits pool this endpoint used to adjust
+    (see the old docstring this replaces / credit_manager.
+    LEGACY_BALANCES_SPENDABLE, still False and untouched) -- that old,
+    no-longer-usable adjustment path is gone, not merely disabled.
+
+    Expected JSON body:
+        {
+          "expiry_mode": "permanent" | "30_days",
+          "services": [{"service": "<key>", "amount": <int>}, ...]
+        }
+    Only services explicitly present in the payload are granted -- there is
+    no "select all" default, matching "only checked services should be
+    submitted" (the client only ever includes checked rows; the server
+    independently re-validates every entry regardless of what the client
+    claims to have checked).
+    """
+    target_user = get_object_or_404(UserTable, pk=uid)
+
+    try:
+        data = json.loads(request.body or b'{}')
+    except (ValueError, TypeError):
+        return json_error('Invalid request body.')
+    if not isinstance(data, dict):
+        return json_error('Invalid request body.')
+
+    expiry_mode = data.get('expiry_mode')
+    if expiry_mode not in ('permanent', '30_days'):
+        return json_error('Choose an expiry option: Permanent or 30 Days.')
+    permanent = (expiry_mode == 'permanent')
+
+    raw_services = data.get('services')
+    if not isinstance(raw_services, list) or not raw_services:
+        return json_error('Select at least one service to grant credits to.')
+
+    # Validate every entry fully before writing anything -- a bad entry
+    # anywhere in the payload must reject the whole request, never grant
+    # a partial subset.
+    seen = set()
+    cleaned = []
+    for entry in raw_services:
+        if not isinstance(entry, dict):
+            return json_error('Malformed service entry.')
+        service = entry.get('service')
+        if service not in SERVICE_KEYS:
+            return json_error(f'Unknown service: {service!r}.')
+        if service in seen:
+            return json_error(f'{SERVICE_LABELS[service]} was submitted more than once.')
+        seen.add(service)
+        try:
+            amount = int(entry.get('amount'))
+        except (TypeError, ValueError):
+            return json_error(f'{SERVICE_LABELS[service]}: enter a valid credit amount.')
+        if amount <= 0:
+            return json_error(f'{SERVICE_LABELS[service]}: amount must be a positive number.')
+        cleaned.append((service, amount))
+
+    # Atomic: if any single grant in this batch fails, none of them commit.
+    # grant_admin_credit_lot() already wraps its own single-lot write in its
+    # own transaction.atomic(); nesting those inside this outer atomic()
+    # block (Django collapses nested atomic() into savepoints on the same
+    # connection) is what makes a multi-service submission all-or-nothing.
+    granted = []
+    with transaction.atomic():
+        for service, amount in cleaned:
+            lot = grant_admin_credit_lot(
+                target_user.id, service, amount,
+                permanent=permanent, granted_by=request._admin_user,
+            )
+            granted.append((service, amount, lot))
+
+    audit(
+        request, action='user.grant_credits', module='users',
+        target_type='user', target_id=target_user.id, target_repr=target_user.user_email,
+        new_value={
+            'expiry_mode': expiry_mode,
+            'grants': [{'service': s, 'amount': a} for s, a, _ in granted],
+        },
     )
+
+    summary = ', '.join(f'{a} {SERVICE_LABELS[s]}' for s, a, _ in granted)
+    return json_ok(message=f'Granted {summary} to {target_user.user_email}.')
 
 
 @admin_required

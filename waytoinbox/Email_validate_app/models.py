@@ -772,7 +772,16 @@ class ServiceCreditLot(models.Model):
     # exactly 30*24h apart with no clock drift between two separate now()
     # calls. Both required (no default) since Phase 1 never creates a row.
     purchased_at = models.DateTimeField()
-    expires_at   = models.DateTimeField()
+    # NULL = permanent, never expires -- lot-level, independent of every
+    # other lot (unlike NON_EXPIRING_LOT_SERVICES, which is a separate,
+    # service-wide mechanism in credit_manager.py and is never touched by
+    # this). Every purchase-flow write (grant_credit_lot()) still always
+    # computes and stores a real value here, exactly as before this field
+    # allowed NULL -- only the new admin-grant path
+    # (credit_manager.grant_admin_credit_lot) can ever write NULL. Same
+    # NULL-means-permanent convention ServiceEntitlement.expires_at
+    # already uses below.
+    expires_at   = models.DateTimeField(null=True, blank=True)
     expired_at   = models.DateTimeField(null=True, blank=True)
     revoked_at   = models.DateTimeField(null=True, blank=True)
 

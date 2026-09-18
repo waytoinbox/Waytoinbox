@@ -432,9 +432,7 @@ if ENVIRONMENT == "production":
     SECURE_CONTENT_TYPE_NOSNIFF        = True   # X-Content-Type-Options: nosniff
     SECURE_REFERRER_POLICY             = 'strict-origin-when-cross-origin'
     SECURE_CROSS_ORIGIN_OPENER_POLICY  = 'same-origin'
-else:
-    # Local (Windows) — use solo
-    CELERY_WORKER_POOL = "solo"
+
 
 
 

@@ -98,16 +98,38 @@
       <p style="color:var(--ink-3);font-size:13px;margin-bottom:14px;">No credit record.</p>
       {% endif %}
 
-      <!-- Adjust Credits -->
-      <form id="adjustCreditsForm" style="display:flex;gap:8px;align-items:center;">
+      <!-- Grant Credits — creates a ServiceCreditLot per checked service
+           (see credit_manager.grant_admin_credit_lot), fully separate from
+           the legacy CurrentCredits adjustment this card used to offer. -->
+      <div style="font-size:12.5px;font-weight:700;color:var(--ink);margin-bottom:8px;">
+        <i class="fas fa-coins" style="color:var(--teal);margin-right:4px;"></i>Grant Credits
+      </div>
+      <form id="grantCreditsForm" style="display:flex;flex-direction:column;gap:10px;">
         {% csrf_token %}
-        <input type="number" name="delta" id="creditDelta" placeholder="±credits"
-          style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-2);font-size:13px;color:var(--ink);outline:none;"/>
-        <button type="submit" class="btn-admin btn-admin-primary" style="padding:7px 12px;">
-          <i class="fas fa-plus-minus"></i> Adjust
+        <div style="display:flex;gap:16px;">
+          <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink);cursor:pointer;">
+            <input type="radio" name="grantExpiryMode" value="permanent" checked/> Permanent
+          </label>
+          <label style="display:flex;align-items:center;gap:5px;font-size:12.5px;color:var(--ink);cursor:pointer;">
+            <input type="radio" name="grantExpiryMode" value="30_days"/> 30 Days
+          </label>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          {% for key, label in service_choices %}
+          <div style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" class="grant-svc-chk" value="{{ key }}" id="grantSvc_{{ key }}"/>
+            <label for="grantSvc_{{ key }}" style="flex:1;font-size:12.5px;color:var(--ink);cursor:pointer;">{{ label }}</label>
+            <input type="number" min="1" class="grant-svc-amount" data-service="{{ key }}"
+              placeholder="Credits" disabled
+              style="width:100px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-2);font-size:12.5px;color:var(--ink);outline:none;"/>
+          </div>
+          {% endfor %}
+        </div>
+        <button type="submit" class="btn-admin btn-admin-primary" style="align-self:flex-start;padding:7px 14px;">
+          <i class="fas fa-coins"></i> Grant Credits
         </button>
       </form>
-      <div id="adjustResult" style="font-size:12px;margin-top:6px;"></div>
+      <div id="grantCreditsResult" style="font-size:12px;margin-top:6px;"></div>
     </div>
   </div>
 
@@ -489,22 +511,52 @@ function confirmDelete() {
   );
 }
 
-// Adjust Credits
-document.getElementById('adjustCreditsForm').addEventListener('submit', function (e) {
+// Grant Credits — enable each amount input only while its own checkbox is checked.
+document.querySelectorAll('.grant-svc-chk').forEach(function (chk) {
+  chk.addEventListener('change', function () {
+    var amountInput = document.querySelector(
+      '.grant-svc-amount[data-service="' + this.value + '"]');
+    amountInput.disabled = !this.checked;
+    if (!this.checked) { amountInput.value = ''; }
+  });
+});
+
+document.getElementById('grantCreditsForm').addEventListener('submit', function (e) {
   e.preventDefault();
-  var delta = document.getElementById('creditDelta').value;
-  if (!delta || delta === '0') { WTI.toast('Enter a non-zero delta.', 'error'); return; }
-  var formData = new FormData(this);
-  WTI.apiFetch('/wti-admin/users/' + uid + '/credits/', { method: 'POST', body: formData }).then(function (res) {
-    var el = document.getElementById('adjustResult');
+  var el = document.getElementById('grantCreditsResult');
+  var expiryMode = this.querySelector('input[name="grantExpiryMode"]:checked').value;
+
+  var services = [];
+  var invalid = false;
+  document.querySelectorAll('.grant-svc-chk:checked').forEach(function (chk) {
+    var amountInput = document.querySelector(
+      '.grant-svc-amount[data-service="' + chk.value + '"]');
+    var amount = parseInt(amountInput.value, 10);
+    if (!amount || amount <= 0) { invalid = true; return; }
+    services.push({ service: chk.value, amount: amount });
+  });
+
+  if (invalid) { WTI.toast('Enter a valid credit amount for every checked service.', 'error'); return; }
+  if (!services.length) { WTI.toast('Select at least one service.', 'error'); return; }
+
+  WTI.apiFetch('/wti-admin/users/' + uid + '/credits/', {
+    method: 'POST',
+    body: JSON.stringify({ expiry_mode: expiryMode, services: services }),
+  }).then(function (res) {
     if (res.ok) {
       WTI.toast(res.data.message, 'success');
       el.style.color = 'var(--mint)';
-      el.textContent = 'New balance: ' + res.data.data.new_balance;
-      document.getElementById('creditDelta').value = '';
+      el.textContent = res.data.message;
+      document.querySelectorAll('.grant-svc-chk:checked').forEach(function (chk) {
+        chk.checked = false;
+        var amountInput = document.querySelector(
+          '.grant-svc-amount[data-service="' + chk.value + '"]');
+        amountInput.value = '';
+        amountInput.disabled = true;
+      });
     } else {
       el.style.color = '#ef4444';
-      el.textContent = res.data.message || 'Error adjusting credits.';
+      el.textContent = res.data.message || 'Error granting credits.';
     }
   });
 });
